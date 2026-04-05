@@ -9,7 +9,7 @@ registering it in TV_PROFILES.
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple
 
-from .colour import CalMode
+from calcore.models import CalMode
 
 
 @dataclass
@@ -51,6 +51,7 @@ class TVProfile:
     CMS_CONTROLS: List[str] = field(default_factory=list)
     CMS_COLOURS: List[str] = field(default_factory=list)
     CMS_NOTES: List[str] = field(default_factory=list)
+    supported_gamuts: List[str] = field(default_factory=lambda: ["bt709"])
 
     # Settings to reset to factory defaults before calibrating.
     # These are separate from DISABLE_BEFORE_CAL because the goal here is not
@@ -149,6 +150,7 @@ def _build_u8g_profile() -> TVProfile:
             ("Contrast (white level)",                 "90 (factory default for Theater mode; prevents highlight clipping)"),
             ("Sharpness",                              "0  (no edge enhancement — sharpening can corrupt near-white patch readings)"),
         ],
+        supported_gamuts=["bt709", "p3d65", "bt2020"],
     )
 
 
@@ -249,6 +251,7 @@ def _build_tcl7105x_profile() -> TVProfile:
             ("Contrast (white level)",                 "90 (Movie mode factory default; prevents highlight clipping)"),
             ("Sharpness",                              "0  (no edge enhancement — sharpening corrupts near-white patch readings)"),
         ],
+        supported_gamuts=["bt709", "p3d65", "bt2020"],
     )
 
 

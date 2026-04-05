@@ -501,7 +501,7 @@ def live_session(client):
     import uuid as _uuid
 
     sid = _uuid.uuid4().hex
-    from calibrator.colour import Measurement
+    from calibrator import Measurement
     import threading
 
     _sessions[sid] = {

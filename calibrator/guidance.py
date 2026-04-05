@@ -7,14 +7,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from .colour import (
+from calcore.models import (
     CalibrationTarget,
     Measurement,
-    delta_xy,
-    gamma_from_luminance,
-    stimulus_pct_from_code_value,
 )
 from .profiles import TVProfile
+from .utils import delta_xy, gamma_from_luminance, stimulus_pct_from_code_value
 
 GAMMA_TRACKING_LEVELS = (20, 40, 60, 80)
 FINE_GAMMA_TRACKING_LEVELS = tuple(range(5, 100, 5))
