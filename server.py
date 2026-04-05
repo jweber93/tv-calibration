@@ -173,6 +173,14 @@ class _WatchStartBody(BaseModel):
     path: str
 
 
+class LlmConfigureReq(BaseModel):
+    endpoint: Optional[str] = None
+    model: Optional[str] = None
+    api_key: Optional[str] = None
+    temperature: Optional[float] = None
+    timeout: Optional[float] = None
+
+
 def _find_dogegen_executable() -> Optional[str]:
     configured = (_dogegen_config.get("path") or "").strip()
     candidates = []
@@ -446,6 +454,74 @@ def next_step(sid: str):
 @app.post("/api/session/{sid}/prev")
 def prev_step(sid: str):
     return _session_view(store.prev_step(sid))
+
+
+@app.post("/api/session/{sid}/llm/configure")
+def configure_llm(sid: str, req: LlmConfigureReq):
+    session = store.get(sid)
+    llm_cfg = session.setdefault("llm_config", {
+        "endpoint": "",
+        "model": "",
+        "api_key": "",
+        "temperature": 0.2,
+        "timeout": 30.0,
+    })
+    
+    # Update fields if provided
+    if req.endpoint is not None:
+        llm_cfg["endpoint"] = req.endpoint.strip()
+    if req.model is not None:
+        llm_cfg["model"] = req.model.strip()
+    if req.api_key is not None:
+        llm_cfg["api_key"] = req.api_key
+    if req.temperature is not None:
+        if not (0.0 <= req.temperature <= 2.0):
+            raise HTTPException(400, "temperature must be between 0.0 and 2.0")
+        llm_cfg["temperature"] = req.temperature
+    if req.timeout is not None:
+        if req.timeout <= 0:
+            raise HTTPException(400, "timeout must be greater than 0")
+        llm_cfg["timeout"] = req.timeout
+    
+    # Test endpoint reachability if configured
+    configured = bool(llm_cfg.get("endpoint") and llm_cfg.get("model"))
+    reachable = False
+    if configured:
+        try:
+            # Simple connectivity test - attempt to reach the endpoint
+            test_resp = httpx.get(llm_cfg["endpoint"].rstrip("/chat/completions"), timeout=5.0)
+            reachable = test_resp.status_code < 500
+        except Exception:
+            reachable = False
+    
+    _save_session(sid)
+    
+    return {
+        "configured": configured,
+        "reachable": reachable,
+        "model": llm_cfg.get("model", ""),
+    }
+
+
+@app.get("/api/session/{sid}/llm/status")
+def llm_status(sid: str):
+    session = store.get(sid)
+    llm_cfg = session.get("llm_config", {})
+    configured = bool(llm_cfg.get("endpoint") and llm_cfg.get("model"))
+    reachable = False
+    
+    if configured:
+        try:
+            test_resp = httpx.get(llm_cfg["endpoint"].rstrip("/chat/completions"), timeout=5.0)
+            reachable = test_resp.status_code < 500
+        except Exception:
+            reachable = False
+    
+    return {
+        "configured": configured,
+        "reachable": reachable,
+        "model": llm_cfg.get("model", ""),
+    }
 
 
 @app.post("/api/session/{sid}/import/zro")
