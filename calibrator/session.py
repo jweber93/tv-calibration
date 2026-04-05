@@ -432,6 +432,7 @@ def deserialize_measurement(data: Dict[str, Any]) -> Measurement:
 
 
 def serialize_session(s: Dict[str, Any]) -> Dict[str, Any]:
+    llm_cfg = s.get("llm_config", {})
     return {
         "id": s["id"],
         "tv_key": s["tv_key"],
@@ -455,6 +456,13 @@ def serialize_session(s: Dict[str, Any]) -> Dict[str, Any]:
         "created_at": s["created_at"],
         "last_accessed_at": s.get("last_accessed_at", s["created_at"]),
         "zro_imports": s.get("zro_imports", []),
+        "llm_config": {
+            "endpoint": llm_cfg.get("endpoint", ""),
+            "model": llm_cfg.get("model", ""),
+            # api_key intentionally omitted from serialization for security
+            "temperature": llm_cfg.get("temperature", 0.2),
+            "timeout": llm_cfg.get("timeout", 30.0),
+        },
     }
 
 
@@ -485,6 +493,13 @@ def deserialize_session(data: Dict[str, Any]) -> Dict[str, Any]:
         "created_at": data.get("created_at", current_time),
         "last_accessed_at": data.get("last_accessed_at", data.get("created_at", current_time)),
         "zro_imports": data.get("zro_imports", []),
+        "llm_config": {
+            "endpoint": data.get("llm_config", {}).get("endpoint", ""),
+            "model": data.get("llm_config", {}).get("model", ""),
+            "api_key": "",  # api_key defaults to empty on deserialization
+            "temperature": data.get("llm_config", {}).get("temperature", 0.2),
+            "timeout": data.get("llm_config", {}).get("timeout", 30.0),
+        },
     }
 
 
@@ -1121,6 +1136,13 @@ class SessionStore:
             "created_at": created_at,
             "last_accessed_at": created_at,
             "zro_imports": [],
+            "llm_config": {
+                "endpoint": "",
+                "model": "",
+                "api_key": "",
+                "temperature": 0.2,
+                "timeout": 30.0,
+            },
         }
         return self.sessions[sid]
 
