@@ -1,0 +1,20 @@
+{
+  "_comment": "Copy this file to bridge.json and edit as needed.",
+
+  "host": "0.0.0.0",
+  "port": 7070,
+
+  "backend": "pyautogui",
+
+  "zro_window_title": "ColourSpace",
+
+  "measure_action": "key",
+  "measure_key": "space",
+
+  "measure_coords": null,
+
+  "pre_trigger_delay_ms": 250,
+
+  "remote_control_host": "127.0.0.1",
+  "remote_control_port": 20102
+}

@@ -1,0 +1,33 @@
+set,label,stimulus_pct,r,g,b,notes
+grayscale,Black (0%),0,0,0,0,Full-range 10-bit black
+grayscale,5% Gray,5,51,51,51,Full-range 10-bit 5% gray
+grayscale,10% Gray,10,102,102,102,Full-range 10-bit 10% gray
+grayscale,15% Gray,15,153,153,153,Full-range 10-bit 15% gray
+grayscale,20% Gray,20,205,205,205,Full-range 10-bit 20% gray
+grayscale,25% Gray,25,256,256,256,Full-range 10-bit 25% gray
+grayscale,30% Gray,30,307,307,307,Full-range 10-bit 30% gray
+grayscale,35% Gray,35,358,358,358,Full-range 10-bit 35% gray
+grayscale,40% Gray,40,409,409,409,Full-range 10-bit 40% gray
+grayscale,45% Gray,45,460,460,460,Full-range 10-bit 45% gray
+grayscale,50% Gray,50,512,512,512,Full-range 10-bit 50% gray
+grayscale,55% Gray,55,563,563,563,Full-range 10-bit 55% gray
+grayscale,60% Gray,60,614,614,614,Full-range 10-bit 60% gray
+grayscale,65% Gray,65,665,665,665,Full-range 10-bit 65% gray
+grayscale,70% Gray,70,716,716,716,Full-range 10-bit 70% gray
+grayscale,75% Gray,75,767,767,767,Full-range 10-bit 75% gray
+grayscale,80% Gray,80,818,818,818,WB Gain reference
+grayscale,85% Gray,85,870,870,870,Full-range 10-bit 85% gray
+grayscale,90% Gray,90,921,921,921,Full-range 10-bit 90% gray
+grayscale,95% Gray,95,972,972,972,Luminance / clipping reference
+grayscale,100% White,100,1023,1023,1023,Peak luminance reference
+luminance,5% Gray (black level),5,51,51,51,Use for HDR near-black check
+luminance,95% Gray (white level),95,972,972,972,Use for clipping check
+luminance,100% White,100,1023,1023,1023,Use for peak-nits check
+white_balance,80% Gray (Gain),80,818,818,818,Primary 2-point WB gain patch
+white_balance,30% Gray (Offset),30,307,307,307,Primary 2-point WB offset patch
+cms,Red 100%,100,1023,0,0,Full-range 10-bit primary
+cms,Green 100%,100,0,1023,0,Full-range 10-bit primary
+cms,Blue 100%,100,0,0,1023,Full-range 10-bit primary
+cms,Cyan 100%,100,0,1023,1023,Full-range 10-bit secondary
+cms,Magenta 100%,100,1023,0,1023,Full-range 10-bit secondary
+cms,Yellow 100%,100,1023,1023,0,Full-range 10-bit secondary

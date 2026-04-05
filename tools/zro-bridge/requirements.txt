@@ -1,0 +1,4 @@
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+pyautogui>=0.9.54
+pygetwindow>=0.0.9
