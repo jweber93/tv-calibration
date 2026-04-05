@@ -1,4 +1,4 @@
-"""Tests for colour science pure functions in calibrator.py."""
+"""Tests for colour-science helpers exposed by the calibrator package."""
 import ast
 from pathlib import Path
 
@@ -15,12 +15,12 @@ from calibrator import (
     direction_hint,
     D65_XY,
     D65_XYZ,
+    Measurement,
 )
-from calibrator.colour import Measurement
 
 
-def test_colour_module_does_not_call_ensure_packages_at_import_time():
-    source = Path("calibrator/colour.py").read_text()
+def test_runtime_module_does_not_call_ensure_packages_at_import_time():
+    source = Path("calibrator/runtime.py").read_text()
     tree = ast.parse(source)
 
     top_level_calls = [

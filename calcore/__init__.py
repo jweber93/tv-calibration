@@ -1,19 +1,77 @@
 """Public API for the calibration core package."""
 
 from .analysis import analyze
+from .colour import (
+    D65_XY,
+    D65_XYZ,
+    XYZ_to_lab,
+    ciede2000,
+    delta_e_cie76,
+    xyY_to_XYZ,
+    xyY_to_lab,
+    xyY_to_xyz,
+    xyz_to_lab,
+)
 from .csv_import import parse_measurement_csv
 from .llm import call_llm
-from .models import AnalysisConfig, LLMConfig, Patch, SessionState, Summary
+from .models import (
+    AnalysisConfig,
+    CalMode,
+    CalibrationTarget,
+    DV_TARGET,
+    HDR10_TARGET,
+    LLMConfig,
+    Measurement,
+    Patch,
+    SDR_TARGET,
+    SessionState,
+    Summary,
+)
 from .phase import determine_phase
+from .spaces import (
+    BT2020_PRIMARIES,
+    BT2020_RGB_TO_XYZ,
+    BT709_PRIMARIES,
+    BT709_RGB_TO_XYZ,
+    P3D65_PRIMARIES,
+    P3D65_RGB_TO_XYZ,
+    detect_matrix,
+    detect_primaries,
+    rgb_to_xyz,
+)
 
 __all__ = [
     "AnalysisConfig",
+    "BT2020_PRIMARIES",
+    "BT2020_RGB_TO_XYZ",
+    "BT709_PRIMARIES",
+    "BT709_RGB_TO_XYZ",
+    "CalMode",
+    "CalibrationTarget",
+    "D65_XY",
+    "D65_XYZ",
+    "DV_TARGET",
+    "HDR10_TARGET",
     "LLMConfig",
+    "Measurement",
+    "P3D65_PRIMARIES",
+    "P3D65_RGB_TO_XYZ",
     "Patch",
+    "SDR_TARGET",
     "SessionState",
     "Summary",
+    "XYZ_to_lab",
     "analyze",
     "call_llm",
+    "ciede2000",
+    "delta_e_cie76",
+    "detect_matrix",
+    "detect_primaries",
     "determine_phase",
     "parse_measurement_csv",
+    "rgb_to_xyz",
+    "xyY_to_XYZ",
+    "xyY_to_lab",
+    "xyY_to_xyz",
+    "xyz_to_lab",
 ]

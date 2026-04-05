@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from .colour import CalibrationTarget, gamma_from_luminance
+from calcore.models import CalibrationTarget
 from .profiles import TVProfile
 from .guidance import gamma_nominal_pct
 from .session import (
@@ -15,8 +15,10 @@ from .session import (
     m_to_dict,
     gamma_levels_for_session,
 )
+from .utils import gamma_from_luminance
 
-QG_DE_THRESHOLD = 2.0
+QG_WB_DE_THRESHOLD = 1.5
+QG_CMS_DE_THRESHOLD = 3.0
 QG_GAMMA_THRESHOLD = 0.05
 QG_LUMINANCE_PCT = 5.0
 
@@ -57,11 +59,11 @@ def step_quality(session: Dict[str, Any], tv: Optional[TVProfile]) -> Dict[str, 
             if offset_de is not None:
                 parts.append(f"Offset ΔE {offset_de:.2f}")
             gates["white_balance"] = {
-                "passed": both_present and worst < QG_DE_THRESHOLD,
+                "passed": both_present and worst < QG_WB_DE_THRESHOLD,
                 "score": round(worst, 2),
-                "threshold": QG_DE_THRESHOLD,
+                "threshold": QG_WB_DE_THRESHOLD,
                 "unit": "ΔE",
-                "label": f"ΔE < {QG_DE_THRESHOLD:.1f}",
+                "label": f"ΔE < {QG_WB_DE_THRESHOLD:.1f}",
                 "detail": ", ".join(parts),
             }
 
@@ -105,11 +107,11 @@ def step_quality(session: Dict[str, Any], tv: Optional[TVProfile]) -> Dict[str, 
             worst_colour = max(de_map, key=de_map.__getitem__)
             all_present = expected_colours == set(de_map)
             gates["color_tuner"] = {
-                "passed": all_present and worst_de < QG_DE_THRESHOLD,
+                "passed": all_present and worst_de < QG_CMS_DE_THRESHOLD,
                 "score": round(worst_de, 2),
-                "threshold": QG_DE_THRESHOLD,
+                "threshold": QG_CMS_DE_THRESHOLD,
                 "unit": "ΔE",
-                "label": f"All ΔE < {QG_DE_THRESHOLD:.1f}",
+                "label": f"All ΔE < {QG_CMS_DE_THRESHOLD:.1f}",
                 "detail": f"Worst: {worst_colour} ΔE {worst_de:.2f}" + ("" if all_present else f" ({len(de_map)}/{len(expected_colours)} colors)"),
             }
 

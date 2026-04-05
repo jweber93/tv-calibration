@@ -115,3 +115,40 @@ def ciede2000(
         + (dHp / SH) ** 2
         + RT * (dCp / SC) * (dHp / SH)
     )
+
+
+def xyY_to_XYZ(x: float, y: float, Y: float) -> Tuple[float, float, float]:
+    return xyY_to_xyz(x, y, Y)
+
+
+def XYZ_to_lab(
+    X: float,
+    Y: float,
+    Z: float,
+    ref_white: Tuple[float, float, float] = D65_XYZ,
+) -> Tuple[float, float, float]:
+    return xyz_to_lab((X, Y, Z), ref_white)
+
+
+def xyY_to_lab(
+    x: float,
+    y: float,
+    Y_nits: float,
+    ref_nits: float = 100.0,
+) -> Tuple[float, float, float]:
+    Y_norm = Y_nits / ref_nits if ref_nits > 0 else Y_nits
+    X, Y_val, Z = xyY_to_xyz(x, y, Y_norm * 100.0)
+    return xyz_to_lab((X, Y_val, Z))
+
+
+def delta_e_cie76(
+    x1: float,
+    y1: float,
+    Y1: float,
+    x2: float,
+    y2: float,
+    Y2: float,
+) -> float:
+    lab1 = xyY_to_lab(x1, y1, Y1)
+    lab2 = xyY_to_lab(x2, y2, Y2)
+    return math.sqrt(sum((a - b) ** 2 for a, b in zip(lab1, lab2)))
