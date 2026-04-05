@@ -42,7 +42,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
-from .colour import Measurement, stimulus_pct_from_code_value
+from calcore.models import Measurement
+
+from .utils import stimulus_pct_from_code_value
 
 # ---------------------------------------------------------------------------
 # Tuneable constants

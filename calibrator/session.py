@@ -13,17 +13,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException
 
-from .colour import (
+from calcore.models import (
     CalMode,
     CalibrationTarget,
-    SDR_TARGET,
-    HDR10_TARGET,
     DV_TARGET,
+    HDR10_TARGET,
     Measurement,
-    delta_e_cie76,
-    delta_xy,
-    gamma_from_luminance,
-    stimulus_pct_from_code_value,
+    SDR_TARGET,
 )
 from .profiles import TV_PROFILES, TVProfile
 from .guidance import (
@@ -51,6 +47,12 @@ from .zro_import import (
     SESSION_BREAK_SECONDS as ZRO_SESSION_BREAK_SECONDS,
     ZROImportResult,
     parse_zro_csv,
+)
+from .utils import (
+    delta_e_ciede2000_xyY,
+    delta_xy,
+    gamma_from_luminance,
+    stimulus_pct_from_code_value,
 )
 
 logger = logging.getLogger(__name__)
@@ -635,7 +637,14 @@ def m_to_dict(
         warnings.append("Non-black patch measured at 0 nits.")
     invalid = len(warnings) > 0
 
-    de = None if invalid else delta_e_cie76(m.x, m.y, m.Y, ref_xy[0], ref_xy[1], ref_Y)
+    de = None if invalid else delta_e_ciede2000_xyY(
+        m.x,
+        m.y,
+        m.Y,
+        ref_xy[0],
+        ref_xy[1],
+        ref_Y,
+    )
     dxy = None if invalid else delta_xy((m.x, m.y), ref_xy)
     eff_gamma: Optional[float] = None
     if not invalid and 0 < stim_pct < 100 and m.Y > 0 and target.peak_luminance_nits > 0:
