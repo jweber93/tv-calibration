@@ -1,14 +1,14 @@
-from fastapi import FastAPI, Request
-from sse_starlette.sse import EventSourceResponse
+#!/usr/bin/env python3
+"""
+ZRO Calibration Helper — web API backend.
 
-app = FastAPI()
+Run with:
+    uvicorn server:app --host 0.0.0.0 --port 8000
+    # or: python server.py
+"""
 
-_sse_clients: Dict[str, List[EventSourceResponse]] = {}
+from __future__ import annotations
 
-<<<<<<< HEAD
-@app.get("/api/session/{sid}/llm/stream")
-async def llm_stream(sid: str, request: Request):
-=======
 import json
 import logging
 import os
@@ -171,14 +171,6 @@ class _WatchConfigBody(BaseModel):
 
 class _WatchStartBody(BaseModel):
     path: str
-
-
-class LlmConfigureReq(BaseModel):
-    endpoint: Optional[str] = None
-    model: Optional[str] = None
-    api_key: Optional[str] = None
-    temperature: Optional[float] = None
-    timeout: Optional[float] = None
 
 
 def _find_dogegen_executable() -> Optional[str]:
@@ -456,74 +448,6 @@ def prev_step(sid: str):
     return _session_view(store.prev_step(sid))
 
 
-@app.post("/api/session/{sid}/llm/configure")
-def configure_llm(sid: str, req: LlmConfigureReq):
-    session = store.get(sid)
-    llm_cfg = session.setdefault("llm_config", {
-        "endpoint": "",
-        "model": "",
-        "api_key": "",
-        "temperature": 0.2,
-        "timeout": 30.0,
-    })
-    
-    # Update fields if provided
-    if req.endpoint is not None:
-        llm_cfg["endpoint"] = req.endpoint.strip()
-    if req.model is not None:
-        llm_cfg["model"] = req.model.strip()
-    if req.api_key is not None:
-        llm_cfg["api_key"] = req.api_key
-    if req.temperature is not None:
-        if not (0.0 <= req.temperature <= 2.0):
-            raise HTTPException(400, "temperature must be between 0.0 and 2.0")
-        llm_cfg["temperature"] = req.temperature
-    if req.timeout is not None:
-        if req.timeout <= 0:
-            raise HTTPException(400, "timeout must be greater than 0")
-        llm_cfg["timeout"] = req.timeout
-    
-    # Test endpoint reachability if configured
-    configured = bool(llm_cfg.get("endpoint") and llm_cfg.get("model"))
-    reachable = False
-    if configured:
-        try:
-            # Simple connectivity test - attempt to reach the endpoint
-            test_resp = httpx.get(llm_cfg["endpoint"].rstrip("/chat/completions"), timeout=5.0)
-            reachable = test_resp.status_code < 500
-        except Exception:
-            reachable = False
-    
-    _save_session(sid)
-    
-    return {
-        "configured": configured,
-        "reachable": reachable,
-        "model": llm_cfg.get("model", ""),
-    }
-
-
-@app.get("/api/session/{sid}/llm/status")
-def llm_status(sid: str):
-    session = store.get(sid)
-    llm_cfg = session.get("llm_config", {})
-    configured = bool(llm_cfg.get("endpoint") and llm_cfg.get("model"))
-    reachable = False
-    
-    if configured:
-        try:
-            test_resp = httpx.get(llm_cfg["endpoint"].rstrip("/chat/completions"), timeout=5.0)
-            reachable = test_resp.status_code < 500
-        except Exception:
-            reachable = False
-    
-    return {
-        "configured": configured,
-        "reachable": reachable,
-        "model": llm_cfg.get("model", ""),
-    }
-
-
 @app.post("/api/session/{sid}/import/zro")
 async def import_zro_csv(sid: str, file: UploadFile = File(...)):
     try:
@@ -699,24 +623,113 @@ def watch_stop():
 def watch_config(body: _WatchConfigBody):
     global _watched_session_id
     sid = body.sid
->>>>>>> 3bb7c0336fb2e813f623d441aa7f2ba4f339135b
     session = store.get(sid)
-    if not session:
-        raise HTTPException(404, "Session not found")
+    abs_path = os.path.abspath(body.path)
+    csv_parent_exists = abs_path.lower().endswith(".csv") and os.path.isdir(os.path.dirname(abs_path) or ".")
+    if not (os.path.isdir(abs_path) or csv_parent_exists):
+        raise HTTPException(400, f"Watch path does not exist: {body.path!r}")
+    try:
+        _fw_start(
+            body.path,
+            lambda: _sessions.get(sid),
+            lambda: _save_session(sid),
+            measurement_deserializer=_deserialize_measurement,
+            grayscale_level_count=len(_grayscale_levels_for_ramp(session.get("grayscale_ramp_steps", 11))),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    _watched_session_id = sid
+    return _watch_status_payload()
 
-    async def event_generator():
-        while True:
-            if await request.is_disconnected():
-                _sse_clients[sid].remove(event_generator)
-                break
-            # Yield events from the session's SSE queue
-            yield {"event": "llm_insight", "data": "Insight data here"}
-            await asyncio.sleep(1)  # Adjust sleep time as needed
 
-    new_client = EventSourceResponse(event_generator())
-    _sse_clients.setdefault(sid, []).append(new_client)
-    return new_client
+@app.delete("/api/watch/config")
+def watch_config_delete():
+    global _watched_session_id
+    _fw_stop()
+    _watched_session_id = None
+    return _watch_status_payload()
 
-def emit_sse_event(session_id: str, event_type: str, data: Any):
-    for client in _sse_clients.get(session_id, []):
-        client.sse.put({"event": event_type, "data": data})
+
+@app.get("/api/watch/status")
+def watch_status():
+    return _watch_status_payload()
+
+
+@app.get("/api/watch/events")
+def watch_events():
+    ev_queue = _fw_subscribe()
+
+    def _generator():
+        try:
+            while True:
+                try:
+                    payload = ev_queue.get(timeout=20.0)
+                    yield f"data: {json.dumps(payload)}\n\n"
+                except queue.Empty:
+                    yield ": keep-alive\n\n"
+        finally:
+            _fw_unsubscribe(ev_queue)
+
+    return StreamingResponse(
+        _generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.get("/events/{sid}")
+def session_events(sid: str):
+    store.get(sid)
+    ev_queue = _fw_subscribe()
+
+    def _generator():
+        try:
+            session = _sessions.get(sid)
+            if session:
+                yield f"event: session\ndata: {json.dumps(_session_view(session))}\n\n"
+            yield f"event: watch_status\ndata: {json.dumps(_watch_status_payload())}\n\n"
+            while True:
+                try:
+                    ev_queue.get(timeout=20.0)
+                    session = _sessions.get(sid)
+                    if session:
+                        yield f"event: session\ndata: {json.dumps(_session_view(session))}\n\n"
+                    yield f"event: watch_status\ndata: {json.dumps(_watch_status_payload())}\n\n"
+                except queue.Empty:
+                    yield ": keep-alive\n\n"
+        finally:
+            _fw_unsubscribe(ev_queue)
+
+    return StreamingResponse(
+        _generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+_static = Path(__file__).parent / "static"
+_static.mkdir(exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(_static)), name="static")
+
+_assets = _static / "assets"
+if _assets.exists():
+    app.mount("/assets", StaticFiles(directory=str(_assets)), name="assets")
+
+
+@app.get("/")
+def root():
+    return FileResponse(str(_static / "index.html"))
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)

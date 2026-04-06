@@ -1,14 +1,14 @@
-from fastapi import FastAPI, Request
-from sse_starlette.sse import EventSourceResponse
+#!/usr/bin/env python3
+"""
+ZRO Calibration Helper — web API backend.
 
-app = FastAPI()
+Run with:
+    uvicorn server:app --host 0.0.0.0 --port 8000
+    # or: python server.py
+"""
 
-_sse_clients: Dict[str, List[EventSourceResponse]] = {}
+from __future__ import annotations
 
-<<<<<<< HEAD
-@app.get("/api/session/{sid}/llm/stream")
-async def llm_stream(sid: str, request: Request):
-=======
 import json
 import logging
 import os
@@ -699,24 +699,113 @@ def watch_stop():
 def watch_config(body: _WatchConfigBody):
     global _watched_session_id
     sid = body.sid
->>>>>>> 3bb7c0336fb2e813f623d441aa7f2ba4f339135b
     session = store.get(sid)
-    if not session:
-        raise HTTPException(404, "Session not found")
+    abs_path = os.path.abspath(body.path)
+    csv_parent_exists = abs_path.lower().endswith(".csv") and os.path.isdir(os.path.dirname(abs_path) or ".")
+    if not (os.path.isdir(abs_path) or csv_parent_exists):
+        raise HTTPException(400, f"Watch path does not exist: {body.path!r}")
+    try:
+        _fw_start(
+            body.path,
+            lambda: _sessions.get(sid),
+            lambda: _save_session(sid),
+            measurement_deserializer=_deserialize_measurement,
+            grayscale_level_count=len(_grayscale_levels_for_ramp(session.get("grayscale_ramp_steps", 11))),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    _watched_session_id = sid
+    return _watch_status_payload()
 
-    async def event_generator():
-        while True:
-            if await request.is_disconnected():
-                _sse_clients[sid].remove(event_generator)
-                break
-            # Yield events from the session's SSE queue
-            yield {"event": "llm_insight", "data": "Insight data here"}
-            await asyncio.sleep(1)  # Adjust sleep time as needed
 
-    new_client = EventSourceResponse(event_generator())
-    _sse_clients.setdefault(sid, []).append(new_client)
-    return new_client
+@app.delete("/api/watch/config")
+def watch_config_delete():
+    global _watched_session_id
+    _fw_stop()
+    _watched_session_id = None
+    return _watch_status_payload()
 
-def emit_sse_event(session_id: str, event_type: str, data: Any):
-    for client in _sse_clients.get(session_id, []):
-        client.sse.put({"event": event_type, "data": data})
+
+@app.get("/api/watch/status")
+def watch_status():
+    return _watch_status_payload()
+
+
+@app.get("/api/watch/events")
+def watch_events():
+    ev_queue = _fw_subscribe()
+
+    def _generator():
+        try:
+            while True:
+                try:
+                    payload = ev_queue.get(timeout=20.0)
+                    yield f"data: {json.dumps(payload)}\n\n"
+                except queue.Empty:
+                    yield ": keep-alive\n\n"
+        finally:
+            _fw_unsubscribe(ev_queue)
+
+    return StreamingResponse(
+        _generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.get("/events/{sid}")
+def session_events(sid: str):
+    store.get(sid)
+    ev_queue = _fw_subscribe()
+
+    def _generator():
+        try:
+            session = _sessions.get(sid)
+            if session:
+                yield f"event: session\ndata: {json.dumps(_session_view(session))}\n\n"
+            yield f"event: watch_status\ndata: {json.dumps(_watch_status_payload())}\n\n"
+            while True:
+                try:
+                    ev_queue.get(timeout=20.0)
+                    session = _sessions.get(sid)
+                    if session:
+                        yield f"event: session\ndata: {json.dumps(_session_view(session))}\n\n"
+                    yield f"event: watch_status\ndata: {json.dumps(_watch_status_payload())}\n\n"
+                except queue.Empty:
+                    yield ": keep-alive\n\n"
+        finally:
+            _fw_unsubscribe(ev_queue)
+
+    return StreamingResponse(
+        _generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+_static = Path(__file__).parent / "static"
+_static.mkdir(exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(_static)), name="static")
+
+_assets = _static / "assets"
+if _assets.exists():
+    app.mount("/assets", StaticFiles(directory=str(_assets)), name="assets")
+
+
+@app.get("/")
+def root():
+    return FileResponse(str(_static / "index.html"))
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
