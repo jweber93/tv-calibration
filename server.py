@@ -1,29 +1,21 @@
-from fastapi import FastAPI, Request
-from sse_starlette.sse import EventSourceResponse
-
-app = FastAPI()
-
-_sse_clients: Dict[str, List[EventSourceResponse]] = {}
-
-<<<<<<< HEAD
-@app.get("/api/session/{sid}/llm/stream")
-async def llm_stream(sid: str, request: Request):
-=======
+import asyncio
 import json
 import logging
 import os
 import queue
 import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import httpx
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from sse_starlette.sse import EventSourceResponse
 
 from calibrator import TV_PROFILES
 from calibrator.file_watcher import (
@@ -66,6 +58,8 @@ from calibrator.session import (
     zro_step_instructions as _zro_step_instructions,
 )
 import calibrator.adb_control as _adb
+from calcore.llm import call_llm as _call_llm
+from calcore.models import LLMConfig
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +90,12 @@ store.load_sessions()
 
 _sessions = store.sessions
 _save_session = store.save_session
+
+# SSE: per-session queues for LLM insight events
+_sse_queues: Dict[str, List[asyncio.Queue]] = {}
+
+# Thread pool for running synchronous call_llm without blocking the event loop
+_llm_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="llm-worker")
 
 
 class CreateSessionReq(BaseModel):
@@ -347,6 +347,86 @@ def _watch_status_payload() -> Dict[str, Any]:
     return status
 
 
+def _emit_sse(session_id: str, event_type: str, data: Any) -> None:
+    """Push an SSE event to all active stream listeners for a session."""
+    payload = json.dumps(data) if not isinstance(data, str) else data
+    for q in list(_sse_queues.get(session_id, [])):
+        try:
+            q.put_nowait({"event": event_type, "data": payload})
+        except asyncio.QueueFull:
+            pass
+
+
+async def _run_llm_insight(session_id: str) -> None:
+    """Background task: call the LLM and emit the result via SSE."""
+    session = _sessions.get(session_id)
+    if not session:
+        return
+    llm_cfg_dict = session.get("llm_config", {})
+    endpoint = llm_cfg_dict.get("endpoint", "")
+    model = llm_cfg_dict.get("model", "")
+    if not endpoint or not model:
+        return
+
+    llm_cfg = LLMConfig(
+        endpoint=endpoint,
+        model=model,
+        api_key=llm_cfg_dict.get("api_key", ""),
+        temperature=float(llm_cfg_dict.get("temperature", 0.2)),
+        timeout=float(llm_cfg_dict.get("timeout", 120.0)),
+    )
+
+    # Build a minimal summary dict from session measurements for the prompt
+    from calcore.analysis import analyze
+    from calcore.models import AnalysisConfig
+    from calcore.phase import determine_phase
+
+    pre = session.get("pre_measurements", [])
+    post = session.get("post_measurements", [])
+    measurements = post if post else pre
+    if not measurements:
+        _emit_sse(session_id, "llm_insight", {"error": "No measurements available for analysis"})
+        return
+
+    try:
+        mode = session.get("mode", "SDR")
+        eotf = "pq" if mode in ("HDR10", "Dolby Vision") else "bt1886"
+        cfg = AnalysisConfig(mode=mode.lower(), eotf=eotf)
+
+        from calcore.csv_import import parse_measurement_csv
+        # Use the session's stored measurements directly
+        from calcore.models import Patch
+        patches = []
+        for m in measurements:
+            xyz = m.get("meas_xyz") or (m.get("X", 0), m.get("Y", 0), m.get("Z", 0))
+            r, g, b = m.get("stimulus_rgb", [0, 0, 0])
+            kind = "grayscale" if r == g == b else "color"
+            patches.append(Patch(
+                label=m.get("label", ""),
+                r_target=r,
+                g_target=g,
+                b_target=b,
+                meas_xyz=tuple(xyz),
+                kind=kind,
+            ))
+
+        summary = analyze(patches, cfg)
+        phase = determine_phase(summary, session.get("phase", "baseline"))
+
+        loop = asyncio.get_event_loop()
+        insight = await loop.run_in_executor(
+            _llm_executor,
+            lambda: _call_llm(summary, cfg, phase, llm_cfg),
+        )
+        if insight:
+            _emit_sse(session_id, "llm_insight", {"text": insight, "phase": phase})
+        else:
+            _emit_sse(session_id, "llm_insight", {"error": "LLM returned no content"})
+    except Exception as exc:
+        logger.error("LLM insight failed for session %s: %s", session_id, exc)
+        _emit_sse(session_id, "llm_insight", {"error": str(exc)})
+
+
 @app.get("/api/profiles")
 def list_profiles():
     return [{"key": key, "name": profile.name} for key, profile in TV_PROFILES.items()]
@@ -466,8 +546,7 @@ def configure_llm(sid: str, req: LlmConfigureReq):
         "temperature": 0.2,
         "timeout": 30.0,
     })
-    
-    # Update fields if provided
+
     if req.endpoint is not None:
         llm_cfg["endpoint"] = req.endpoint.strip()
     if req.model is not None:
@@ -482,20 +561,18 @@ def configure_llm(sid: str, req: LlmConfigureReq):
         if req.timeout <= 0:
             raise HTTPException(400, "timeout must be greater than 0")
         llm_cfg["timeout"] = req.timeout
-    
-    # Test endpoint reachability if configured
+
     configured = bool(llm_cfg.get("endpoint") and llm_cfg.get("model"))
     reachable = False
     if configured:
         try:
-            # Simple connectivity test - attempt to reach the endpoint
             test_resp = httpx.get(llm_cfg["endpoint"].rstrip("/chat/completions"), timeout=5.0)
             reachable = test_resp.status_code < 500
         except Exception:
             reachable = False
-    
+
     _save_session(sid)
-    
+
     return {
         "configured": configured,
         "reachable": reachable,
@@ -509,19 +586,54 @@ def llm_status(sid: str):
     llm_cfg = session.get("llm_config", {})
     configured = bool(llm_cfg.get("endpoint") and llm_cfg.get("model"))
     reachable = False
-    
+
     if configured:
         try:
             test_resp = httpx.get(llm_cfg["endpoint"].rstrip("/chat/completions"), timeout=5.0)
             reachable = test_resp.status_code < 500
         except Exception:
             reachable = False
-    
+
     return {
         "configured": configured,
         "reachable": reachable,
         "model": llm_cfg.get("model", ""),
     }
+
+
+@app.get("/api/session/{sid}/llm/stream")
+async def llm_stream(sid: str, request: Request):
+    """SSE endpoint: streams LLM insight events for the given session."""
+    store.get(sid)  # raises 404 if not found
+
+    q: asyncio.Queue = asyncio.Queue(maxsize=50)
+    _sse_queues.setdefault(sid, []).append(q)
+
+    async def event_generator():
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    item = await asyncio.wait_for(q.get(), timeout=15.0)
+                    yield item
+                except asyncio.TimeoutError:
+                    # Send a keep-alive comment to prevent proxy timeouts
+                    yield {"event": "ping", "data": ""}
+        finally:
+            queues = _sse_queues.get(sid, [])
+            if q in queues:
+                queues.remove(q)
+
+    return EventSourceResponse(event_generator())
+
+
+@app.post("/api/session/{sid}/llm/run")
+async def llm_run(sid: str):
+    """Trigger an LLM insight analysis for the session (result emitted via SSE stream)."""
+    store.get(sid)  # raises 404 if not found
+    asyncio.create_task(_run_llm_insight(sid))
+    return {"ok": True, "message": "LLM insight task started; listen on /llm/stream for results"}
 
 
 @app.post("/api/session/{sid}/import/zro")
@@ -699,24 +811,92 @@ def watch_stop():
 def watch_config(body: _WatchConfigBody):
     global _watched_session_id
     sid = body.sid
->>>>>>> 3bb7c0336fb2e813f623d441aa7f2ba4f339135b
-    session = store.get(sid)
-    if not session:
-        raise HTTPException(404, "Session not found")
+    store.get(sid)  # raises 404 if not found
 
-    async def event_generator():
-        while True:
-            if await request.is_disconnected():
-                _sse_clients[sid].remove(event_generator)
-                break
-            # Yield events from the session's SSE queue
-            yield {"event": "llm_insight", "data": "Insight data here"}
-            await asyncio.sleep(1)  # Adjust sleep time as needed
+    path = body.path
+    _fw_stop()
+    _watched_session_id = sid
 
-    new_client = EventSourceResponse(event_generator())
-    _sse_clients.setdefault(sid, []).append(new_client)
-    return new_client
+    try:
+        _fw_start(
+            path=path,
+            session_getter=lambda: _sessions.get(sid),
+            session_saver=lambda: _save_session(sid),
+            measurement_deserializer=_deserialize_measurement,
+        )
+    except Exception as exc:
+        _watched_session_id = None
+        raise HTTPException(400, str(exc)) from exc
 
-def emit_sse_event(session_id: str, event_type: str, data: Any):
-    for client in _sse_clients.get(session_id, []):
-        client.sse.put({"event": event_type, "data": data})
+    return _watch_status_payload()
+
+
+@app.delete("/api/watch/config")
+def watch_config_delete():
+    global _watched_session_id
+    _fw_stop()
+    _watched_session_id = None
+    return _watch_status_payload()
+
+
+@app.get("/api/watch/status")
+def watch_status():
+    return _watch_status_payload()
+
+
+def watch_events(request: Optional[Request] = None) -> EventSourceResponse:
+    """SSE stream for file-watcher import events.
+
+    Can be called directly (without a ``request``) to obtain the
+    ``EventSourceResponse`` object for header inspection in tests.
+    """
+    q: queue.Queue = _fw_subscribe()
+
+    async def generator():
+        try:
+            while True:
+                if request is not None and await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.get_event_loop().run_in_executor(
+                        None, lambda: _fw_subscribe_poll(q)
+                    )
+                    if event is not None:
+                        yield {"event": "import", "data": json.dumps(event)}
+                    else:
+                        yield {"event": "ping", "data": ""}
+                except Exception:
+                    yield {"event": "ping", "data": ""}
+                    await asyncio.sleep(1.0)
+        finally:
+            _fw_unsubscribe(q)
+
+    return EventSourceResponse(generator())
+
+
+@app.get("/api/watch/events")
+async def _watch_events_route(request: Request) -> EventSourceResponse:
+    """FastAPI route that delegates to :func:`watch_events`."""
+    return watch_events(request)
+
+
+def _fw_subscribe_poll(q: queue.SimpleQueue) -> Optional[Dict[str, Any]]:
+    """Poll the file-watcher event queue with a timeout."""
+    try:
+        return q.get(timeout=15.0)
+    except Exception:
+        return None
+
+
+# Mount static files last so API routes take precedence
+_static_dir = Path(__file__).parent / "static"
+if _static_dir.exists():
+    app.mount("/assets", StaticFiles(directory=str(_static_dir / "assets")), name="assets")
+
+    @app.get("/")
+    @app.get("/{full_path:path}")
+    def serve_spa(full_path: str = ""):
+        index = _static_dir / "index.html"
+        if index.exists():
+            return FileResponse(str(index))
+        return HTMLResponse("<h1>UI not built</h1>", status_code=200)
