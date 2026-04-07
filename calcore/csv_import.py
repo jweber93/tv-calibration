@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import io
 import re
 from typing import List
 
@@ -24,10 +25,24 @@ def is_number(s: str) -> bool:
         return False
 
 
-def parse_measurement_csv(path: str) -> List[Patch]:
+def parse_measurement_csv(source: str | bytes | io.IOBase) -> List[Patch]:
     patches: List[Patch] = []
-    with open(path, "r", newline="", encoding="utf-8-sig") as f:
-        raw_lines = f.read().splitlines()
+    # Normalize input to raw string lines
+    if isinstance(source, bytes):
+        raw = source.decode("utf-8-sig")
+    elif isinstance(source, str):
+        # Distinguish between a file path and raw CSV content.
+        # CSV content always contains a newline; valid file paths rarely do.
+        if "\n" in source or "\t" in source or "," in source:
+            raw = source
+        else:
+            with open(source, "r", newline="", encoding="utf-8-sig") as f:
+                raw = f.read()
+    else:
+        raw = source.read()
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8-sig")
+    raw_lines = raw.splitlines()
 
     first_nonempty = next((line for line in raw_lines if line.strip()), "")
     header_like = bool(re.search(r"[A-Za-z]", first_nonempty)) and "," in first_nonempty
