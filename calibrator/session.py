@@ -1306,6 +1306,13 @@ class SessionStore:
         filename: Optional[str],
         contents: bytes,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        
+    def import_generic_bytes(
+        self,
+        sid: str,
+        filename: Optional[str],
+        contents: bytes,
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         session = self.get(sid)
         if session.get("mode") is None:
             raise HTTPException(400, "Select a calibration mode before importing measurements.")
