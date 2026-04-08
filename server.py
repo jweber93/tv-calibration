@@ -438,6 +438,38 @@ def _run_llm_background(
         _llm_broadcast(sid, {"event": "llm_error", "data": str(exc)})
 
 
+def _maybe_trigger_llm(sid: str, session: Dict[str, Any]) -> None:
+    """Fire a background LLM analysis if the session has LLM configured and measurements."""
+    llm_cfg_dict = session.get("llm_config", {})
+    if not (llm_cfg_dict.get("endpoint") and llm_cfg_dict.get("model")):
+        return
+
+    all_measurements = (
+        session.get("pre_measurements", [])
+        + session.get("wb_measurements", [])
+        + session.get("gamma_measurements", [])
+        + session.get("cms_measurements", [])
+        + session.get("post_measurements", [])
+    )
+    if not all_measurements:
+        return
+
+    patches = [_measurement_to_patch(m) for m in all_measurements]
+    cfg = _session_to_analysis_config(session)
+    llm_cfg = LLMConfig(
+        endpoint=llm_cfg_dict.get("endpoint", ""),
+        model=llm_cfg_dict.get("model", ""),
+        api_key=llm_cfg_dict.get("api_key", ""),
+        temperature=float(llm_cfg_dict.get("temperature", 0.2)),
+        timeout=float(llm_cfg_dict.get("timeout", 30.0)),
+    )
+    threading.Thread(
+        target=_run_llm_background,
+        args=(sid, patches, cfg, session.get("step", "baseline"), llm_cfg),
+        daemon=True,
+    ).start()
+
+
 @app.get("/api/profiles")
 def list_profiles():
     return [{"key": key, "name": profile.name} for key, profile in TV_PROFILES.items()]
@@ -690,6 +722,7 @@ async def import_zro_csv(sid: str, file: UploadFile = File(...)):
     except Exception as exc:
         raise HTTPException(400, f"Could not read uploaded file: {exc}") from exc
     session, import_meta = store.import_zro_bytes(sid, file.filename, contents)
+    _maybe_trigger_llm(sid, session)
     return {"session": _session_view(session), "import_summary": import_meta}
 
 
@@ -700,6 +733,7 @@ async def import_generic_csv(sid: str, file: UploadFile = File(...)):
     except Exception as exc:
         raise HTTPException(400, f"Could not read uploaded file: {exc}") from exc
     session, import_meta = store.import_generic_bytes(sid, file.filename, contents)
+    _maybe_trigger_llm(sid, session)
     return {"session": _session_view(session), "import_summary": import_meta}
 
 
