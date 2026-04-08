@@ -433,7 +433,14 @@ def _run_llm_background(
     try:
         summary = _calcore_analyze(patches, cfg)
         result = _call_llm(summary, cfg, phase, llm_cfg)
-        _llm_broadcast(sid, {"event": "llm_insight", "data": result})
+        _llm_broadcast(sid, {
+            "event": "llm_insight",
+            "data": {
+                "phase": phase,
+                "text": result,
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+            },
+        })
     except Exception as exc:
         _llm_broadcast(sid, {"event": "llm_error", "data": str(exc)})
 
