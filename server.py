@@ -15,6 +15,7 @@ import os
 import queue
 import shutil
 import subprocess
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -25,6 +26,10 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from calcore.analysis import analyze as _calcore_analyze
+from calcore.llm import call_llm as _call_llm
+from calcore.models import AnalysisConfig, LLMConfig, Patch
+from calcore.phase import determine_phase as _determine_phase
 from calibrator import TV_PROFILES
 from calibrator.file_watcher import (
     get_status as _fw_status,
@@ -86,6 +91,10 @@ _dogegen_config: Dict[str, Any] = {
     "window_pct": int(os.getenv("DOGEGEN_WINDOW_PCT", "10")),
     "maxcll": int(os.getenv("DOGEGEN_MAXCLL", "1000")),
 }
+
+# Per-session LLM SSE subscriber queues
+_llm_queues: Dict[str, List[queue.Queue]] = {}
+_llm_queues_lock = threading.Lock()
 
 store = SessionStore(
     session_dir_getter=lambda: SESSION_STORE_DIR,
@@ -171,6 +180,14 @@ class _WatchConfigBody(BaseModel):
 
 class _WatchStartBody(BaseModel):
     path: str
+
+
+class LlmConfigureReq(BaseModel):
+    endpoint: Optional[str] = None
+    model: Optional[str] = None
+    api_key: Optional[str] = None
+    temperature: Optional[float] = None
+    timeout: Optional[float] = None
 
 
 def _find_dogegen_executable() -> Optional[str]:
@@ -339,6 +356,88 @@ def _watch_status_payload() -> Dict[str, Any]:
     return status
 
 
+def _llm_subscribe(sid: str) -> "queue.Queue[Dict[str, Any]]":
+    q: queue.Queue = queue.Queue()
+    with _llm_queues_lock:
+        _llm_queues.setdefault(sid, []).append(q)
+    return q
+
+
+def _llm_unsubscribe(sid: str, q: "queue.Queue[Dict[str, Any]]") -> None:
+    with _llm_queues_lock:
+        listeners = _llm_queues.get(sid, [])
+        if q in listeners:
+            listeners.remove(q)
+        if not listeners:
+            _llm_queues.pop(sid, None)
+
+
+def _llm_broadcast(sid: str, payload: Dict[str, Any]) -> None:
+    with _llm_queues_lock:
+        listeners = list(_llm_queues.get(sid, []))
+    for q in listeners:
+        q.put(payload)
+
+
+def _measurement_to_patch(m: Any) -> Patch:
+    r, g, b = m.stimulus_rgb
+    return Patch(
+        label=m.label or f"RGB({r},{g},{b})",
+        r_target=r,
+        g_target=g,
+        b_target=b,
+        meas_xyz=(m.X, m.Y, m.Z),
+        meas_yxy=(m.Y, m.x, m.y) if (m.x or m.y) else None,
+        kind="grayscale" if r == g == b else "color",
+    )
+
+
+def _session_to_analysis_config(session: Dict[str, Any]) -> AnalysisConfig:
+    mode = session.get("mode") or "SDR"
+    calcore_mode = "hdr" if mode in ("HDR10", "Dolby Vision") else "sdr"
+
+    target = session.get("target")
+    raw_eotf = (target.eotf if target else "") or ""
+    if "PQ" in raw_eotf or "2084" in raw_eotf:
+        eotf = "pq"
+    elif "1886" in raw_eotf:
+        eotf = "bt1886"
+    else:
+        eotf = "pq" if calcore_mode == "hdr" else "bt1886"
+
+    raw_gamut = (target.gamut if target else "") or ""
+    if "2020" in raw_gamut:
+        target_space = "bt2020"
+    elif "P3" in raw_gamut or "p3" in raw_gamut:
+        target_space = "p3d65"
+    else:
+        target_space = "bt709"
+
+    code_max = 1023 if session.get("code_scale") == "10bit" else 255
+
+    return AnalysisConfig(
+        mode=calcore_mode,
+        eotf=eotf,
+        target_space=target_space,
+        code_max=code_max,
+    )
+
+
+def _run_llm_background(
+    sid: str,
+    patches: List[Patch],
+    cfg: AnalysisConfig,
+    phase: str,
+    llm_cfg: LLMConfig,
+) -> None:
+    try:
+        summary = _calcore_analyze(patches, cfg)
+        result = _call_llm(summary, cfg, phase, llm_cfg)
+        _llm_broadcast(sid, {"event": "llm_insight", "data": result})
+    except Exception as exc:
+        _llm_broadcast(sid, {"event": "llm_error", "data": str(exc)})
+
+
 @app.get("/api/profiles")
 def list_profiles():
     return [{"key": key, "name": profile.name} for key, profile in TV_PROFILES.items()]
@@ -446,6 +545,142 @@ def next_step(sid: str):
 @app.post("/api/session/{sid}/prev")
 def prev_step(sid: str):
     return _session_view(store.prev_step(sid))
+
+
+@app.post("/api/session/{sid}/llm/configure")
+def configure_llm(sid: str, req: LlmConfigureReq):
+    session = store.get(sid)
+    llm_cfg = session.setdefault("llm_config", {
+        "endpoint": "",
+        "model": "",
+        "api_key": "",
+        "temperature": 0.2,
+        "timeout": 30.0,
+    })
+    
+    # Update fields if provided
+    if req.endpoint is not None:
+        llm_cfg["endpoint"] = req.endpoint.strip()
+    if req.model is not None:
+        llm_cfg["model"] = req.model.strip()
+    if req.api_key is not None:
+        llm_cfg["api_key"] = req.api_key
+    if req.temperature is not None:
+        if not (0.0 <= req.temperature <= 2.0):
+            raise HTTPException(400, "temperature must be between 0.0 and 2.0")
+        llm_cfg["temperature"] = req.temperature
+    if req.timeout is not None:
+        if req.timeout <= 0:
+            raise HTTPException(400, "timeout must be greater than 0")
+        llm_cfg["timeout"] = req.timeout
+    
+    # Test endpoint reachability if configured
+    configured = bool(llm_cfg.get("endpoint") and llm_cfg.get("model"))
+    reachable = False
+    if configured:
+        try:
+            # Simple connectivity test - attempt to reach the endpoint
+            test_resp = httpx.get(llm_cfg["endpoint"].rstrip("/chat/completions"), timeout=5.0)
+            reachable = test_resp.status_code < 500
+        except Exception:
+            reachable = False
+    
+    _save_session(sid)
+    
+    return {
+        "configured": configured,
+        "reachable": reachable,
+        "model": llm_cfg.get("model", ""),
+    }
+
+
+@app.get("/api/session/{sid}/llm/status")
+def llm_status(sid: str):
+    session = store.get(sid)
+    llm_cfg = session.get("llm_config", {})
+    configured = bool(llm_cfg.get("endpoint") and llm_cfg.get("model"))
+    reachable = False
+    
+    if configured:
+        try:
+            test_resp = httpx.get(llm_cfg["endpoint"].rstrip("/chat/completions"), timeout=5.0)
+            reachable = test_resp.status_code < 500
+        except Exception:
+            reachable = False
+    
+    return {
+        "configured": configured,
+        "reachable": reachable,
+        "model": llm_cfg.get("model", ""),
+    }
+
+
+@app.post("/api/session/{sid}/llm/run")
+def llm_run(sid: str):
+    session = store.get(sid)
+    llm_cfg_dict = session.get("llm_config", {})
+
+    if not (llm_cfg_dict.get("endpoint") and llm_cfg_dict.get("model")):
+        raise HTTPException(400, "LLM not configured; POST /api/session/{sid}/llm/configure first.")
+
+    all_measurements = (
+        session.get("pre_measurements", [])
+        + session.get("wb_measurements", [])
+        + session.get("gamma_measurements", [])
+        + session.get("cms_measurements", [])
+        + session.get("post_measurements", [])
+    )
+    if not all_measurements:
+        raise HTTPException(400, "No measurements in session; import data before running LLM analysis.")
+
+    patches = [_measurement_to_patch(m) for m in all_measurements]
+    cfg = _session_to_analysis_config(session)
+    llm_cfg = LLMConfig(
+        endpoint=llm_cfg_dict.get("endpoint", ""),
+        model=llm_cfg_dict.get("model", ""),
+        api_key=llm_cfg_dict.get("api_key", ""),
+        temperature=float(llm_cfg_dict.get("temperature", 0.2)),
+        timeout=float(llm_cfg_dict.get("timeout", 30.0)),
+    )
+    phase_str = session.get("step", "baseline")
+
+    t = threading.Thread(
+        target=_run_llm_background,
+        args=(sid, patches, cfg, phase_str, llm_cfg),
+        daemon=True,
+    )
+    t.start()
+
+    return {"status": "running"}
+
+
+@app.get("/api/session/{sid}/llm/stream")
+def llm_stream(sid: str):
+    store.get(sid)  # raises 404 if session doesn't exist
+    ev_queue = _llm_subscribe(sid)
+
+    def _generator():
+        try:
+            while True:
+                try:
+                    payload = ev_queue.get(timeout=20.0)
+                    event_type = payload.get("event", "llm_insight")
+                    data = json.dumps(payload.get("data", ""))
+                    yield f"event: {event_type}\ndata: {data}\n\n"
+                except queue.Empty:
+                    yield ": keep-alive\n\n"
+        finally:
+            _llm_unsubscribe(sid, ev_queue)
+
+    return StreamingResponse(
+        _generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post("/api/session/{sid}/import/zro")

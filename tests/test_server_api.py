@@ -25,12 +25,14 @@ def clear_sessions():
         "window_pct": 10,
         "maxcll": 1000,
     }
+    server_module._llm_queues.clear()
     yield
     _sessions.clear()
     server_module._watched_session_id = None
     server_module._dogegen_proc = None
     server_module._dogegen_started_at = None
     server_module._dogegen_launch_cmd = []
+    server_module._llm_queues.clear()
     server_module._dogegen_last_error = None
 
 
@@ -1190,3 +1192,107 @@ class TestWatchConfig:
         assert resp.media_type == "text/event-stream"
         assert resp.headers["cache-control"] == "no-cache"
         assert resp.headers["x-accel-buffering"] == "no"
+
+
+class TestLLMIntegration:
+    def test_llm_configure_sets_endpoint_and_model(self, client, session_id):
+        resp = client.post(f"/api/session/{session_id}/llm/configure",
+                           json={"endpoint": "http://localhost:4000", "model": "gpt-4o"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["configured"] is True
+        assert data["model"] == "gpt-4o"
+
+    def test_llm_configure_rejects_invalid_temperature(self, client, session_id):
+        resp = client.post(f"/api/session/{session_id}/llm/configure",
+                           json={"endpoint": "http://localhost:4000", "model": "x", "temperature": 3.0})
+        assert resp.status_code == 400
+
+    def test_llm_configure_rejects_zero_timeout(self, client, session_id):
+        resp = client.post(f"/api/session/{session_id}/llm/configure",
+                           json={"endpoint": "http://localhost:4000", "model": "x", "timeout": 0})
+        assert resp.status_code == 400
+
+    def test_llm_status_unconfigured(self, client, session_id):
+        resp = client.get(f"/api/session/{session_id}/llm/status")
+        assert resp.status_code == 200
+        assert resp.json()["configured"] is False
+
+    def test_llm_status_configured_reachable(self, client, session_id, monkeypatch):
+        import httpx as _httpx
+        monkeypatch.setattr(_httpx, "get", lambda *a, **kw: type("R", (), {"status_code": 200})())
+        client.post(f"/api/session/{session_id}/llm/configure",
+                    json={"endpoint": "http://localhost:4000", "model": "gpt-4o"})
+        resp = client.get(f"/api/session/{session_id}/llm/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["configured"] is True
+        assert data["reachable"] is True
+
+    def test_llm_run_not_configured_returns_400(self, client, session_id):
+        resp = client.post(f"/api/session/{session_id}/llm/run")
+        assert resp.status_code == 400
+
+    def test_llm_run_no_measurements_returns_400(self, client, session_id):
+        client.post(f"/api/session/{session_id}/llm/configure",
+                    json={"endpoint": "http://localhost:4000", "model": "gpt-4o"})
+        resp = client.post(f"/api/session/{session_id}/llm/run")
+        assert resp.status_code == 400
+
+    def test_llm_run_success_returns_running_and_broadcasts_insight(
+        self, client, session_id, monkeypatch
+    ):
+        client.post(f"/api/session/{session_id}/llm/configure",
+                    json={"endpoint": "http://localhost:4000", "model": "gpt-4o"})
+        _sessions[session_id]["pre_measurements"] = [
+            Measurement(x=0.3127, y=0.3290, Y=100.0, X=95.0, Z=108.8,
+                        stimulus_rgb=(255, 255, 255), label="White (100%)"),
+            Measurement(x=0.3127, y=0.3290, Y=10.0, X=9.5, Z=10.9,
+                        stimulus_rgb=(128, 128, 128), label="50% Gray"),
+        ]
+
+        q = server_module._llm_subscribe(session_id)
+        monkeypatch.setattr(server_module, "_call_llm", lambda *a, **kw: "Adjust white balance.")
+
+        resp = client.post(f"/api/session/{session_id}/llm/run")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "running"
+
+        payload = q.get(timeout=2.0)
+        assert payload["event"] == "llm_insight"
+        assert "Adjust" in payload["data"]
+        server_module._llm_unsubscribe(session_id, q)
+
+    def test_llm_run_error_broadcasts_llm_error_event(
+        self, client, session_id, monkeypatch
+    ):
+        client.post(f"/api/session/{session_id}/llm/configure",
+                    json={"endpoint": "http://localhost:4000", "model": "gpt-4o"})
+        _sessions[session_id]["pre_measurements"] = [
+            Measurement(x=0.3127, y=0.3290, Y=100.0, X=95.0, Z=108.8,
+                        stimulus_rgb=(255, 255, 255), label="White (100%)"),
+            Measurement(x=0.3127, y=0.3290, Y=10.0, X=9.5, Z=10.9,
+                        stimulus_rgb=(128, 128, 128), label="50% Gray"),
+        ]
+
+        q = server_module._llm_subscribe(session_id)
+        monkeypatch.setattr(server_module, "_call_llm",
+                            lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("connection refused")))
+
+        client.post(f"/api/session/{session_id}/llm/run")
+        payload = q.get(timeout=2.0)
+        assert payload["event"] == "llm_error"
+        assert "connection refused" in payload["data"]
+        server_module._llm_unsubscribe(session_id, q)
+
+    def test_llm_stream_sets_sse_headers(self, client, session_id):
+        from server import llm_stream
+
+        resp = llm_stream(session_id)
+        assert resp.media_type == "text/event-stream"
+        assert resp.headers["cache-control"] == "no-cache"
+        assert resp.headers["x-accel-buffering"] == "no"
+
+    def test_llm_stream_invalid_session_returns_404(self, client):
+        resp = client.get("/api/session/nosuchsid/llm/stream")
+        assert resp.status_code == 404
