@@ -1260,7 +1260,10 @@ class TestLLMIntegration:
 
         payload = q.get(timeout=2.0)
         assert payload["event"] == "llm_insight"
-        assert "Adjust" in payload["data"]
+        data = payload["data"]
+        assert data["phase"] == "select_mode"
+        assert "Adjust" in data["text"]
+        assert data["timestamp"].endswith("Z")
         server_module._llm_unsubscribe(session_id, q)
 
     def test_llm_run_error_broadcasts_llm_error_event(
@@ -1317,7 +1320,7 @@ class TestLLMIntegration:
 
         payload = q.get(timeout=2.0)
         assert payload["event"] == "llm_insight"
-        assert "white balance" in payload["data"]
+        assert "white balance" in payload["data"]["text"]
         server_module._llm_unsubscribe(session_id, q)
 
     def test_import_zro_no_llm_configured_does_not_trigger(
