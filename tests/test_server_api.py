@@ -1296,3 +1296,63 @@ class TestLLMIntegration:
     def test_llm_stream_invalid_session_returns_404(self, client):
         resp = client.get("/api/session/nosuchsid/llm/stream")
         assert resp.status_code == 404
+
+    def _advance_to_pre_grayscale(self, client, sid):
+        """Advance session to pre_grayscale step so ZRO imports populate measurements."""
+        client.post(f"/api/session/{sid}/mode", json={"mode": "SDR"})
+        client.post(f"/api/session/{sid}/prepared")
+
+    def test_import_zro_auto_triggers_llm_when_configured(
+        self, client, session_id, monkeypatch
+    ):
+        self._advance_to_pre_grayscale(client, session_id)
+        client.post(f"/api/session/{session_id}/llm/configure",
+                    json={"endpoint": "http://localhost:4000", "model": "gpt-4o"})
+        monkeypatch.setattr(server_module, "_call_llm", lambda *a, **kw: "Check white balance.")
+
+        q = server_module._llm_subscribe(session_id)
+        csv = _make_zro_csv(_grayscale_rows())
+        resp = _upload_csv(client, session_id, csv)
+        assert resp.status_code == 200
+
+        payload = q.get(timeout=2.0)
+        assert payload["event"] == "llm_insight"
+        assert "white balance" in payload["data"]
+        server_module._llm_unsubscribe(session_id, q)
+
+    def test_import_zro_no_llm_configured_does_not_trigger(
+        self, client, session_id, monkeypatch
+    ):
+        self._advance_to_pre_grayscale(client, session_id)
+        fired = []
+        monkeypatch.setattr(server_module, "_call_llm", lambda *a, **kw: fired.append(1) or "x")
+
+        csv = _make_zro_csv(_grayscale_rows())
+        resp = _upload_csv(client, session_id, csv)
+        assert resp.status_code == 200
+
+        import time; time.sleep(0.1)
+        assert fired == [], "LLM should not fire when not configured"
+
+    def test_import_generic_auto_triggers_llm_when_configured(
+        self, client, session_id, monkeypatch
+    ):
+        self._advance_to_pre_grayscale(client, session_id)
+        # Populate measurements via ZRO import first
+        _upload_csv(client, session_id, _make_zro_csv(_grayscale_rows()))
+
+        client.post(f"/api/session/{session_id}/llm/configure",
+                    json={"endpoint": "http://localhost:4000", "model": "gpt-4o"})
+        monkeypatch.setattr(server_module, "_call_llm", lambda *a, **kw: "Adjust gain.")
+
+        q = server_module._llm_subscribe(session_id)
+        # Generic import also triggers LLM because measurements already exist in session
+        resp = client.post(
+            f"/api/session/{session_id}/import/generic",
+            files={"file": ("test.csv", b"R,G,B,Y,x,y\n", "text/csv")},
+        )
+        assert resp.status_code == 200
+
+        payload = q.get(timeout=2.0)
+        assert payload["event"] in ("llm_insight", "llm_error")
+        server_module._llm_unsubscribe(session_id, q)
