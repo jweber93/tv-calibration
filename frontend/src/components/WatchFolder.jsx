@@ -7,7 +7,7 @@ export function WatchFolder({ watchStatus, onStart, onStop, defaultPath }) {
   // Sync input to defaultPath once it resolves from localStorage (only when not watching)
   useEffect(() => {
     if (defaultPath && !watchStatus.watching) setPath(defaultPath);
-  }, [defaultPath]);
+  }, [defaultPath, watchStatus.watching]);
   const ws = watchStatus;
 
   const dotCls = ws.watching ? 'dot-active' : ws.error ? 'dot-error' : 'dot-inactive';
