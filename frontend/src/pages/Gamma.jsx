@@ -9,7 +9,7 @@ import { ZroInstructions } from '../components/ZroInstructions';
 import { GammaChart } from '../charts/GammaChart';
 import { QualityGate } from '../components/QualityGate';
 
-export function Gamma({ session, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, onUpload, onStartWatch, onStopWatch, onSaveBridgeUrl, onMeasure, onSetGammaWorkflow, onNext, onPrev }) {
+export function Gamma({ session, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, dogegenStatus, onUpload, onStartWatch, onStopWatch, onSaveBridgeUrl, onMeasure, onSetGammaWorkflow, onNext, onPrev }) {
   const gd = session.gamma_data || {};
   const plan      = gd.control_plan || [];
   const meas      = gd.measurements || [];
