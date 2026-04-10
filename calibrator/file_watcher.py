@@ -576,8 +576,8 @@ def _measurement_signature(measurement: object) -> tuple:
 
 
 def _warnings_for_session_step(result: ZROImportResult, session_step: Optional[str]) -> List[str]:
-    if session_step in ("pre_grayscale", "post_grayscale") and result.grayscale_pass_warnings:
-        return result.grayscale_pass_warnings[-1]
+    if session_step in ("pre_grayscale", "post_grayscale"):
+        return result.grayscale_pass_warnings[-1] if result.grayscale_pass_warnings else []
     return result.abl_warnings
 
 
