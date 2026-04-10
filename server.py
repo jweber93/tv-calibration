@@ -138,6 +138,10 @@ class CodeScaleReq(BaseModel):
     code_scale: str
 
 
+class GrayscaleRampReq(BaseModel):
+    ramp_steps: int
+
+
 class DogegenConfigReq(BaseModel):
     path: Optional[str] = None
     resolve_host: Optional[str] = None
@@ -574,6 +578,11 @@ def dogegen_stop():
 @app.post("/api/session/{sid}/lightspace-tier")
 def set_lightspace_tier(sid: str, req: LightSpaceTierReq):
     return _session_view(store.set_lightspace_tier(sid, req.tier, req.ramp_steps))
+
+
+@app.post("/api/session/{sid}/grayscale-ramp")
+def set_grayscale_ramp(sid: str, req: GrayscaleRampReq):
+    return _session_view(store.set_grayscale_ramp(sid, req.ramp_steps))
 
 
 @app.post("/api/session/{sid}/next")
