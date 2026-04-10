@@ -106,6 +106,9 @@ export function Report({ session, onPrev }) {
         <Button onClick={() => window.open(`/api/session/${sid}/report/html`, '_blank')}>
           Open Full HTML Report
         </Button>
+        <Button onClick={() => api.downloadPdf(sid, session.tv).catch(e => alert(`PDF export failed: ${e.message}`))}>
+          Download PDF
+        </Button>
         <Button onClick={downloadJson}>Download JSON</Button>
       </div>
     </>
