@@ -71,7 +71,7 @@ function ActionPlanWithAdb({ plan, title, adbStatus, onAdbApply }) {
   );
 }
 
-export function ColorTuner({ session, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, adbStatus, onUpload, onStartWatch, onStopWatch, onSaveBridgeUrl, onMeasure, onAdbApply, onAdbReset, onAdbDeploy, onRefreshAdb, onNext, onPrev }) {
+export function ColorTuner({ session, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, dogegenStatus, adbStatus, onUpload, onStartWatch, onStopWatch, onSaveBridgeUrl, onMeasure, onAdbApply, onAdbReset, onAdbDeploy, onRefreshAdb, onNext, onPrev }) {
   const cd = session.cms_data || {};
   const plan = cd.control_plan || [];
   const meas = cd.measurements || [];

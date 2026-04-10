@@ -8,7 +8,7 @@ import { ZroInstructions } from '../components/ZroInstructions';
 import { DeChart } from '../charts/DeChart';
 import { QualityGate } from '../components/QualityGate';
 
-export function PostGrayscale({ session, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, onUpload, onStartWatch, onStopWatch, onSaveBridgeUrl, onMeasure, onNext, onPrev }) {
+export function PostGrayscale({ session, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, dogegenStatus, onUpload, onStartWatch, onStopWatch, onSaveBridgeUrl, onMeasure, onNext, onPrev }) {
   const gd = session.grayscale_data || {};
   const done  = gd.done || 0;
   const total = gd.total || 11;
