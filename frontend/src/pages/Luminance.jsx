@@ -93,7 +93,7 @@ function AdbPictureControls({ adbStatus, onAdbSetPicture, onAdbGetPicture, onDep
   );
 }
 
-export function Luminance({ session, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, adbStatus, onUpload, onStartWatch, onStopWatch, onSaveBridgeUrl, onMeasure, onAdbSetPicture, onAdbGetPicture, onAdbDeploy, onRefreshAdb, onNext, onPrev }) {
+export function Luminance({ session, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, dogegenStatus, adbStatus, onUpload, onStartWatch, onStopWatch, onSaveBridgeUrl, onMeasure, onAdbSetPicture, onAdbGetPicture, onAdbDeploy, onRefreshAdb, onNext, onPrev }) {
   const ld = session.luminance_data || {};
   const plan     = ld.control_plan || [];
   const readings = ld.readings || [];
