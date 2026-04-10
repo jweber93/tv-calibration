@@ -161,6 +161,7 @@ body {
   font-size: 0.72rem; color: var(--muted);
   background: var(--surface2); border: 1px solid var(--border);
   border-radius: 4px; padding: 3px 10px; font-family: monospace;
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 /* ── ΔE pills ────────────────────────────────────────────────────────────────── */
