@@ -1239,6 +1239,14 @@ class SessionStore:
         self.save_session(sid)
         return session
 
+    def set_grayscale_ramp(self, sid: str, ramp_steps: int) -> Dict[str, Any]:
+        session = self.get(sid)
+        if ramp_steps not in GRAYSCALE_RAMP_OPTIONS:
+            raise HTTPException(400, f"ramp_steps must be one of {sorted(GRAYSCALE_RAMP_OPTIONS)}")
+        session["grayscale_ramp_steps"] = ramp_steps
+        self.save_session(sid)
+        return session
+
     def next_step(self, sid: str, luminance_threshold_pct: float) -> Dict[str, Any]:
         session = self.get(sid)
         step = session["step"]

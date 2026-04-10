@@ -1,45 +1,16 @@
-# Frontend Source
+# React + Vite
 
-This directory is reserved for the React source tree that produces
-`static/assets/index.js` and `static/assets/index.css`.
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-The original React source has not yet been committed to this repository
-(see project README). The compiled assets in `static/assets/` are the
-canonical served frontend.
+Currently, two official plugins are available:
 
-## AiInsightPanel
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
 
-The AI Calibration Coach panel lives in `static/assets/ai-panel.js` and
-`static/assets/ai-panel.css`. It is a standalone native ES module — no
-build step required — that overlays the compiled React app.
+## React Compiler
 
-### Architecture
+The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
 
-```
-static/assets/
-  index.js       # Compiled React app (source not yet in repo)
-  index.css      # Compiled Tailwind CSS
-  ai-panel.js    # AiInsightPanel — vanilla ES module (this issue)
-  ai-panel.css   # Panel styles
-```
+## Expanding the ESLint configuration
 
-### How the panel works
-
-1. On load it calls `GET /api/session` to find the current session.
-2. It subscribes to `GET /events/{sid}` (SSE) to receive session updates.
-3. When `session.step` is one of `white_balance`, `gamma`, `color_tuner`,
-   or `post_grayscale` **and** `session.llm_config.endpoint` + `.model`
-   are both set, the panel becomes visible.
-4. It opens `GET /api/session/{sid}/llm/stream` (SSE) and shows a spinner.
-5. On `llm_insight` it renders the markdown-formatted coaching text.
-6. On `llm_error` it renders a dismissable error state with a Retry button.
-7. The panel can be collapsed (toggle ▼/▲) or fully dismissed (✕).
-   Dismissal resets automatically when the step changes.
-
-### When to migrate to React
-
-Once the React source tree is added to this directory, the `AiInsightPanel`
-should be ported to a proper React component with a `useLlmStream` hook and
-mounted inside the `white_balance`, `gamma`, `color_tuner`, and
-`post_grayscale` step pages. The standalone files in `static/assets/` can
-then be removed.
+If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
