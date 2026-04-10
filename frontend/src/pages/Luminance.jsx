@@ -132,12 +132,12 @@ export function Luminance({ session, watchStatus, watchDefaultPath, bridgeStatus
         />
       )}
 
-      <Card title="ZRO Bridge">
+      <Card title="ZRO Bridge" id="bridge-card">
         <BridgeCard bridgeStatus={bridgeStatus} bridgeUrl={bridgeUrl} session={session} dogegenStatus={dogegenStatus} onSaveUrl={onSaveBridgeUrl} onMeasure={onMeasure} />
       </Card>
 
       <div className="two-col">
-        <Card title="Auto-Watch Path">
+        <Card title="Auto-Watch Path" id="watch-folder">
           <WatchFolder watchStatus={watchStatus} defaultPath={watchStatus.path || watchDefaultPath} onStart={onStartWatch} onStop={onStopWatch} />
         </Card>
         <Card title="Import ZRO CSV">

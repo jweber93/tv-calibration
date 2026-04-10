@@ -1,6 +1,6 @@
-export function Card({ title, children, className = '', style }) {
+export function Card({ title, children, className = '', style, id }) {
   return (
-    <div className={`card ${className}`} style={style}>
+    <div id={id} className={`card ${className}`} style={style}>
       {title && <div className="card-title">{title}</div>}
       {children}
     </div>

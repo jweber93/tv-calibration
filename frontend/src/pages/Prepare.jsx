@@ -219,7 +219,7 @@ export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onS
               grayscale ramp for pre/post checks.
             </div>
           </Card>
-          <Card title="Dogegen Companion">
+          <Card title="Dogegen Companion" id="dogegen-card">
             <DogegenCard
               dogegenStatus={dogegenStatus}
               session={session}

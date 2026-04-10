@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useSession } from './hooks/useSession';
 import { Setup }         from './pages/Setup';
 import { SelectMode }    from './pages/SelectMode';
@@ -9,6 +10,7 @@ import { Gamma }         from './pages/Gamma';
 import { ColorTuner }    from './pages/ColorTuner';
 import { PostGrayscale } from './pages/PostGrayscale';
 import { Report }        from './pages/Report';
+import { ConfirmModal }  from './components/ConfirmModal';
 
 function QualityDot({ gate }) {
   if (!gate) return null;
@@ -42,12 +44,27 @@ function ProgressBar({ session }) {
   );
 }
 
+function scrollToCard(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.remove('card-pulse');
+  void el.offsetWidth;
+  el.classList.add('card-pulse');
+  setTimeout(() => el.classList.remove('card-pulse'), 900);
+}
+
 export default function App() {
   const sess = useSession();
   const { session, profiles, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, dogegenStatus, adbStatus, loading } = sess;
+  const [showStartOver, setShowStartOver] = useState(false);
 
   function handleStartOver() {
-    if (!confirm('Start over? This will discard all measurements for this session.')) return;
+    setShowStartOver(true);
+  }
+
+  function handleConfirmStartOver() {
+    setShowStartOver(false);
     sess.deleteSession();
   }
 
@@ -99,6 +116,15 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      {showStartOver && (
+        <ConfirmModal
+          title="Discard this calibration session?"
+          body={`${session?.tv} — ${session?.mode}\nAll measurements will be permanently deleted.`}
+          confirmLabel="Discard session"
+          onConfirm={handleConfirmStartOver}
+          onCancel={() => setShowStartOver(false)}
+        />
+      )}
       {/* Header */}
       <header className="header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -121,19 +147,19 @@ export default function App() {
             </>
           )}
           {watchStatus.watching && (
-            <div className="badge badge-watch">● WATCHING</div>
+            <button className="badge badge-watch" onClick={() => scrollToCard('watch-folder')} style={{ cursor: 'pointer', border: 'none', background: 'none', padding: 0 }}>● WATCHING</button>
           )}
           {(bridgeOk || bridgeConfigured) && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', color: bridgeOk ? 'var(--green)' : 'var(--red)', cursor: 'default' }}>
+            <button onClick={() => scrollToCard('bridge-card')} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', color: bridgeOk ? 'var(--green)' : 'var(--red)', cursor: 'pointer', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit' }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: bridgeOk ? 'var(--green)' : 'var(--muted)', flexShrink: 0 }} />
               Bridge
-            </div>
+            </button>
           )}
           {(dogegenRunning || dogegenConfigured) && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', color: dogegenRunning ? 'var(--green)' : 'var(--red)', cursor: 'default' }}>
+            <button onClick={() => scrollToCard('dogegen-card')} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', color: dogegenRunning ? 'var(--green)' : 'var(--red)', cursor: 'pointer', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit' }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: dogegenRunning ? 'var(--green)' : 'var(--muted)', flexShrink: 0 }} />
               Dogegen
-            </div>
+            </button>
           )}
         </div>
       </header>
