@@ -20,11 +20,11 @@ export function PostGrayscale({ session, watchStatus, watchDefaultPath, bridgeSt
       <ZroInstructions instructions={session.zro_instructions} />
       <QualityGate gate={(session.quality_gates || {}).post_grayscale} />
 
-      <Card title="ZRO Bridge">
+      <Card title="ZRO Bridge" id="bridge-card">
         <BridgeCard bridgeStatus={bridgeStatus} bridgeUrl={bridgeUrl} session={session} dogegenStatus={dogegenStatus} onSaveUrl={onSaveBridgeUrl} onMeasure={onMeasure} />
       </Card>
 
-      <Card title="Auto-Watch Path">
+      <Card title="Auto-Watch Path" id="watch-folder">
         <WatchFolder watchStatus={watchStatus} defaultPath={watchStatus.path || watchDefaultPath} onStart={onStartWatch} onStop={onStopWatch} />
       </Card>
 
