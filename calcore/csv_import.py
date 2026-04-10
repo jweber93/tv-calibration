@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import os
 import re
 from typing import List
 
@@ -32,12 +33,12 @@ def parse_measurement_csv(source: str | bytes | io.IOBase) -> List[Patch]:
         raw = source.decode("utf-8-sig")
     elif isinstance(source, str):
         # Distinguish between a file path and raw CSV content.
-        # CSV content always contains a newline; valid file paths rarely do.
-        if "\n" in source or "\t" in source or "," in source:
-            raw = source
-        else:
+        # Use os.path.exists() so paths containing commas are handled correctly.
+        if "\n" not in source and os.path.exists(source):
             with open(source, "r", newline="", encoding="utf-8-sig") as f:
                 raw = f.read()
+        else:
+            raw = source
     else:
         raw = source.read()
         if isinstance(raw, bytes):
