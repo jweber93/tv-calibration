@@ -1,85 +1,312 @@
-# tv-calibration
+# Calibration Helper
 
-`tv-calibration` is a monorepo for two related pieces of TV-calibration tooling:
+**A guided, step-by-step TV calibration assistant built around ColourSpace ZRO.**
 
-- `calcore/`: a stdlib-only Python package that holds the deterministic calibration math and CSV parsing logic.
-- `calibrator/` + `server.py`: a FastAPI backend for the guided web workflow, imported from the `u8g-calibrator` project and decomposed into modules.
+Calibration Helper walks you through a full display calibration — from baseline grayscale to white balance, gamma, and color management — importing your ZRO measurements automatically and telling you exactly what to turn and by how much at every step. When you're done, it generates a polished PDF report showing before/after results.
 
-At the moment, this repo includes the backend and built static web assets under `static/`. The original React source tree is not in this repo yet.
+---
 
-## Repo Layout
+## What It Does
 
-```text
-calcore/        Shared math engine and CLI-oriented analysis helpers
-calibrator/     Web-workflow backend modules
-server.py       FastAPI entry point for the calibrator app
-cli.py          Command-line entry point for the calcore workflow
-static/         Built frontend assets served by FastAPI
-tests/          End-to-end, API, and package-level test coverage
-tools/          Reference CSVs and ZRO bridge helper files
-```
+Professional TV calibration involves a dozen distinct measurement phases, hundreds of adjustments, and a lot of back-and-forth between your measurement software and your TV's service menu. Calibration Helper replaces the spreadsheets and mental bookkeeping with a structured web app that:
+
+- **Guides you through each phase in order** — Pre-Grayscale → Luminance → White Balance → Gamma → Color Tuner → Post-Grayscale → Report
+- **Imports measurements automatically** — point it at your ColourSpace ZRO export folder and it picks up every CSV the moment ZRO writes it
+- **Computes exactly what to adjust** — for white balance, it tells you which Gain/Offset knob to move and by how much; for the color tuner it targets hue, saturation, and brightness per primary
+- **Tracks quality gates** — flags when ΔE, CCT, or gamma are out of acceptable range so you know when a phase is done vs. when to keep adjusting
+- **Exports a full PDF report** — stat cards, pre/post ΔE charts, gamma curve, and measurement tables in a single shareable document
+
+It supports two hardware paths out of the box — **Dogegen** (PC-based HDR10 pattern generator) and **LightSpace Connect** (Apple TV) — and can drive some TVs directly over ADB.
+
+---
+
+## Screenshots
+
+> Run the app, open [http://localhost:8000](http://localhost:8000), and create a session to see the full workflow.
+
+---
+
+## Calibration Workflow
+
+Each session moves through nine sequential steps. You can jump back to any completed step by clicking it in the progress bar.
+
+| Step | What Happens |
+|---|---|
+| **Select Mode** | Choose SDR, HDR10, or Dolby Vision. Sets the target EOTF, color gamut, and peak luminance. |
+| **Prepare** | TV-specific checklist: picture mode to select, settings to reset, service menu notes. Pattern generator and measurement settings configured here. |
+| **Pre-Grayscale** | Baseline 0–100% gray ramp. Establishes your starting ΔE and gamma before any adjustments. |
+| **Luminance** | Set black level, white clipping, and peak brightness. Guided by a luminance quality gate. |
+| **White Balance** | Two-point white balance using 80% (Gain) and 30% (Offset) patches. Gives you per-channel adjustment directions. |
+| **Gamma** | Quick (4-point) or fine (21-point) gamma tracking. Shows effective gamma deviation from target at each stimulus step. |
+| **Color Tuner** | CMS adjustments for all six primaries and secondaries (Red, Green, Blue, Cyan, Magenta, Yellow). |
+| **Post-Grayscale** | Verification ramp after all adjustments. Compares to the pre-cal baseline. |
+| **Report** | Full calibration summary with improvement percentage, downloadable as PDF or HTML. |
+
+---
 
 ## Requirements
 
-- Python 3.11+
-- Pip-installable dependencies from `requirements.txt`
+### Software
 
-## Getting Started
+- **Python 3.11+**
+- **ColourSpace ZRO** or **ColourSpace Zero** (measurement software) — [LightIllusion](https://www.lightillusion.com/)
+- A modern browser (Chrome or Edge recommended)
 
-Create a virtual environment, install dependencies, and run either the CLI or the web backend:
+### Hardware
+
+One of the following pattern generator setups:
+
+| Generator | Description |
+|---|---|
+| **Dogegen** | PC application that generates HDR10 test patterns over HDMI. Recommended for HDR10 calibration on Windows. |
+| **LightSpace Connect** | Apple TV app that sends patches from ColourSpace. Free tier supports up to 25 patches; paid tier is unlimited. |
+
+A colorimeter or spectrophotometer supported by ColourSpace ZRO (i1Display, Colorimetry Research, Klein K10-A, etc.).
+
+---
+
+## Installation
+
+### 1. Clone the Repository
 
 ```bash
-python3 -m venv .venv
+git clone https://github.com/jweber93/tv-calibration.git
+cd tv-calibration
+```
+
+### 2. Create a Virtual Environment
+
+```bash
+python -m venv .venv
+
+# Windows
+.venv\Scripts\activate
+
+# macOS / Linux
 source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
 ```
 
-### Run the CLI
+### 3. Install Dependencies
 
 ```bash
-python cli.py --csv /path/to/measurements.csv
+pip install --upgrade pip
+pip install -r requirements.txt
 ```
 
-Common options:
+> **WeasyPrint on Windows** — PDF export uses WeasyPrint 60+, which bundles its own rendering libraries and does not require a separate GTK install. `pip install weasyprint` is sufficient.
 
-- `--mode sdr|hdr`
-- `--eotf pq|gamma22|bt1886|<numeric gamma>`
-- `--target-space bt709|p3d65|bt2020`
-- `--watch`
-
-### Run the Web Backend
+### 4. Start the Server
 
 ```bash
 uvicorn server:app --host 0.0.0.0 --port 8000
 ```
 
-Then open [http://localhost:8000](http://localhost:8000).
+Open **[http://localhost:8000](http://localhost:8000)** in your browser.
 
-## Testing
+The server can also be bound to `localhost` only if you don't need LAN access:
 
-Run the full suite with:
+```bash
+uvicorn server:app --port 8000
+```
+
+---
+
+## Quick Start
+
+1. **Start the server** and open [http://localhost:8000](http://localhost:8000)
+2. **Create a session** — enter your TV model name and select a mode (SDR, HDR10, or Dolby Vision)
+3. **Work through Prepare** — select your pattern generator, configure measurement settings, and follow the TV checklist
+4. **Start the Watch Folder** — point it at your ColourSpace export directory so measurements import automatically
+5. **Measure and advance** — each step tells you what to measure in ColourSpace; once the CSV lands, the app imports it and evaluates your results
+6. **Follow the guidance** — at White Balance and Color Tuner steps, the app calculates adjustments and tells you what to change
+7. **Finish at Report** — download your PDF
+
+---
+
+## Feature Details
+
+### Automatic CSV Import
+
+The Watch Folder monitors a directory for new ColourSpace ZRO `.csv` files. When ZRO finishes a measurement sequence and writes the file, the app detects it within seconds and imports it into the active session step — no manual upload required.
+
+You can also drag-and-drop a CSV onto the upload zone or use the **Measure** button with the ZRO Bridge to trigger a measurement from within the app.
+
+Configure the watch path on the Prepare page. The path persists across sessions.
+
+### ZRO Bridge
+
+The ZRO Bridge lets ColourSpace ZRO trigger a measurement from within the app workflow. Set up a post-measurement webhook in ZRO pointing to `http://localhost:7070/measure` and the app's **Measure** button will fire ZRO's next patch sequence on click.
+
+The Bridge status indicator in the header bar shows whether the connection is live (green) or unreachable (red).
+
+### Dogegen Integration
+
+When Dogegen is selected as the pattern generator, the app manages the Dogegen process directly:
+
+- Starts and stops Dogegen automatically when you enter and leave measurement steps
+- Configures the recommended settings for HDR10: ST2084 Rec.2020, 10 bpc, RGB 4:4:4 Full, 10% window
+- Shows a status indicator in the header bar (green when running and ready)
+
+Configure the Dogegen executable path and signal settings in the **Dogegen Companion** card on the Prepare page.
+
+### LightSpace Connect
+
+When LightSpace Connect is selected, the app configures the grayscale ramp based on your tier:
+
+- **Free tier** — up to 25 patches; supports 11-step and 21-step ramps
+- **Paid tier** — unlimited patches; supports up to 51-step ramps
+
+### AI Assistant (Optional)
+
+Connect any OpenAI-compatible LLM endpoint (Ollama, LiteLLM, OpenAI) to receive plain-English calibration coaching after each measurement import. The assistant receives the current measurement summary — EOTF, mode, ΔE readings — and explains what the numbers mean and what to try next.
+
+Configure under the **AI Assistant** section on the Prepare page. The rest of the workflow is unaffected if this is left unconfigured.
+
+### ADB TV Control
+
+For supported TVs, the app can apply color management settings directly over Android Debug Bridge without navigating service menus:
+
+- Push CMS values (hue, saturation, brightness per channel) to the TV's DEX interface
+- Read and set picture mode, brightness, contrast, and saturation
+- Deploy adjustments from the Color Tuner step with a single button click
+
+ADB must be installed and your TV must have ADB debugging enabled over the network. The ADB status card appears on measurement steps when a compatible device is detected.
+
+### PDF and HTML Reports
+
+The Report page offers three export formats:
+
+- **Download PDF** — a paginated PDF with stat cards, measurement tables, and session metadata. Generated server-side via WeasyPrint.
+- **Open Full HTML Report** — the same content as an interactive browser page, suitable for sharing or archiving.
+- **Download JSON** — the raw report data for use in external tools or scripts.
+
+---
+
+## TV Profiles
+
+TV profiles define the recommended picture mode, reset values, service menu paths, and control ranges for a specific TV model. The app ships with profiles for:
+
+| TV | Modes |
+|---|---|
+| Hisense U8G | SDR, HDR10, Dolby Vision |
+| TCL 6-Series (7105X) | SDR, HDR10 |
+| LG OLED B7 | SDR, HDR10 |
+| Vizio V-Series (V4K55M) | SDR, HDR10 |
+
+**Adding a profile** — profiles are defined in `calibrator/profiles.py`. Each profile is a Python dataclass specifying the TV name, supported modes, picture mode name, menu navigation paths, and a list of settings to reset, disable, and configure before calibration.
+
+If your TV isn't listed, you can still use the app by creating a session with any TV name — the guidance steps will still run; only the TV-specific checklist content will be absent.
+
+---
+
+## Measurement Settings
+
+| Setting | Options | Notes |
+|---|---|---|
+| **Grayscale Ramp** | 11-step, 21-step, 51-step | 51-step requires LightSpace Connect paid tier |
+| **Signal Range** | Full (0–255 / 0–1023), Limited (16–235 / 64–940) | Match to your pattern generator's output |
+| **Patch Code Scale** | 8-bit, 10-bit | Use 10-bit for Dogegen HDR10 workflows |
+
+These are configured on the Prepare page and persist for the session. The Measurement Settings section collapses to show a one-line summary (e.g., *21-step · Full Range · 10-bit*) after setup.
+
+---
+
+## Command-Line Interface
+
+For batch analysis without the web UI:
+
+```bash
+python cli.py --csv /path/to/measurements.csv
+```
+
+Options:
+
+| Flag | Description |
+|---|---|
+| `--mode sdr\|hdr` | Calibration mode |
+| `--eotf pq\|gamma22\|bt1886\|<value>` | Target EOTF |
+| `--target-space bt709\|p3d65\|bt2020` | Target color gamut |
+| `--watch` | Watch for new CSV files and re-analyze on change |
+
+---
+
+## Project Structure
+
+```
+calibrator/
+  session.py          Session state machine and step logic
+  profiles.py         TV model profile definitions
+  guidance.py         Adjustment computation (WB, gamma, CMS)
+  quality.py          Quality gate thresholds and evaluation
+  zro_import.py       ColourSpace ZRO CSV parser and classifier
+  file_watcher.py     Watch folder / auto-import
+  adb_control.py      Android Debug Bridge integration
+  reports.py          HTML and PDF report rendering
+  models.py           Report dataclasses
+
+calcore/
+  models.py           Measurement, CalibrationTarget, Patch dataclasses
+  analysis.py         ΔE 2000, gamma, PQ EOTF calculations
+  colour.py           CIE conversions, CCT, primary chromaticities
+  phase.py            Calibration phase determination logic
+  llm.py              OpenAI-compatible LLM client
+
+server.py             FastAPI application (REST + SSE)
+cli.py                Command-line batch analysis entry point
+frontend/             React + Vite source (built output in static/)
+tests/                API, unit, and integration tests
+tools/                Reference CSV sequences for ZRO workflows
+```
+
+---
+
+## Development
+
+### Running the Frontend Dev Server
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The Vite dev server proxies API requests to `http://localhost:8000` and hot-reloads on file changes.
+
+### Building the Frontend
+
+```bash
+cd frontend
+npm run build
+```
+
+Output goes to `static/`, which the FastAPI server serves directly.
+
+### Running Tests
 
 ```bash
 pytest -q
 ```
 
-Useful spot checks:
+Targeted test runs:
 
 ```bash
-pytest -q tests/test_calcore
-pytest -q tests/test_server_api.py
-python3 -m compileall calcore calibrator server.py cli.py
+pytest -q tests/test_calcore        # Color math unit tests
+pytest -q tests/test_server_api.py  # API integration tests
+python -m compileall calcore calibrator server.py cli.py
 ```
 
-## Current State
+---
 
-- `calcore` has been extracted from the original `tv_calibration_coach` script.
-- The calibrator backend has been decomposed into `calibrator/guidance.py`, `calibrator/session.py`, `calibrator/quality.py`, and `calibrator/reports.py`.
-- GitHub Actions now runs the Python test suite on pushes and pull requests.
+## Glossary
 
-## Notes
-
-- Session persistence is stored under `.sessions/` at runtime and ignored by git.
-- The backend currently serves built static assets from `static/`.
-- Future phases are expected to wire `calcore` directly into `calibrator` and bring over richer web-app source/UI workflows.
+| Term | Meaning |
+|---|---|
+| **ΔE (Delta E)** | Perceptual color difference. ΔE < 2 is invisible to most viewers; < 1 is considered excellent. |
+| **CCT** | Correlated Color Temperature in Kelvin. The D65 standard white point is 6504 K. |
+| **EOTF** | Electro-Optical Transfer Function — the curve that maps signal values to screen brightness. BT.1886 targets γ ≈ 2.40; PQ is used for HDR10. |
+| **Grayscale Ramp** | A sweep of gray patches from 0% to 100% stimulus, used to evaluate gamma and white point tracking. |
+| **Signal Range** | Whether patch codes use the full 0–255 (or 0–1023) range or the limited 16–235 (64–940) video range. |
+| **CMS / Color Tuner** | Color Management System — per-primary adjustments for hue, saturation, and luminance of the six color primaries and secondaries. |
+| **ZRO** | ColourSpace ZRO / Zero — the measurement software by LightIllusion that drives colorimeters and exports CSV data. |
+| **Dogegen** | A Windows pattern generator application that sends HDR10 test patches over HDMI. |
+| **LightSpace Connect** | An Apple TV app that pairs with ColourSpace to generate patches via an Apple TV connected to the display. |
