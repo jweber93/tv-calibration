@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(command -v gh)",
+      "Read(//c/Users/jwebe/AppData/Local/**)",
+      "Read(//c/Program Files/GitHub CLI/**)"
+    ]
+  }
+}

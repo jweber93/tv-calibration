@@ -20,7 +20,7 @@ export function PreGrayscale({ session, watchStatus, watchDefaultPath, bridgeSta
     <>
       <ZroInstructions instructions={session.zro_instructions} />
 
-      <Card title="ZRO Bridge">
+      <Card title="ZRO Bridge" id="bridge-card">
         <BridgeCard
           bridgeStatus={bridgeStatus} bridgeUrl={bridgeUrl}
           session={session} dogegenStatus={dogegenStatus}
@@ -29,7 +29,7 @@ export function PreGrayscale({ session, watchStatus, watchDefaultPath, bridgeSta
       </Card>
 
       {session.pattern_generator === 'dogegen' && (
-        <Card title="Dogegen Companion">
+        <Card title="Dogegen Companion" id="dogegen-card">
           <DogegenCard
             dogegenStatus={dogegenStatus}
             session={session}
@@ -40,7 +40,7 @@ export function PreGrayscale({ session, watchStatus, watchDefaultPath, bridgeSta
         </Card>
       )}
 
-      <Card title="Auto-Watch Path">
+      <Card title="Auto-Watch Path" id="watch-folder">
         <WatchFolder
           watchStatus={watchStatus} defaultPath={watchStatus.path || watchDefaultPath}
           onStart={onStartWatch} onStop={onStopWatch}
