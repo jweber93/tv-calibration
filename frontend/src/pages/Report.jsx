@@ -63,7 +63,7 @@ export function Report({ session, onPrev }) {
             <StatCard
               value={report.improvement_pct != null ? report.improvement_pct.toFixed(1) + '%' : '—'}
               label="Improvement"
-              color={report.improvement_pct > 0 ? 'green' : ''}
+              color={report.improvement_pct != null && report.improvement_pct > 0 ? 'green' : ''}
             />
           </div>
 

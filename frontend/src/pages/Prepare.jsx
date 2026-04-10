@@ -174,34 +174,6 @@ export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onS
             ))}
           </div>
 
-          {availableRamps.length > 0 && (
-            <>
-              <div className="text-sm" style={{ marginBottom: 8 }}>
-                <strong>Grayscale ramp density</strong>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {availableRamps.map(opt => (
-                  <label
-                    key={opt.steps}
-                    style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}
-                  >
-                    <input
-                      type="radio"
-                      name="ramp"
-                      value={opt.steps}
-                      checked={selectedSteps === opt.steps}
-                      onChange={() => handleRampChange(opt.steps)}
-                      style={{ marginTop: 2, flexShrink: 0 }}
-                    />
-                    <span>
-                      <span className="text-sm"><strong>{opt.label}</strong></span>
-                      <span className="text-sm muted" style={{ display: 'block' }}>{opt.summary}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </>
-          )}
         </Card>
       )}
 
