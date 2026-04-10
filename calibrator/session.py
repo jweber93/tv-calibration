@@ -1291,6 +1291,17 @@ class SessionStore:
         self.save_session(sid)
         return session
 
+    def jump_to_step(self, sid: str, target_index: int) -> Dict[str, Any]:
+        session = self.get(sid)
+        current_index = STEPS_ORDER.index(session["step"]) if session["step"] in STEPS_ORDER else 0
+        if target_index >= current_index:
+            raise HTTPException(400, "Can only jump to a completed step")
+        if target_index < 0 or target_index >= len(STEPS_ORDER):
+            raise HTTPException(400, "Invalid step index")
+        session["step"] = STEPS_ORDER[target_index]
+        self.save_session(sid)
+        return session
+
     def prev_step(self, sid: str) -> Dict[str, Any]:
         session = self.get(sid)
         transitions = {
