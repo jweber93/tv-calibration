@@ -3,11 +3,17 @@ import { fmtDateTime, measurementTimeSummary } from '../utils/fmt';
 
 export function WatchFolder({ watchStatus, onStart, onStop, defaultPath }) {
   const [path, setPath] = useState(defaultPath || '');
+  const [diagOpen, setDiagOpen] = useState(false);
 
   // Sync input to defaultPath once it resolves from localStorage (only when not watching)
   useEffect(() => {
     if (defaultPath && !watchStatus.watching) setPath(defaultPath);
   }, [defaultPath, watchStatus.watching]);
+
+  // Auto-expand diagnostics when there's an error
+  useEffect(() => {
+    if (watchStatus.error) setDiagOpen(true);
+  }, [watchStatus.error]);
   const ws = watchStatus;
 
   const dotCls = ws.watching ? 'dot-active' : ws.error ? 'dot-error' : 'dot-inactive';
@@ -58,18 +64,26 @@ export function WatchFolder({ watchStatus, onStart, onStop, defaultPath }) {
         </div>
       )}
       <div className="mt-3">
-        <div className="text-sm muted" style={{ marginBottom: 6 }}>Watcher diagnostics</div>
-        <table className="data-table">
-          <tbody>
-            {diagRows.map(([label, value]) => (
-              <tr key={label}><td>{label}</td><td>{value}</td></tr>
-            ))}
-            {diagnostics.last_attempt?.detail && (
-              <tr><td>Attempt detail</td><td>{diagnostics.last_attempt.detail}</td></tr>
-            )}
-            {ws.error && <tr><td>Current error</td><td>{ws.error}</td></tr>}
-          </tbody>
-        </table>
+        <button
+          className="text-sm muted"
+          onClick={() => setDiagOpen(o => !o)}
+          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--muted)', fontFamily: 'inherit' }}
+        >
+          {diagOpen ? '▾' : '▸'} Watcher diagnostics
+        </button>
+        {diagOpen && (
+          <table className="data-table" style={{ marginTop: 6 }}>
+            <tbody>
+              {diagRows.map(([label, value]) => (
+                <tr key={label}><td>{label}</td><td>{value}</td></tr>
+              ))}
+              {diagnostics.last_attempt?.detail && (
+                <tr><td>Attempt detail</td><td>{diagnostics.last_attempt.detail}</td></tr>
+              )}
+              {ws.error && <tr><td>Current error</td><td>{ws.error}</td></tr>}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
