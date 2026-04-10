@@ -111,7 +111,7 @@ export default function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {session?.id && (
             <>
-              <div className="session-badge">{session.id}</div>
+              <div className="session-badge" title={`Session ${session.id}`}>{session.tv} — {session.mode}</div>
               <button
                 onClick={handleStartOver}
                 style={{ fontSize: '0.72rem', padding: '3px 10px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--muted)', cursor: 'pointer' }}
