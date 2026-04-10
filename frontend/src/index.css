@@ -77,6 +77,8 @@ body {
 }
 .step-tab.done  { color: var(--green); }
 .step-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.step-tab-clickable { cursor: pointer; }
+.step-tab-clickable:hover { color: var(--accent); background: var(--accent-dim); }
 .step-num {
   width: 17px; height: 17px;
   border-radius: 3px;
@@ -353,6 +355,79 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
   to   { opacity: 1; transform: translateY(0); }
 }
 .qg-enter { animation: qgSlideIn 0.35s ease-out; }
+
+/* ── CollapsibleSection (#44) ───────────────────────────────────────────────── */
+.collapsible-section { margin-bottom: 6px; }
+.collapsible-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 9px 14px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: background 0.15s;
+}
+.collapsible-header:hover { background: var(--surface2); }
+.collapsible-header.open { border-radius: var(--radius) var(--radius) 0 0; border-bottom-color: transparent; }
+.collapsible-chevron { font-size: 0.75rem; color: var(--muted); flex-shrink: 0; width: 12px; }
+.collapsible-title { flex: 1; }
+.collapsible-summary { font-size: 0.74rem; font-weight: 400; color: var(--muted); margin-left: 4px; }
+.collapsible-body {
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  padding: 14px 14px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 0;
+}
+.collapsible-body > * { margin-bottom: 0 !important; }
+
+/* ── Tooltip (#41) ──────────────────────────────────────────────────────────── */
+.tooltip-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+}
+.tooltip-trigger {
+  font-size: 0.72rem;
+  color: var(--muted);
+  cursor: default;
+  line-height: 1;
+  user-select: none;
+}
+.tooltip-trigger:focus { outline: 1px dotted var(--muted); outline-offset: 2px; }
+.tooltip-popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface3);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.5;
+  max-width: 260px;
+  min-width: 160px;
+  padding: 7px 10px;
+  pointer-events: none;
+  white-space: normal;
+  z-index: 200;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
 
 /* ── Card highlight pulse (#42) ─────────────────────────────────────────────── */
 @keyframes cardPulse {
