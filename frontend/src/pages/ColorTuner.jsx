@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { MeasurementTable } from '../components/MeasurementTable';
@@ -6,7 +5,7 @@ import { UploadZone } from '../components/UploadZone';
 import { WatchFolder } from '../components/WatchFolder';
 import { BridgeCard } from '../components/BridgeCard';
 import { ZroInstructions } from '../components/ZroInstructions';
-import { fmtDe, dirIcon, dirClass } from '../utils/fmt';
+import { fmtDe, dirIcon } from '../utils/fmt';
 import { QualityGate } from '../components/QualityGate';
 
 function AdbStatusPanel({ adbStatus, onDeploy, onRefresh }) {
