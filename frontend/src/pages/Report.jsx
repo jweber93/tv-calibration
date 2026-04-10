@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card, StatCard } from '../components/Card';
 import { Button } from '../components/Button';
 import { MeasurementTable } from '../components/MeasurementTable';
+import { Tooltip } from '../components/Tooltip';
 import { DeChart } from '../charts/DeChart';
 import { GammaChart } from '../charts/GammaChart';
 import { api } from '../api/client';
@@ -57,9 +58,9 @@ export function Report({ session, onPrev }) {
       {report && (
         <>
           <div className="four-col" style={{ marginBottom: 16 }}>
-            <StatCard value={pre.avg_de != null ? pre.avg_de.toFixed(2) : '—'} label="Pre-Cal Avg ΔE" color="red" />
-            <StatCard value={post.avg_de != null ? post.avg_de.toFixed(2) : '—'} label="Post-Cal Avg ΔE" color="green" />
-            <StatCard value={fmtNits(report.peak_luminance)} label="Peak Luminance" color="accent" />
+            <StatCard value={pre.avg_de != null ? pre.avg_de.toFixed(2) : '—'} label="Pre-Cal Avg ΔE" color="red" tooltip="Average Delta E before calibration. ΔE < 2 is invisible to most viewers." />
+            <StatCard value={post.avg_de != null ? post.avg_de.toFixed(2) : '—'} label="Post-Cal Avg ΔE" color="green" tooltip="Average Delta E after calibration. ΔE < 1 is excellent." />
+            <StatCard value={fmtNits(report.peak_luminance)} label="Peak Luminance" color="accent" tooltip="Maximum brightness measured in cd/m² (nits). HDR10 content typically targets 1000 nits." />
             <StatCard
               value={report.improvement_pct != null ? report.improvement_pct.toFixed(1) + '%' : '—'}
               label="Improvement"

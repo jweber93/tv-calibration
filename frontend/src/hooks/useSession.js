@@ -128,6 +128,11 @@ export function useSession() {
     setSession(await api.prevStep(session.id));
   }
 
+  async function jumpToStep(stepIndex) {
+    if (!session?.id) return;
+    setSession(await api.jumpToStep(session.id, stepIndex));
+  }
+
   async function confirmMode(mode, sdrPeakNits) {
     if (!session?.id) return;
     setSession(await api.confirmMode(session.id, mode, sdrPeakNits));
@@ -278,7 +283,7 @@ export function useSession() {
 
   return {
     session, profiles, watchStatus, watchDefaultPath, bridgeUrl, bridgeStatus, dogegenStatus, adbStatus, loading,
-    createSession, deleteSession, nextStep, prevStep, confirmMode, confirmPrepared, setGammaWorkflow, setSignalRange, setGrayscaleRamp, setCodeScale, setPatternGenerator, setLightspaceTier,
+    createSession, deleteSession, nextStep, prevStep, jumpToStep, confirmMode, confirmPrepared, setGammaWorkflow, setSignalRange, setGrayscaleRamp, setCodeScale, setPatternGenerator, setLightspaceTier,
     uploadCsv, startWatch, stopWatch,
     saveBridgeUrl, triggerMeasure, refreshBridgeStatus,
     saveDogegenConfig, startDogegen, stopDogegen, refreshDogegenStatus,

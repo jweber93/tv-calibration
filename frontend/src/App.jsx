@@ -24,19 +24,25 @@ function QualityDot({ gate }) {
   );
 }
 
-function ProgressBar({ session }) {
+function ProgressBar({ session, onJump }) {
   if (!session?.steps) return null;
   const gates = session.quality_gates || {};
   return (
     <div className="progress-bar">
       {session.steps.map((step, i) => {
-        const cls = i < session.step_index ? 'done' : i === session.step_index ? 'active' : '';
-        const icon = i < session.step_index ? '✓' : i + 1;
+        const done = i < session.step_index;
+        const cls = done ? 'done' : i === session.step_index ? 'active' : '';
+        const icon = done ? '✓' : i + 1;
         return (
-          <div className={`step-tab ${cls}`} key={step.id || i}>
+          <div
+            className={`step-tab ${cls}${done ? ' step-tab-clickable' : ''}`}
+            key={step.id || i}
+            onClick={done ? () => onJump(i) : undefined}
+            title={done ? `Go back to ${step.label}` : undefined}
+          >
             <span className="step-num">{icon}</span>
             {step.label}
-            {i < session.step_index && <QualityDot gate={gates[step.id]} />}
+            {done && <QualityDot gate={gates[step.id]} />}
           </div>
         );
       })}
@@ -165,7 +171,7 @@ export default function App() {
       </header>
 
       {/* Step progress bar */}
-      <ProgressBar session={session} />
+      <ProgressBar session={session} onJump={sess.jumpToStep} />
 
       {/* Main content */}
       <main className="main">

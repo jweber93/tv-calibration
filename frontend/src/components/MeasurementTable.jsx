@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { fmtDe, fmtDateTime } from '../utils/fmt';
+import { Tooltip } from './Tooltip';
 
 const COLUMNS = [
   { header: 'Label',   key: 'label' },
@@ -7,10 +8,10 @@ const COLUMNS = [
   { header: 'Nits',    key: 'Y' },
   { header: 'x',       key: 'x' },
   { header: 'y',       key: 'y' },
-  { header: 'CCT',     key: 'cct' },
-  { header: 'ΔE',      key: 'delta_e' },
+  { header: 'CCT',     key: 'cct',     tooltip: 'Correlated Color Temperature in Kelvin. D65 (the standard white point) is 6504 K.' },
+  { header: 'ΔE',      key: 'delta_e', tooltip: 'Delta E — perceptual color difference. ΔE < 2 is invisible to most viewers; < 1 is excellent.' },
 ];
-const GAMMA_COL = { header: 'γ', key: 'effective_gamma' };
+const GAMMA_COL = { header: 'γ', key: 'effective_gamma', tooltip: 'Effective gamma — the measured power-law exponent at each stimulus step. BT.1886 targets ≈ 2.40.' };
 
 function getValue(m, key) {
   if (key === 'label')     return m.label || '';
@@ -64,7 +65,7 @@ export function MeasurementTable({ measurements, includeGamma }) {
     <table className="data-table">
       <thead>
         <tr>
-          {columns.map(({ header, key }) => (
+          {columns.map(({ header, key, tooltip }) => (
             <th
               key={key}
               onClick={() => handleSort(key)}
@@ -72,6 +73,7 @@ export function MeasurementTable({ measurements, includeGamma }) {
               title={`Sort by ${header}`}
             >
               {header}
+              {tooltip && <Tooltip text={tooltip} />}
               {sortCol === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
             </th>
           ))}
