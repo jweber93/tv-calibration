@@ -3,3 +3,9 @@ __pycache__/
 *.py[cod]
 .sessions/
 frontend/node_modules/
+
+# Test and coverage artifacts
+.coverage
+coverage.xml
+coverage.lcov
+test-results.xml
