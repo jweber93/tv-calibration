@@ -75,8 +75,8 @@ def analyze(patches: List[Patch], cfg: AnalysisConfig) -> Summary:
                 if 0.20 <= n <= 0.80:
                     gray_pq_err_mid.append(pq_err_pct)
             else:
-                rel = min(meas_y, measured_peak_y) / measured_peak_y
-                if rel > 0:
+                if 0 < meas_y < measured_peak_y:
+                    rel = meas_y / measured_peak_y
                     gamma_val = math.log(rel) / math.log(n)
                     if 0.20 <= n <= 0.80:
                         gray_gamma_mid.append(gamma_val)
