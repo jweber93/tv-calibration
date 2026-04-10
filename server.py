@@ -49,6 +49,7 @@ from calibrator.guidance import (
 from calibrator.quality import QG_LUMINANCE_PCT, step_quality as _step_quality
 from calibrator.reports import (
     render_report_html as _render_report_html,
+    render_report_pdf as _render_report_pdf,
     report_payload as _report_payload,
 )
 from calibrator.session import (
@@ -771,6 +772,23 @@ def get_report(sid: str):
 def get_report_html(sid: str):
     report = _report_payload(store.get(sid))
     return HTMLResponse(_render_report_html(report))
+
+
+@app.get("/api/session/{sid}/report/pdf")
+def get_report_pdf(sid: str):
+    report = _report_payload(store.get(sid))
+    try:
+        pdf_bytes = _render_report_pdf(report)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    tv_slug = "".join(c if c.isalnum() else "_" for c in report.get("tv", "report"))
+    filename = f"calibration_{tv_slug}_{sid[:8]}.pdf"
+    from fastapi.responses import Response
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/api/adb/status")

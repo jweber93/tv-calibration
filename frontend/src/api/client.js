@@ -91,5 +91,17 @@ export const api = {
 
   // Report
   getReport:     (sid)        => api.get(`/api/session/${sid}/report`),
-  downloadReport: (sid)       => `/api/session/${sid}/report/download`,
+  downloadPdf:   async (sid, tv) => {
+    const r = await fetch(`/api/session/${sid}/report/pdf`);
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || r.statusText);
+    }
+    const blob = await r.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    const slug = (tv || 'calibration').replace(/[^a-z0-9]/gi, '_');
+    a.href = url; a.download = `${slug}_${sid.slice(0, 8)}.pdf`; a.click();
+    URL.revokeObjectURL(url);
+  },
 };

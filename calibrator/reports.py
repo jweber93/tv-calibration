@@ -68,6 +68,17 @@ def report_payload(session: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def render_report_pdf(report: Dict[str, Any]) -> bytes:
+    try:
+        import weasyprint
+    except ImportError as exc:
+        raise RuntimeError(
+            "weasyprint is not installed. Run: pip install weasyprint"
+        ) from exc
+    html = render_report_html(report)
+    return weasyprint.HTML(string=html).write_pdf()
+
+
 def render_measurement_rows(measurements: List[Dict[str, Any]], *, include_gamma: bool = False) -> str:
     if not measurements:
         colspan = 5 if include_gamma else 4
@@ -129,6 +140,16 @@ def render_report_html(report: Dict[str, Any]) -> str:
     th{{background:#f3ede3;color:var(--muted);font-weight:600;}}
     tr:last-child td{{border-bottom:none;}}
     .two-col{{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;}}
+    @media print {{
+      body{{background:#fff;}}
+      .wrap{{padding:16px;}}
+      .hero{{border-radius:8px;}}
+      .card{{border-radius:8px;}}
+      table{{border-radius:8px;}}
+      .section{{page-break-inside:avoid;}}
+      .two-col > div{{page-break-inside:avoid;}}
+      h2{{page-break-after:avoid;}}
+    }}
   </style>
 </head>
 <body>
