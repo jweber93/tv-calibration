@@ -142,6 +142,10 @@ class GrayscaleRampReq(BaseModel):
     ramp_steps: int
 
 
+class JumpToStepReq(BaseModel):
+    step_index: int
+
+
 class DogegenConfigReq(BaseModel):
     path: Optional[str] = None
     resolve_host: Optional[str] = None
@@ -593,6 +597,11 @@ def next_step(sid: str):
 @app.post("/api/session/{sid}/prev")
 def prev_step(sid: str):
     return _session_view(store.prev_step(sid))
+
+
+@app.post("/api/session/{sid}/jump")
+def jump_to_step(sid: str, req: JumpToStepReq):
+    return _session_view(store.jump_to_step(sid, req.step_index))
 
 
 @app.post("/api/session/{sid}/llm/configure")
