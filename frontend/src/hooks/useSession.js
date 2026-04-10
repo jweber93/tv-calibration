@@ -13,6 +13,7 @@ export function useSession() {
   const [loading, setLoading] = useState(true);
 
   const sseRef = useRef(null);
+  const sseRetryRef = useRef(null);
   const watchPollRef = useRef(null);
 
   // Initial load
@@ -32,27 +33,41 @@ export function useSession() {
     api.saveBridgeUrl(saved).catch(() => {});
 
     // Load persisted watch path
-    const savedWatch = localStorage.getItem('watchPath') ||
-      'C:\\Users\\jwebe\\OneDrive\\Documents2\\ColourSpace\\ColourSpaceMeasurementLog.csv';
+    const savedWatch = localStorage.getItem('watchPath') || '';
     setWatchDefaultPath(savedWatch);
 
     return () => {
+      clearTimeout(sseRetryRef.current);
       sseRef.current?.close();
       clearInterval(watchPollRef.current);
     };
   }, []);
 
   function startSSE(sid) {
+    clearTimeout(sseRetryRef.current);
     sseRef.current?.close();
-    const es = new EventSource(`/events/${sid}`);
-    es.addEventListener('session', e => {
-      try { setSession(JSON.parse(e.data)); } catch {}
-    });
-    es.addEventListener('watch_status', e => {
-      try { setWatchStatus(JSON.parse(e.data)); } catch {}
-    });
-    es.onerror = () => es.close();
-    sseRef.current = es;
+
+    let retryDelay = 1000;
+
+    function connect() {
+      const es = new EventSource(`/events/${sid}`);
+      es.addEventListener('session', e => {
+        try { setSession(JSON.parse(e.data)); } catch {}
+      });
+      es.addEventListener('watch_status', e => {
+        try { setWatchStatus(JSON.parse(e.data)); } catch {}
+      });
+      es.onerror = () => {
+        es.close();
+        sseRetryRef.current = setTimeout(() => {
+          retryDelay = Math.min(retryDelay * 2, 30000);
+          connect();
+        }, retryDelay);
+      };
+      sseRef.current = es;
+    }
+
+    connect();
   }
 
   const refreshWatchStatus = useCallback(async () => {
