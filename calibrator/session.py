@@ -873,6 +873,11 @@ def session_view(s: Dict[str, Any]) -> Dict[str, Any]:
         "pattern_generator": s.get("pattern_generator", "lightspace_connect"),
         "grayscale_ramp_steps": s.get("grayscale_ramp_steps", 11),
         "quality_gates": step_quality(s, tv),
+        "llm_config": {
+            "endpoint": s.get("llm_config", {}).get("endpoint", ""),
+            "model": s.get("llm_config", {}).get("model", ""),
+            # api_key intentionally omitted — write-only
+        },
     }
 
     if target:
