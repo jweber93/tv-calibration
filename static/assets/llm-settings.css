@@ -1,0 +1,111 @@
+/* =========================================================
+   AI Assistant settings card — injected into the prepare page.
+   Uses the same CSS variables as the main app stylesheet.
+   ========================================================= */
+
+/* Toggle row */
+.llm-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.llm-toggle-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.llm-toggle-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* Fields container */
+#llm-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.llm-field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.llm-field-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.llm-field-hint {
+  font-size: 0.72rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--border2);
+}
+
+.llm-input {
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.84rem;
+  padding: 7px 10px;
+  width: 100%;
+  max-width: 480px;
+  outline: none;
+  transition: border-color 0.15s;
+  font-family: inherit;
+}
+
+.llm-input::placeholder {
+  color: var(--border2);
+}
+
+.llm-input:focus {
+  border-color: var(--accent);
+}
+
+/* Connection status indicator */
+.llm-status {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: var(--radius);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.llm-status-testing {
+  color: var(--muted);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+}
+
+.llm-status-ok {
+  color: var(--green);
+  background: var(--green-dim);
+  border: 1px solid #22c98759;
+}
+
+.llm-status-err {
+  color: var(--red);
+  background: var(--red-dim);
+  border: 1px solid #e74c3c4d;
+}
