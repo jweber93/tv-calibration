@@ -11,7 +11,7 @@ const DEFAULT_MODES = [
 export function SelectMode({ session, onConfirmMode }) {
   const modes = session.modes || DEFAULT_MODES;
   const [selectedMode, setSelectedMode] = useState(session.mode || null);
-  const [sdrPeakNits, setSdrPeakNits] = useState(120);
+  const [sdrPeakNits, setSdrPeakNits] = useState(session.sdr_peak_nits || 120);
 
   const ambientGuide = session.sdr_ambient_guide || [];
 
