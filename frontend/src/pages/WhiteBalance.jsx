@@ -29,7 +29,7 @@ function DeMeasCard({ label, measurement, hasFlag }) {
   );
 }
 
-export function WhiteBalance({ session, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, onUpload, onStartWatch, onStopWatch, onSaveBridgeUrl, onMeasure, onNext, onPrev }) {
+export function WhiteBalance({ session, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, dogegenStatus, onUpload, onStartWatch, onStopWatch, onSaveBridgeUrl, onMeasure, onNext, onPrev }) {
   const wd = session.wb_data || {};
   const plan   = wd.control_plan || [];
   const hints  = wd.hints || null;
