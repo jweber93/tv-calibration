@@ -16,33 +16,6 @@ export function useSession() {
   const sseRetryRef = useRef(null);
   const watchPollRef = useRef(null);
 
-  // Initial load
-  useEffect(() => {
-    Promise.all([api.getSession(), api.getProfiles()])
-      .then(([sess, profs]) => {
-        setSession(sess);
-        setProfiles(profs);
-        if (sess?.id) startSSE(sess.id);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-
-    // Load persisted bridge URL (default to localhost where the bridge normally runs)
-    const saved = localStorage.getItem('bridgeUrl') || 'http://localhost:7070';
-    setBridgeUrl(saved);
-    api.saveBridgeUrl(saved).catch(() => {});
-
-    // Load persisted watch path
-    const savedWatch = localStorage.getItem('watchPath') || '';
-    setWatchDefaultPath(savedWatch);
-
-    return () => {
-      clearTimeout(sseRetryRef.current);
-      sseRef.current?.close();
-      clearInterval(watchPollRef.current);
-    };
-  }, []);
-
   function startSSE(sid) {
     clearTimeout(sseRetryRef.current);
     sseRef.current?.close();
@@ -52,10 +25,10 @@ export function useSession() {
     function connect() {
       const es = new EventSource(`/events/${sid}`);
       es.addEventListener('session', e => {
-        try { setSession(JSON.parse(e.data)); } catch {}
+        try { setSession(JSON.parse(e.data)); } catch { /* malformed SSE payload */ }
       });
       es.addEventListener('watch_status', e => {
-        try { setWatchStatus(JSON.parse(e.data)); } catch {}
+        try { setWatchStatus(JSON.parse(e.data)); } catch { /* malformed SSE payload */ }
       });
       es.onerror = () => {
         es.close();
@@ -70,8 +43,34 @@ export function useSession() {
     connect();
   }
 
+  // Initial load
+  useEffect(() => {
+    Promise.all([api.getSession(), api.getProfiles()])
+      .then(([sess, profs]) => {
+        setSession(sess);
+        setProfiles(profs);
+        if (sess?.id) startSSE(sess.id);
+      })
+      .catch(() => { /* session load failure is non-fatal */ })
+      .finally(() => setLoading(false));
+
+    // Load persisted bridge URL (default to localhost where the bridge normally runs)
+    const saved = localStorage.getItem('bridgeUrl') || 'http://localhost:7070';
+    setBridgeUrl(saved);
+    api.saveBridgeUrl(saved).catch(() => { /* best-effort persistence */ });
+
+    // Load persisted watch path
+    const savedWatch = localStorage.getItem('watchPath') || '';
+    setWatchDefaultPath(savedWatch);
+
+    return () => {
+      clearTimeout(sseRetryRef.current);
+      sseRef.current?.close();
+      clearInterval(watchPollRef.current);
+    };
+  }, []);
   const refreshWatchStatus = useCallback(async () => {
-    try { setWatchStatus(await api.getWatchStatus()); } catch {}
+    try { setWatchStatus(await api.getWatchStatus()); } catch { /* poll failure is non-fatal */ }
   }, []);
 
   const refreshBridgeStatus = useCallback(async (url = bridgeUrl) => {
@@ -116,7 +115,7 @@ export function useSession() {
   }, [dogegenStatus?.running, dogegenStatus?.ready, refreshDogegenStatus]);
 
   const reload = useCallback(async () => {
-    try { setSession(await api.getSession()); } catch {}
+    try { setSession(await api.getSession()); } catch { /* reload failure is non-fatal */ }
   }, []);
 
   async function deleteSession() {
