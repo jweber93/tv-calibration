@@ -129,19 +129,12 @@ jobs:
       - uses: ./.github/actions/setup-python-env
 
       - name: Run bandit
+        # Fails the job on any HIGH severity finding. MEDIUM/LOW are informational.
+        # SARIF output requires Advanced Security (private repo); plain text is used instead.
         run: |
           bandit -r calcore calibrator server.py cli.py \
             -c pyproject.toml \
-            --severity-level high \
-            -f sarif \
-            -o bandit.sarif
-
-      - name: Upload SARIF to GitHub Security tab
-        if: always()
-        continue-on-error: true   # SARIF upload requires GitHub Advanced Security on private repos
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: bandit.sarif
+            --severity-level high
 
   # ── Merge gate ────────────────────────────────────────────────────────────
   merge-gate:
