@@ -677,7 +677,7 @@ def m_to_dict(
     return {
         **data,
         "stimulus_pct": stim_pct,
-        "cct": None if invalid else round(m.cct, 0),
+        "cct": round(m.cct, 0) if m.cct is not None else None,
         "delta_e": None if de is None else round(de, 2),
         "delta_xy": None if dxy is None else round(dxy, 4),
         "effective_gamma": eff_gamma,
