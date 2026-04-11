@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from './Button';
 
 export function BridgeCard({ bridgeStatus, bridgeUrl, session, dogegenStatus, onSaveUrl, onMeasure }) {
   const [url, setUrl] = useState(bridgeUrl || '');
   const [showSettings, setShowSettings] = useState(!bridgeUrl);
+
+  useEffect(() => { setUrl(bridgeUrl || ''); }, [bridgeUrl]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
 
