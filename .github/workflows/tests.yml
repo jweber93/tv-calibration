@@ -25,6 +25,8 @@ jobs:
         python-version: ["3.11", "3.12"]
 
     steps:
+      - uses: actions/checkout@v4
+
       - uses: ./.github/actions/setup-python-env
         with:
           python-version: ${{ matrix.python-version }}
@@ -67,6 +69,8 @@ jobs:
         node-version: ["20", "22"]
 
     steps:
+      - uses: actions/checkout@v4
+
       - uses: ./.github/actions/setup-node-env
         with:
           node-version: ${{ matrix.node-version }}
@@ -86,6 +90,8 @@ jobs:
         working-directory: frontend
 
     steps:
+      - uses: actions/checkout@v4
+
       - uses: ./.github/actions/setup-node-env
         with:
           node-version: "22"
@@ -118,6 +124,8 @@ jobs:
       security-events: write   # for SARIF upload (requires GitHub Advanced Security on private repos)
 
     steps:
+      - uses: actions/checkout@v4
+
       - uses: ./.github/actions/setup-python-env
 
       - name: Run bandit
