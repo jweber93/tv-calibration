@@ -1,0 +1,64 @@
+# LiteLLM proxy configuration for tv-calibration
+#
+# This proxy sits between the app and upstream LLM providers, providing:
+#   - Model-agnostic routing (Claude / GPT-4o / local Ollama)
+#   - Response caching to avoid duplicate API costs on re-runs
+#   - A single endpoint for all LLM calls regardless of provider
+#
+# Usage:
+#   pip install litellm[proxy]
+#   litellm --config litellm_config.yaml --port 4000
+#
+# Then set in the app:
+#   TVCAL_LLM_ENDPOINT=http://localhost:4000
+#   TVCAL_LLM_MODEL=tvcal-analyst
+#
+# Required env vars (set in your shell or .env):
+#   OPENROUTER_API_KEY   — for cloud routing via OpenRouter
+#   LITELLM_MASTER_KEY   — optional; protects the proxy endpoint with a Bearer token
+
+model_list:
+  # Primary: Claude Sonnet via OpenRouter (recommended — best calibration reasoning)
+  - model_name: tvcal-analyst
+    litellm_params:
+      model: openrouter/anthropic/claude-sonnet-4-6
+      api_key: os.environ/OPENROUTER_API_KEY
+
+  # Alternative: GPT-4o via OpenRouter
+  - model_name: tvcal-analyst-gpt
+    litellm_params:
+      model: openrouter/openai/gpt-4o
+      api_key: os.environ/OPENROUTER_API_KEY
+
+  # Local / offline: Ollama with Qwen 2.5 (no API key required)
+  # Install Ollama (https://ollama.ai) and run: ollama pull qwen2.5
+  - model_name: tvcal-analyst-local
+    litellm_params:
+      model: ollama/qwen2.5
+      api_base: http://localhost:11434
+
+  # Local / offline: Ollama with Llama 3.1 8B (lighter-weight option)
+  - model_name: tvcal-analyst-lite
+    litellm_params:
+      model: ollama/llama3.1:8b
+      api_base: http://localhost:11434
+
+router_settings:
+  # Cache identical requests for 1 hour — re-running LLM on the same measurements
+  # (e.g. after page reload) hits cache instead of making a fresh API call.
+  cache_responses: true
+  cache_kwargs:
+    type: local
+    ttl: 3600
+
+  # Route to local model if cloud provider fails
+  fallbacks:
+    - model_name: tvcal-analyst
+      fallbacks: ["tvcal-analyst-local"]
+
+general_settings:
+  # Uncomment to require Bearer token authentication on the proxy endpoint.
+  # master_key: os.environ/LITELLM_MASTER_KEY
+
+  # Log requests to stdout for debugging
+  set_verbose: false

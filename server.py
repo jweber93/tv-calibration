@@ -27,10 +27,27 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from calcore.analysis import analyze as _calcore_analyze
-from calcore.llm import call_llm as _call_llm
+from calcore.gamut import (
+    assess_gamut_constraints as _assess_gamut_constraints,
+    format_gamut_diagnosis as _format_gamut_diagnosis,
+    gamut_diagnosis_to_dict as _gamut_diagnosis_to_dict,
+)
+from calcore.llm import (
+    build_history_block as _build_history_block,
+    call_llm as _call_llm,
+    query_gamut_advice as _query_gamut_advice,
+    query_next_patch_strategy as _query_next_patch_strategy,
+    query_remediation as _query_remediation,
+)
 from calcore.models import AnalysisConfig, LLMConfig, Patch
 from calcore.phase import determine_phase as _determine_phase
 from calibrator import TV_PROFILES
+from calibrator.history import (
+    history_summary as _history_summary,
+    load_baseline as _load_baseline,
+    load_history as _load_history,
+    record_session as _record_session,
+)
 from calibrator.file_watcher import (
     get_status as _fw_status,
     start_watching as _fw_start,
@@ -438,10 +455,30 @@ def _run_llm_background(
     cfg: AnalysisConfig,
     phase: str,
     llm_cfg: LLMConfig,
+    tv_key: str = "",
+    session_step_history: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
     try:
         summary = _calcore_analyze(patches, cfg)
-        result = _call_llm(summary, cfg, phase, llm_cfg)
+
+        # Build history block for this TV so the LLM has prior-session context.
+        history_block: Optional[str] = None
+        if tv_key:
+            try:
+                hist = _load_history(tv_key, limit=3)
+                baseline = _load_baseline(tv_key)
+                if hist:
+                    history_block = _build_history_block(hist, baseline)
+            except Exception:
+                pass  # history is advisory; never block the main LLM call
+
+        result = _call_llm(
+            summary,
+            cfg,
+            phase,
+            llm_cfg,
+            history_block=history_block,
+        )
         _llm_broadcast(sid, {
             "event": "llm_insight",
             "data": {
@@ -450,6 +487,31 @@ def _run_llm_background(
                 "timestamp": datetime.utcnow().isoformat() + "Z",
             },
         })
+
+        # Fire patch strategy query in the same background thread (low-latency path).
+        if session_step_history is not None:
+            budget = max(0, 51 - len(patches))  # conservative remaining budget estimate
+            strategy = _query_next_patch_strategy(
+                summary,
+                session_step_history,
+                phase,
+                budget,
+                llm_cfg,
+            )
+            if strategy is not None:
+                _llm_broadcast(sid, {
+                    "event": "patch_strategy",
+                    "data": {
+                        "phase": phase,
+                        "focus": strategy.focus,
+                        "rationale": strategy.rationale,
+                        "add_patches": strategy.add_patches,
+                        "skip_patches": strategy.skip_patches,
+                        "confidence": strategy.confidence,
+                        "auto_apply": strategy.confidence >= 0.6,
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                    },
+                })
     except Exception as exc:
         _llm_broadcast(sid, {"event": "llm_error", "data": str(exc)})
 
@@ -482,6 +544,10 @@ def _maybe_trigger_llm(sid: str, session: Dict[str, Any]) -> None:
     threading.Thread(
         target=_run_llm_background,
         args=(sid, patches, cfg, session.get("step", "baseline"), llm_cfg),
+        kwargs={
+            "tv_key": session.get("tv_key", ""),
+            "session_step_history": session.get("llm_step_history", []),
+        },
         daemon=True,
     ).start()
 
@@ -741,6 +807,110 @@ def llm_stream(sid: str):
     )
 
 
+# ── Gamut feasibility endpoints ───────────────────────────────────────────────
+
+@app.get("/api/session/{sid}/gamut/diagnosis")
+def gamut_diagnosis(sid: str):
+    """Return a per-primary gamut constraint report for the current CMS measurements."""
+    session = store.get(sid)
+    cms_meas = session.get("cms_measurements", [])
+    if not cms_meas:
+        raise HTTPException(400, "No CMS measurements in session; import color patches first.")
+    cfg = _session_to_analysis_config(session)
+    patches = [_measurement_to_patch(m) for m in cms_meas]
+    summary = _calcore_analyze(patches, cfg)
+    diagnosis = _assess_gamut_constraints(
+        summary.color_rows,
+        cfg.target_space,
+    )
+    return _gamut_diagnosis_to_dict(diagnosis)
+
+
+@app.post("/api/session/{sid}/gamut/advise")
+def gamut_advise(sid: str):
+    """Run LLM interpretation of the gamut diagnosis and return plain-English trade-off advice."""
+    session = store.get(sid)
+    llm_cfg_dict = session.get("llm_config", {})
+    if not (llm_cfg_dict.get("endpoint") and llm_cfg_dict.get("model")):
+        raise HTTPException(400, "LLM not configured; POST /api/session/{sid}/llm/configure first.")
+
+    cms_meas = session.get("cms_measurements", [])
+    if not cms_meas:
+        raise HTTPException(400, "No CMS measurements in session; import color patches first.")
+
+    cfg = _session_to_analysis_config(session)
+    patches = [_measurement_to_patch(m) for m in cms_meas]
+    summary = _calcore_analyze(patches, cfg)
+    diagnosis = _assess_gamut_constraints(summary.color_rows, cfg.target_space)
+    diagnosis_text = _format_gamut_diagnosis(diagnosis)
+
+    llm_cfg = LLMConfig(
+        endpoint=llm_cfg_dict.get("endpoint", ""),
+        model=llm_cfg_dict.get("model", ""),
+        api_key=llm_cfg_dict.get("api_key", ""),
+        temperature=float(llm_cfg_dict.get("temperature", 0.2)),
+        timeout=float(llm_cfg_dict.get("timeout", 30.0)),
+    )
+    advice = _query_gamut_advice(diagnosis_text, cfg.target_space, llm_cfg)
+    return {
+        "diagnosis": _gamut_diagnosis_to_dict(diagnosis),
+        "advice": advice,
+    }
+
+
+# ── Calibration history endpoints ─────────────────────────────────────────────
+
+@app.get("/api/session/{sid}/history")
+def session_history(sid: str):
+    """Return the calibration history for this session's TV model."""
+    session = store.get(sid)
+    tv_key = session.get("tv_key", "")
+    if not tv_key:
+        return {"session_count": 0, "sessions": [], "baseline": None}
+    return {
+        **_history_summary(tv_key),
+        "sessions": _load_history(tv_key, limit=10),
+        "baseline": _load_baseline(tv_key),
+    }
+
+
+# ── Hardware remediation endpoint ─────────────────────────────────────────────
+
+class _HardwareEventReq(BaseModel):
+    event_type: str
+    context: dict = {}
+    attempt_count: int = 1
+    session_phase: str = ""
+
+
+@app.post("/api/session/{sid}/hardware/remediate")
+def hardware_remediate(sid: str, req: _HardwareEventReq):
+    """Ask the LLM to diagnose a hardware fault and suggest recovery steps."""
+    session = store.get(sid)
+    llm_cfg_dict = session.get("llm_config", {})
+    if not (llm_cfg_dict.get("endpoint") and llm_cfg_dict.get("model")):
+        raise HTTPException(400, "LLM not configured.")
+    llm_cfg = LLMConfig(
+        endpoint=llm_cfg_dict.get("endpoint", ""),
+        model=llm_cfg_dict.get("model", ""),
+        api_key=llm_cfg_dict.get("api_key", ""),
+        temperature=0.0,
+        timeout=20.0,
+    )
+    plan = _query_remediation(
+        event_type=req.event_type,
+        context=req.context,
+        attempt_count=req.attempt_count,
+        session_phase=req.session_phase or session.get("step", ""),
+        llm=llm_cfg,
+    )
+    if plan is None:
+        raise HTTPException(503, "LLM remediation query failed or returned unparseable response.")
+    return plan
+
+
+# ── CSV import ────────────────────────────────────────────────────────────────
+
 @app.post("/api/session/{sid}/import/zro")
 async def import_zro_csv(sid: str, file: UploadFile = File(...)):
     try:
@@ -765,7 +935,22 @@ async def import_generic_csv(sid: str, file: UploadFile = File(...)):
 
 @app.get("/api/session/{sid}/report")
 def get_report(sid: str):
-    return _report_payload(store.get(sid))
+    session = store.get(sid)
+    report = _report_payload(session)
+    # Record to per-TV calibration history on first fetch (idempotent via session flag).
+    if not session.get("_history_recorded"):
+        try:
+            _record_session(
+                tv_key=session.get("tv_key", "unknown"),
+                session_id=sid,
+                mode=session.get("mode", ""),
+                report=report,
+            )
+            session["_history_recorded"] = True
+            store.save_session(sid)
+        except Exception:
+            pass  # history recording is non-critical
+    return report
 
 
 @app.get("/api/session/{sid}/report/html")
