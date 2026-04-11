@@ -2,6 +2,7 @@ __pycache__/
 .pytest_cache/
 *.py[cod]
 .sessions/
+.calibration-history/
 frontend/node_modules/
 
 # Test and coverage artifacts
