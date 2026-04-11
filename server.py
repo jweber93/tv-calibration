@@ -324,8 +324,8 @@ def _dogegen_command_for_session(session: Dict[str, Any], exe_path: str) -> List
         cmd.append(resolve_arg)
         return cmd
     if mode == "SDR":
-        resolve_arg = f"resolve_sdr {resolve_host}" if resolve_host else "resolve_sdr"
-        return [exe_path, resolve_arg]
+        host = resolve_host or "127.0.0.1"
+        return [exe_path, f"maxcll {maxcll}", f"resolve_sdr {host}"]
     return [exe_path]
 
 
