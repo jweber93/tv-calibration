@@ -429,6 +429,44 @@ class TestDogegenAutomation:
         assert "maxcll 1000" in captured["cmd"]
         assert "resolve_hdr 10" in captured["cmd"]
 
+    def test_dogegen_start_for_sdr_session_uses_resolve_sdr_command(self, client, session_id, monkeypatch, tmp_path):
+        exe = tmp_path / "Dogegen.exe"
+        exe.write_text("")
+        client.post(f"/api/session/{session_id}/mode", json={"mode": "SDR"})
+        client.post(f"/api/session/{session_id}/pattern-generator", json={"pattern_generator": "dogegen"})
+        client.post("/api/dogegen/config", json={"path": str(exe)})
+
+        captured = {}
+        def fake_popen(cmd, **kwargs):
+            captured["cmd"] = cmd
+            captured["kwargs"] = kwargs
+            return _FakeProc()
+
+        monkeypatch.setattr(server_module.subprocess, "Popen", fake_popen)
+
+        resp = client.post(f"/api/session/{session_id}/dogegen/start")
+
+        assert resp.status_code == 200
+        assert captured["cmd"][0] == str(exe)
+        assert "resolve_sdr" in captured["cmd"]
+        assert not any("resolve_hdr" in a for a in captured["cmd"])
+        assert not any(a.startswith("resolve_sdr ") for a in captured["cmd"]), "SDR must not pin window size"
+
+    def test_dogegen_start_for_sdr_with_resolve_host_includes_host(self, client, session_id, monkeypatch, tmp_path):
+        exe = tmp_path / "Dogegen.exe"
+        exe.write_text("")
+        client.post(f"/api/session/{session_id}/mode", json={"mode": "SDR"})
+        client.post(f"/api/session/{session_id}/pattern-generator", json={"pattern_generator": "dogegen"})
+        client.post("/api/dogegen/config", json={"path": str(exe), "resolve_host": "192.168.1.50"})
+
+        captured = {}
+        monkeypatch.setattr(server_module.subprocess, "Popen",
+                            lambda cmd, **kw: (captured.update({"cmd": cmd}), _FakeProc())[1])
+
+        client.post(f"/api/session/{session_id}/dogegen/start")
+
+        assert "resolve_sdr 192.168.1.50" in captured["cmd"]
+
     def test_dogegen_status_turns_ready_after_warmup(self, client, session_id, monkeypatch, tmp_path):
         exe = tmp_path / "Dogegen.exe"
         exe.write_text("")

@@ -93,7 +93,7 @@ export function DogegenCard({ dogegenStatus, session, onSaveConfig, onStart, onS
       </div>
 
       <div className="text-sm muted" style={{ marginBottom: 10 }}>
-        For HDR10 sessions the app launches Dogegen on demand with a `10%` `resolve_hdr` window and `MaxCLL {maxcll}` so ColourSpace can drive patches while the bridge triggers measurements.
+        For HDR10 sessions the app launches Dogegen with `resolve_hdr` and `MaxCLL {maxcll}`. For SDR sessions it uses `resolve_sdr`. Both connect Dogegen to ColourSpace as the active TPG.
       </div>
 
       {showSettings && (
