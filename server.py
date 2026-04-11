@@ -94,6 +94,11 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="ZRO Calibration Helper")
 
+
+@app.on_event("startup")
+def _startup() -> None:
+    _load_prefs()
+
 SESSION_STORE_DIR = Path(__file__).parent / ".sessions"
 SESSION_TTL = timedelta(days=7)
 _watched_session_id: Optional[str] = None
@@ -122,6 +127,54 @@ store = SessionStore(
 store.load_sessions()
 
 _sessions = store.sessions
+
+# ---------------------------------------------------------------------------
+# Preferences — persisted to .prefs.json, loaded on startup
+# ---------------------------------------------------------------------------
+_PREFS_PATH = Path(__file__).parent / ".prefs.json"
+_prefs: Dict[str, Any] = {
+    "dogegen": {},
+    "bridge_url": "",
+    "watch_folder": "",
+    "llm": {"endpoint": "", "model": ""},
+    "session_defaults": {
+        "signal_range": "full",
+        "code_scale": "8bit",
+        "pattern_generator": "dogegen",
+    },
+}
+
+
+def _load_prefs() -> None:
+    """Read .prefs.json and apply to live globals. Env vars set initial values;
+    saved prefs overwrite them so the user's last UI choice always wins."""
+    global _zro_bridge_url
+    if not _PREFS_PATH.exists():
+        return
+    try:
+        saved = json.loads(_PREFS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    for key in ("dogegen", "bridge_url", "watch_folder", "llm", "session_defaults"):
+        if key in saved:
+            _prefs[key] = saved[key]
+    for field in ("path", "resolve_host", "window_pct", "maxcll"):
+        if field in _prefs.get("dogegen", {}):
+            _dogegen_config[field] = _prefs["dogegen"][field]
+    if _prefs.get("bridge_url"):
+        _zro_bridge_url = _prefs["bridge_url"]
+
+
+def _save_prefs() -> None:
+    """Snapshot current globals into _prefs and write atomically."""
+    _prefs["dogegen"] = dict(_dogegen_config)
+    _prefs["bridge_url"] = _zro_bridge_url
+    try:
+        tmp = _PREFS_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_prefs, indent=2), encoding="utf-8")
+        tmp.replace(_PREFS_PATH)
+    except Exception:
+        pass  # best-effort — never crash on a prefs write failure
 _save_session = store.save_session
 
 
@@ -169,6 +222,15 @@ class DogegenConfigReq(BaseModel):
     resolve_host: Optional[str] = None
     window_pct: Optional[int] = None
     maxcll: Optional[int] = None
+
+
+class PrefsReq(BaseModel):
+    signal_range: Optional[str] = None
+    code_scale: Optional[str] = None
+    pattern_generator: Optional[str] = None
+    llm_endpoint: Optional[str] = None
+    llm_model: Optional[str] = None
+    watch_folder: Optional[str] = None
 
 
 class _AdbCmsSetReq(BaseModel):
@@ -324,8 +386,8 @@ def _dogegen_command_for_session(session: Dict[str, Any], exe_path: str) -> List
         cmd.append(resolve_arg)
         return cmd
     if mode == "SDR":
-        resolve_arg = f"resolve_sdr {resolve_host}" if resolve_host else "resolve_sdr"
-        return [exe_path, resolve_arg]
+        host = resolve_host or "127.0.0.1"
+        return [exe_path, f"maxcll {maxcll}", f"resolve_sdr {host}"]
     return [exe_path]
 
 
@@ -563,6 +625,32 @@ def list_profiles():
 @app.post("/api/session")
 def create_session(req: CreateSessionReq):
     session = store.create_session(req.tv_key, req.sdr_peak_nits)
+    sid = session["id"]
+    sd = _prefs.get("session_defaults", {})
+    if sd.get("signal_range"):
+        try:
+            session = store.set_signal_range(sid, sd["signal_range"])
+        except Exception:
+            pass
+    if sd.get("code_scale"):
+        try:
+            session = store.set_code_scale(sid, sd["code_scale"])
+        except Exception:
+            pass
+    if sd.get("pattern_generator"):
+        try:
+            session = store.set_pattern_generator(sid, sd["pattern_generator"])
+        except Exception:
+            pass
+    llm = _prefs.get("llm", {})
+    if llm.get("endpoint") or llm.get("model"):
+        llm_cfg = session.setdefault("llm_config", {})
+        if llm.get("endpoint") and not llm_cfg.get("endpoint"):
+            llm_cfg["endpoint"] = llm["endpoint"]
+        if llm.get("model") and not llm_cfg.get("model"):
+            llm_cfg["model"] = llm["model"]
+        store.save_session(sid)
+        session = store.get(sid)
     return {
         **_session_view(session),
         "modes": MODE_OPTIONS,
@@ -636,6 +724,7 @@ def dogegen_config(req: DogegenConfigReq):
         if req.maxcll <= 0:
             raise HTTPException(400, "maxcll must be greater than 0")
         _dogegen_config["maxcll"] = int(req.maxcll)
+    _save_prefs()
     return {"ok": True, **_dogegen_status_payload()}
 
 
@@ -713,7 +802,12 @@ def configure_llm(sid: str, req: LlmConfigureReq):
             reachable = False
     
     _save_session(sid)
-    
+    if llm_cfg.get("endpoint"):
+        _prefs["llm"]["endpoint"] = llm_cfg["endpoint"]
+    if llm_cfg.get("model"):
+        _prefs["llm"]["model"] = llm_cfg["model"]
+    _save_prefs()
+
     return {
         "configured": configured,
         "reachable": reachable,
@@ -1098,7 +1192,36 @@ def zro_bridge_status():
 def zro_bridge_config(body: _ZroBridgeConfigBody):
     global _zro_bridge_url
     _zro_bridge_url = body.url.rstrip("/")
+    _save_prefs()
     return {"ok": True, "url": _zro_bridge_url}
+
+
+@app.get("/api/prefs")
+def get_prefs():
+    return _prefs
+
+
+@app.post("/api/prefs")
+def save_prefs_endpoint(req: PrefsReq):
+    sd = _prefs["session_defaults"]
+    if req.signal_range is not None:
+        if req.signal_range not in ("full", "limited"):
+            raise HTTPException(400, "signal_range must be 'full' or 'limited'")
+        sd["signal_range"] = req.signal_range
+    if req.code_scale is not None:
+        if req.code_scale not in ("8bit", "10bit"):
+            raise HTTPException(400, "code_scale must be '8bit' or '10bit'")
+        sd["code_scale"] = req.code_scale
+    if req.pattern_generator is not None:
+        sd["pattern_generator"] = req.pattern_generator
+    if req.llm_endpoint is not None:
+        _prefs["llm"]["endpoint"] = req.llm_endpoint.strip()
+    if req.llm_model is not None:
+        _prefs["llm"]["model"] = req.llm_model.strip()
+    if req.watch_folder is not None:
+        _prefs["watch_folder"] = req.watch_folder.strip()
+    _save_prefs()
+    return {"ok": True, **_prefs}
 
 
 @app.post("/api/zro/trigger")

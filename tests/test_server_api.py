@@ -11,8 +11,7 @@ from server import app, _sessions
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
-@pytest.fixture(autouse=True)
-def clear_sessions():
+def _reset_globals():
     _sessions.clear()
     server_module._watched_session_id = None
     server_module._dogegen_proc = None
@@ -25,15 +24,25 @@ def clear_sessions():
         "window_pct": 10,
         "maxcll": 1000,
     }
+    server_module._prefs = {
+        "dogegen": {},
+        "bridge_url": "",
+        "watch_folder": "",
+        "llm": {"endpoint": "", "model": ""},
+        "session_defaults": {
+            "signal_range": "full",
+            "code_scale": "8bit",
+            "pattern_generator": "dogegen",
+        },
+    }
     server_module._llm_queues.clear()
+
+
+@pytest.fixture(autouse=True)
+def clear_sessions():
+    _reset_globals()
     yield
-    _sessions.clear()
-    server_module._watched_session_id = None
-    server_module._dogegen_proc = None
-    server_module._dogegen_started_at = None
-    server_module._dogegen_launch_cmd = []
-    server_module._llm_queues.clear()
-    server_module._dogegen_last_error = None
+    _reset_globals()
 
 
 @pytest.fixture
@@ -448,16 +457,16 @@ class TestDogegenAutomation:
 
         assert resp.status_code == 200
         assert captured["cmd"][0] == str(exe)
-        assert "resolve_sdr" in captured["cmd"]
+        assert "maxcll 1000" in captured["cmd"]
+        assert "resolve_sdr 127.0.0.1" in captured["cmd"]
         assert not any("resolve_hdr" in a for a in captured["cmd"])
-        assert not any(a.startswith("resolve_sdr ") for a in captured["cmd"]), "SDR must not pin window size"
 
     def test_dogegen_start_for_sdr_with_resolve_host_includes_host(self, client, session_id, monkeypatch, tmp_path):
         exe = tmp_path / "Dogegen.exe"
         exe.write_text("")
         client.post(f"/api/session/{session_id}/mode", json={"mode": "SDR"})
         client.post(f"/api/session/{session_id}/pattern-generator", json={"pattern_generator": "dogegen"})
-        client.post("/api/dogegen/config", json={"path": str(exe), "resolve_host": "192.168.1.50"})
+        client.post("/api/dogegen/config", json={"path": str(exe), "resolve_host": "192.168.1.50", "maxcll": 160})
 
         captured = {}
         monkeypatch.setattr(server_module.subprocess, "Popen",
@@ -465,6 +474,7 @@ class TestDogegenAutomation:
 
         client.post(f"/api/session/{session_id}/dogegen/start")
 
+        assert "maxcll 160" in captured["cmd"]
         assert "resolve_sdr 192.168.1.50" in captured["cmd"]
 
     def test_dogegen_status_turns_ready_after_warmup(self, client, session_id, monkeypatch, tmp_path):
