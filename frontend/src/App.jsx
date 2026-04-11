@@ -1,5 +1,34 @@
-import { useState } from 'react';
+import { useState, Component } from 'react';
 import { useSession } from './hooks/useSession';
+
+class StepErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 32, maxWidth: 520, margin: '60px auto', textAlign: 'center' }}>
+          <div style={{ fontSize: '1.4rem', fontWeight: 700, marginBottom: 12, color: 'var(--text)' }}>Something went wrong</div>
+          <div style={{ color: 'var(--muted)', fontSize: '0.9rem', marginBottom: 24, fontFamily: 'monospace', background: 'var(--surface2)', padding: '10px 14px', borderRadius: 6, textAlign: 'left', wordBreak: 'break-all' }}>
+            {this.state.error.message}
+          </div>
+          <button
+            className="btn btn-danger"
+            onClick={this.props.onStartOver}
+          >
+            Discard session and start over
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import { Setup }         from './pages/Setup';
 import { SelectMode }    from './pages/SelectMode';
 import { Prepare }       from './pages/Prepare';
@@ -175,7 +204,9 @@ export default function App() {
 
       {/* Main content */}
       <main className="main">
-        {renderStep()}
+        <StepErrorBoundary onStartOver={handleConfirmStartOver}>
+          {renderStep()}
+        </StepErrorBoundary>
       </main>
     </div>
   );
