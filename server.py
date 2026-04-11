@@ -323,6 +323,9 @@ def _dogegen_command_for_session(session: Dict[str, Any], exe_path: str) -> List
         resolve_arg = f"resolve_hdr {resolve_host} {window_pct}" if resolve_host else f"resolve_hdr {window_pct}"
         cmd.append(resolve_arg)
         return cmd
+    if mode == "SDR":
+        resolve_arg = f"resolve_sdr {resolve_host}" if resolve_host else "resolve_sdr"
+        return [exe_path, resolve_arg]
     return [exe_path]
 
 
