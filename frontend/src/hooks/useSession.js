@@ -45,23 +45,18 @@ export function useSession() {
 
   // Initial load
   useEffect(() => {
-    Promise.all([api.getSession(), api.getProfiles()])
-      .then(([sess, profs]) => {
+    Promise.all([api.getSession(), api.getProfiles(), api.getPrefs()])
+      .then(([sess, profs, prefs]) => {
         setSession(sess);
         setProfiles(profs);
         if (sess?.id) startSSE(sess.id);
+        const url = prefs?.bridge_url || 'http://localhost:7070';
+        setBridgeUrl(url);
+        api.saveBridgeUrl(url).catch(() => { /* best-effort sync */ });
+        setWatchDefaultPath(prefs?.watch_folder || '');
       })
-      .catch(() => { /* session load failure is non-fatal */ })
+      .catch(() => { /* load failure is non-fatal */ })
       .finally(() => setLoading(false));
-
-    // Load persisted bridge URL (default to localhost where the bridge normally runs)
-    const saved = localStorage.getItem('bridgeUrl') || 'http://localhost:7070';
-    setBridgeUrl(saved);
-    api.saveBridgeUrl(saved).catch(() => { /* best-effort persistence */ });
-
-    // Load persisted watch path
-    const savedWatch = localStorage.getItem('watchPath') || '';
-    setWatchDefaultPath(savedWatch);
 
     return () => {
       clearTimeout(sseRetryRef.current);
@@ -166,6 +161,7 @@ export function useSession() {
   async function setSignalRange(range) {
     if (!session?.id) return;
     setSession(await api.setSignalRange(session.id, range));
+    api.savePrefs({ signal_range: range }).catch(() => {});
   }
 
   async function setGrayscaleRamp(rampSteps) {
@@ -176,11 +172,13 @@ export function useSession() {
   async function setCodeScale(codeScale) {
     if (!session?.id) return;
     setSession(await api.setCodeScale(session.id, codeScale));
+    api.savePrefs({ code_scale: codeScale }).catch(() => {});
   }
 
   async function setPatternGenerator(generator) {
     if (!session?.id) return;
     setSession(await api.setPatternGenerator(session.id, generator));
+    api.savePrefs({ pattern_generator: generator }).catch(() => {});
   }
 
   async function setLightspaceTier(tier, rampSteps) {
@@ -197,8 +195,8 @@ export function useSession() {
 
   async function startWatch(path) {
     if (!session?.id) return;
-    localStorage.setItem('watchPath', path);
     setWatchDefaultPath(path);
+    api.savePrefs({ watch_folder: path }).catch(() => {});
     const status = await api.startWatch(session.id, path);
     setWatchStatus(status);
   }

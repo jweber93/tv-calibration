@@ -11,8 +11,7 @@ from server import app, _sessions
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
-@pytest.fixture(autouse=True)
-def clear_sessions():
+def _reset_globals():
     _sessions.clear()
     server_module._watched_session_id = None
     server_module._dogegen_proc = None
@@ -25,15 +24,25 @@ def clear_sessions():
         "window_pct": 10,
         "maxcll": 1000,
     }
+    server_module._prefs = {
+        "dogegen": {},
+        "bridge_url": "",
+        "watch_folder": "",
+        "llm": {"endpoint": "", "model": ""},
+        "session_defaults": {
+            "signal_range": "full",
+            "code_scale": "8bit",
+            "pattern_generator": "dogegen",
+        },
+    }
     server_module._llm_queues.clear()
+
+
+@pytest.fixture(autouse=True)
+def clear_sessions():
+    _reset_globals()
     yield
-    _sessions.clear()
-    server_module._watched_session_id = None
-    server_module._dogegen_proc = None
-    server_module._dogegen_started_at = None
-    server_module._dogegen_launch_cmd = []
-    server_module._llm_queues.clear()
-    server_module._dogegen_last_error = None
+    _reset_globals()
 
 
 @pytest.fixture

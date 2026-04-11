@@ -85,6 +85,10 @@ export const api = {
   adbGetPicture: (control, device) =>
     api.post('/api/adb/picture/get', { control, device }),
 
+  // Prefs
+  getPrefs:      ()           => api.get('/api/prefs'),
+  savePrefs:     (body)       => api.post('/api/prefs', body),
+
   // LLM
   configureLlm:  (sid, body)  => api.post(`/api/session/${sid}/llm/configure`, body),
   getLlmStatus:  (sid)        => api.get(`/api/session/${sid}/llm/status`),
