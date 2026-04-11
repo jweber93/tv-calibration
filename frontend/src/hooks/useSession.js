@@ -96,17 +96,18 @@ export function useSession() {
 
   // Bridge polling
   useEffect(() => {
-    if (!bridgeUrl) return;
+    if (!bridgeUrl || !session?.id) return;
     refreshBridgeStatus(bridgeUrl);
     const t = setInterval(() => refreshBridgeStatus(bridgeUrl), 8000);
     return () => clearInterval(t);
-  }, [bridgeUrl, refreshBridgeStatus]);
+  }, [bridgeUrl, refreshBridgeStatus, session?.id]);
 
   useEffect(() => {
+    if (!session?.id) return;
     refreshDogegenStatus();
     const t = setInterval(refreshDogegenStatus, 8000);
     return () => clearInterval(t);
-  }, [refreshDogegenStatus]);
+  }, [refreshDogegenStatus, session?.id]);
 
   useEffect(() => {
     if (!dogegenStatus?.running || dogegenStatus?.ready) return;

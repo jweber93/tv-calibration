@@ -75,7 +75,7 @@ class CalibrationReport:
                         self.target.peak_luminance_nits * (stim_pct / 100) ** self.target.gamma
                         if self.target.gamma > 0 else m.Y,
                     )
-                    writer.writerow([phase, stim_pct, m.x, m.y, m.Y, round(m.cct, 0), round(de, 2)])
+                    writer.writerow([phase, stim_pct, m.x, m.y, m.Y, round(m.cct, 0) if m.cct is not None else '', round(de, 2)])
 
     def save_html(self, filepath: str):
         improvement = None

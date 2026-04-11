@@ -37,10 +37,7 @@ def analyze(patches: List[Patch], cfg: AnalysisConfig) -> Summary:
         measured_peak_y = max(gray_measured_y)
         measured_black_y = min(gray_measured_y)
     else:
-        measured_peak_y = max(
-            p.meas_yxy[0] if p.meas_yxy is not None else p.meas_xyz[1]
-            for p in patches
-        )
+        measured_peak_y = None
         measured_black_y = 0.0
 
     grayscale_rows: List[Dict[str, Any]] = []
