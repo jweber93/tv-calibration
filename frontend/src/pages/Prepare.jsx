@@ -43,7 +43,7 @@ export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onS
     setLlmEnabled(!!(cfg.endpoint && cfg.model));
     setLlmEndpoint(cfg.endpoint || '');
     setLlmModel(cfg.model || '');
-  }, [session.llm_config]);
+  }, [session.llm_config?.endpoint, session.llm_config?.model]);
 
   const availableRamps = selectedGenerator === 'lightspace_connect'
     ? rampOptions.filter(o => !o.requires_paid || selectedTier === 'paid')
