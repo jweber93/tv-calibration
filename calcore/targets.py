@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Optional, Tuple
 
 from .colour import D65_xy, xyY_to_xyz
 from .eotf import bt1886_eotf, gamma_eotf, pq_eotf
@@ -12,7 +12,7 @@ def target_xyz_for_patch(
     patch: Patch,
     code_max: int,
     cfg: AnalysisConfig,
-    measured_peak_y: float,
+    measured_peak_y: Optional[float],
     measured_black_y: float,
 ) -> Tuple[float, float, float]:
     target_rgb = (
