@@ -84,10 +84,10 @@ export function MeasurementTable({ measurements, includeGamma }) {
           <tr key={i}>
             <td>{m.label || ''}</td>
             <td>{fmtDateTime(m.timestamp)}</td>
-            <td>{m.Y ? m.Y.toFixed(1) : '—'}</td>
-            <td>{m.x ? m.x.toFixed(4) : '—'}</td>
-            <td>{m.y ? m.y.toFixed(4) : '—'}</td>
-            <td>{m.cct ? Math.round(m.cct) + 'K' : '—'}</td>
+            <td>{m.Y != null ? m.Y.toFixed(1) : '—'}</td>
+            <td>{m.x != null ? m.x.toFixed(4) : '—'}</td>
+            <td>{m.y != null ? m.y.toFixed(4) : '—'}</td>
+            <td>{m.cct != null ? Math.round(m.cct) + 'K' : '—'}</td>
             <td dangerouslySetInnerHTML={{ __html: fmtDe(m.delta_e) }} />
             {includeGamma && <td>{m.effective_gamma != null ? m.effective_gamma.toFixed(3) : '—'}</td>}
           </tr>
