@@ -26,6 +26,76 @@ It supports two hardware paths out of the box — **Dogegen** (PC-based HDR10 pa
 
 ---
 
+## Architecture
+
+```mermaid
+flowchart TD
+    Browser["Browser\nReact SPA"]
+
+    subgraph Frontend["Frontend (React + Vite)"]
+        Pages["9-Step Page Components\nSetup → Select Mode → Prepare\n→ Pre-Cal → Luminance → WB\n→ Gamma → Color Tuner → Report"]
+        Hooks["useSession hook\nSSE listener · polling"]
+        Charts["Chart.js\nCIE scatter · ΔE · Gamma"]
+        Pages --- Hooks
+        Pages --- Charts
+    end
+
+    subgraph Backend["Backend (FastAPI)"]
+        API["REST API\n/api/session · /import · /report\n/dogegen · /adb · /llm"]
+        SSE["SSE broadcaster\n/events/{sid}"]
+        API --- SSE
+    end
+
+    subgraph Calibrator["calibrator/"]
+        Session["session.py\nstate machine · step logic"]
+        Guidance["guidance.py\nWB hints · CMS targets"]
+        Quality["quality.py\nΔE · CCT · gamma gates"]
+        Watcher["file_watcher.py\nauto-import on CSV write"]
+        Reports["reports.py\nHTML · PDF via WeasyPrint"]
+        Session --- Guidance
+        Session --- Quality
+        Session --- Watcher
+        Session --- Reports
+    end
+
+    subgraph Calcore["calcore/"]
+        Analysis["analysis.py\nΔE 2000 · gamma · PQ error"]
+        Colour["colour.py\nXYZ ↔ Lab · CCT · chromaticity"]
+        EOTF["eotf.py\nPQ · BT.1886 · γ2.2"]
+        LLM["llm.py\nOpenAI-compatible client"]
+        Analysis --- Colour
+        Analysis --- EOTF
+    end
+
+    Storage[(".sessions/\nJSON session files")]
+
+    subgraph External["External Integrations"]
+        ZRO["ColourSpace ZRO\nmeasurement software"]
+        Dogegen["Dogegen\nHDR10 pattern generator"]
+        LSConnect["LightSpace Connect\nApple TV patterns"]
+        ADB["ADB\nTV direct control"]
+        LLMEndpoint["LLM Endpoint\nOllama · LiteLLM · OpenAI"]
+        Colorimeter["Colorimeter"]
+    end
+
+    Browser <-->|HTTP| Frontend
+    Frontend <-->|REST + SSE| Backend
+    Backend --> Calibrator
+    Backend --> Calcore
+    Calibrator --> Calcore
+    Backend <--> Storage
+    Watcher -->|detects new CSV| ZRO
+    Backend -->|subprocess| Dogegen
+    Backend -->|network API| LSConnect
+    Backend -->|adb commands| ADB
+    LLM -->|HTTP| LLMEndpoint
+    ZRO --> Colorimeter
+    Dogegen -->|HDMI patterns| ZRO
+    LSConnect -->|HDMI patterns| ZRO
+```
+
+---
+
 ## Calibration Workflow
 
 Each session moves through nine sequential steps. You can jump back to any completed step by clicking it in the progress bar.
