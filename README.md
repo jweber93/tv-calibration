@@ -241,6 +241,36 @@ The assistant system has four integrated capabilities:
 
 Configure under the **AI Assistant** section on the Prepare page. All AI features are non-blocking — the workflow runs fully without an LLM endpoint configured.
 
+#### Recommended Local Models (Ollama)
+
+If you prefer to run entirely offline or want a free fallback, [Ollama](https://ollama.com) is the easiest path on Windows. All models below expose an OpenAI-compatible endpoint at `http://localhost:11434` — set the AI Assistant endpoint to that URL and pick the model name from the table.
+
+Two of the four AI tasks (`patch_strategy`, `remediation`) require the model to return strict JSON with no surrounding text. JSON reliability is therefore the deciding factor, more so than raw reasoning quality.
+
+| Model | VRAM | JSON reliability | Notes |
+|---|---|---|---|
+| **`qwen2.5:14b`** | ~9 GB | Excellent | **Top recommendation.** Best JSON discipline among 7–14B local models; already the Ollama fallback in `litellm_config.yaml`. Use this if your GPU has ≥10 GB VRAM. |
+| **`qwen2.5:7b`** | ~5 GB | Very good | Best choice for 8 GB cards. Nearly as reliable as the 14B for the short prompts this app sends. |
+| **`phi4:14b`** | ~9 GB | Very good | Microsoft's Phi-4; strong structured-output discipline. Comparable to Qwen 2.5 14B, slightly slower on most hardware. |
+| **`llama3.1:8b`** | ~5 GB | Good | Meta's Llama 3.1 8B Instruct. Wider community support; occasional JSON fence leakage (handled by the strip logic in `llm.py`). |
+| **`mistral:7b-instruct`** | ~5 GB | Good | Fast inference, lower memory pressure. Adequate for step guidance; less consistent on the patch-strategy JSON schema. |
+
+**Quick start with Ollama:**
+
+```bash
+# Install Ollama from https://ollama.com, then:
+ollama pull qwen2.5:14b
+ollama serve          # starts the server on port 11434
+```
+
+In the AI Assistant section on the Prepare page, set:
+- **Endpoint:** `http://localhost:11434`
+- **Model:** `qwen2.5:14b` (or whichever model you pulled)
+
+No API key is required for Ollama.
+
+---
+
 #### LiteLLM Proxy (Recommended)
 
 For model-agnostic routing, response caching, and offline fallback, run the bundled LiteLLM proxy:
