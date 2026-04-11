@@ -59,6 +59,15 @@ CHANNEL_ON_THRESHOLD = 228
 CHANNEL_OFF_THRESHOLD = 20
 """R/G/B value at or below this is treated as "fully off" for classification."""
 
+# 10-bit equivalents used when ColourSpace ZRO exports full-range 10-bit code values
+# (detected when max(r, g, b) > 255).  Named constants prevent magic-number drift and
+# make the classification thresholds reviewable against the 0–1023 range.
+BIT10_MAX             = 1023
+BIT10_ON_THRESHOLD    = 900   # ~88% of 1023 — channel treated as "fully on"
+BIT10_OFF_THRESHOLD   = 80    # ~8%  of 1023 — channel treated as "fully off"
+BIT10_WHITE_THRESHOLD = 980   # ~95.8% of 1023 — catches near-white patches (>1000 would miss 1001–1023)
+BIT10_BLACK_THRESHOLD = 20    # footroom guard — avoids misclassifying limited-range 0 as black
+
 GRAYSCALE_EQUAL_TOLERANCE = 4
 """Max channel-to-channel difference for a patch to be classified as grayscale."""
 
@@ -191,10 +200,10 @@ def _classify(r: int, g: int, b: int) -> str:
     """
     hi = max(r, g, b)
     if hi > 255:
-        on_threshold = 920
-        off_threshold = 80
-        white_threshold = 1000
-        black_threshold = 16
+        on_threshold    = BIT10_ON_THRESHOLD
+        off_threshold   = BIT10_OFF_THRESHOLD
+        white_threshold = BIT10_WHITE_THRESHOLD
+        black_threshold = BIT10_BLACK_THRESHOLD
     else:
         on_threshold = CHANNEL_ON_THRESHOLD
         off_threshold = CHANNEL_OFF_THRESHOLD
