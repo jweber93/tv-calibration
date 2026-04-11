@@ -1,7 +1,7 @@
 name: Setup Python Environment
 description: >
-  Checkout repo, configure Python with pip cache, and install requirements.txt.
-  Optionally installs additional packages.
+  Configure Python with pip cache and install requirements.txt.
+  Requires actions/checkout to have run before this action is called.
 
 inputs:
   python-version:
@@ -16,8 +16,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@v4
-
     - uses: actions/setup-python@v5
       with:
         python-version: ${{ inputs.python-version }}
