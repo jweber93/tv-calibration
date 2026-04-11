@@ -30,5 +30,7 @@ exclude_lines = [
 ]
 
 [tool.bandit]
-skips = ["B101"]
+# B101: assert statements are fine outside tests
+# B607: partial executable path — adb/uvicorn must be on PATH, full path is impractical
+skips = ["B101", "B607"]
 exclude_dirs = ["tests", "tools"]
