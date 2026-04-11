@@ -122,7 +122,7 @@ export function DogegenCard({ dogegenStatus, session, onSaveConfig, onStart, onS
               min={1}
               max={100}
               value={windowPct}
-              onChange={e => setWindowPct(e.target.value)}
+              onChange={e => setWindowPct(Number(e.target.value))}
               style={{ width: 120 }}
             />
             <span className="text-sm muted">Window %</span>
@@ -130,7 +130,7 @@ export function DogegenCard({ dogegenStatus, session, onSaveConfig, onStart, onS
               type="number"
               min={1}
               value={maxcll}
-              onChange={e => setMaxcll(e.target.value)}
+              onChange={e => setMaxcll(Number(e.target.value))}
               style={{ width: 140, marginLeft: 8 }}
             />
             <span className="text-sm muted">MaxCLL</span>
