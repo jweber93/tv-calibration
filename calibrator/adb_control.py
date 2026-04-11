@@ -123,7 +123,7 @@ def push_cms_tool(device: Optional[str] = None) -> dict:
     Push the pre-built cms_tool.dex to the TV.
 
     The DEX is read from hisense-cms-controller/tool/cms_tool.dex relative
-    to the u8g-calibrator repo.  Returns {"ok": bool, "stdout": str, "stderr": str}.
+    to the repo root.  Returns {"ok": bool, "stdout": str, "stderr": str}.
     """
     if not _LOCAL_DEX.exists():
         return {"ok": False, "stdout": "", "stderr": f"Local DEX not found: {_LOCAL_DEX}"}
