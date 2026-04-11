@@ -10,3 +10,16 @@ frontend/node_modules/
 coverage.xml
 coverage.lcov
 test-results.xml
+
+# Environment and secrets
+.env
+.env.*
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE settings
+.idea/
+.vscode/settings.json
