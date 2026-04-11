@@ -228,9 +228,33 @@ When LightSpace Connect is selected, the app configures the grayscale ramp based
 
 ### AI Assistant (Optional)
 
-Connect any OpenAI-compatible LLM endpoint (Ollama, LiteLLM, OpenAI) to receive plain-English calibration coaching after each measurement import. The assistant receives the current measurement summary — EOTF, mode, ΔE readings — and explains what the numbers mean and what to try next.
+Connect any OpenAI-compatible LLM endpoint (Ollama, LiteLLM, OpenAI, Claude via OpenRouter) to receive plain-English calibration coaching after each measurement import.
 
-Configure under the **AI Assistant** section on the Prepare page. The rest of the workflow is unaffected if this is left unconfigured.
+The assistant system has four integrated capabilities:
+
+| Capability | What It Does |
+|---|---|
+| **Step guidance** | After each CSV import, the LLM receives a compact measurement summary (scalar ΔE, gamma, PQ error) and the worst-offender patches, then returns one actionable calibration step. |
+| **Display memory** | Prior sessions for this TV model are injected into every prompt as a compressed history block (up to 3 sessions + baseline). The LLM can detect drift, thermal aging, and repeat known compromises. |
+| **Gamut expert** | `POST /api/session/{sid}/gamut/advise` runs a deterministic gamut feasibility check per primary, then asks the LLM to explain trade-offs in plain English when a primary is outside the ADB CMS correction range. |
+| **Patch strategy** | After each import the LLM also recommends which patches to add or skip next (`patch_strategy` SSE event). Strategies with confidence ≥ 0.6 are flagged for auto-apply; lower-confidence ones surface for user review. |
+
+Configure under the **AI Assistant** section on the Prepare page. All AI features are non-blocking — the workflow runs fully without an LLM endpoint configured.
+
+#### LiteLLM Proxy (Recommended)
+
+For model-agnostic routing, response caching, and offline fallback, run the bundled LiteLLM proxy:
+
+```bash
+pip install "litellm[proxy]"
+litellm --config litellm_config.yaml --port 4000
+```
+
+Then set the AI Assistant endpoint to `http://localhost:4000` and model to `tvcal-analyst`.
+
+The proxy routes to Claude Sonnet via OpenRouter by default and falls back to a local Ollama model if the cloud provider is unavailable. Response caching avoids redundant API calls when re-running the LLM on unchanged measurements.
+
+See `litellm_config.yaml` for available models and configuration options.
 
 ### ADB TV Control
 
@@ -307,6 +331,7 @@ calibrator/
   session.py          Session state machine and step logic
   profiles.py         TV model profile definitions
   guidance.py         Adjustment computation (WB, gamma, CMS)
+  history.py          Per-display calibration history store (sessions.jsonl)
   quality.py          Quality gate thresholds and evaluation
   zro_import.py       ColourSpace ZRO CSV parser and classifier
   file_watcher.py     Watch folder / auto-import
@@ -318,14 +343,21 @@ calcore/
   models.py           Measurement, CalibrationTarget, Patch dataclasses
   analysis.py         ΔE 2000, gamma, PQ EOTF calculations
   colour.py           CIE conversions, CCT, primary chromaticities
+  gamut.py            Per-primary gamut feasibility check (PrimaryConstraint, GamutDiagnosis)
   phase.py            Calibration phase determination logic
-  llm.py              OpenAI-compatible LLM client
+  llm.py              LLM client — guidance, history injection, patch strategy, remediation
 
 server.py             FastAPI application (REST + SSE)
 cli.py                Command-line batch analysis entry point
+litellm_config.yaml   LiteLLM proxy config (model routing, caching, offline fallback)
 frontend/             React + Vite source (built output in static/)
 tests/                API, unit, and integration tests
 tools/                Reference CSV sequences for ZRO workflows
+
+.calibration-history/ Per-TV session history (auto-created; gitignored)
+  {tv_key}/
+    sessions.jsonl    One JSON line per completed calibration
+    baseline.json     First-ever calibration reference
 ```
 
 ---
@@ -364,6 +396,82 @@ pytest -q tests/test_calcore        # Color math unit tests
 pytest -q tests/test_server_api.py  # API integration tests
 python -m compileall calcore calibrator server.py cli.py
 ```
+
+---
+
+## AI Integration Architecture
+
+The AI system is structured as three tiers:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                  tv-calibration server                  │
+│                                                         │
+│  CSV import → _calcore_analyze() → Summary              │
+│                    │                                    │
+│                    ├─ scalar metrics (ΔE, gamma, PQ)    │
+│                    ├─ top_offenders (worst 3 patches)   │  ← P0: prompt
+│                    └─ PRE-COMPUTED guidance context     │     leakiness fix
+│                                                         │
+│  calibrator/history.py                                  │
+│    load_history(tv_key) → compressed history block      │  ← P1/P2: display
+│                    │                                    │     memory
+│                    ▼                                    │
+│  calcore/llm.py                                         │
+│    call_llm(summary, cfg, phase,                        │
+│             history_block=...)        → step guidance   │  ← SSE: llm_insight
+│    query_next_patch_strategy(...)     → patch sequence  │  ← SSE: patch_strategy
+│    query_gamut_advice(diagnosis_text) → trade-off prose │  ← POST gamut/advise
+│    query_remediation(event_type, ...) → recovery steps  │  ← POST hw/remediate
+│                                                         │
+│  calcore/gamut.py                                       │
+│    assess_gamut_constraints(color_rows) → GamutDiagnosis│  ← P3: expert-in-loop
+│    format_gamut_diagnosis() → text for LLM              │
+└─────────────────────────────────────────────────────────┘
+              │
+              ▼ HTTP POST /v1/chat/completions
+┌─────────────────────────────────────────────────────────┐
+│           LiteLLM proxy  (localhost:4000)               │
+│                                                         │
+│  • Response cache (TTL 1h) — avoids duplicate API calls │
+│  • Routes: OpenRouter → Claude / GPT-4o / local Ollama  │
+│  • Fallback: cloud → local Ollama on network failure    │
+└─────────────────────────────────────────────────────────┘
+              │
+              ▼
+    Upstream model (Claude Sonnet / GPT-4o / Qwen local)
+```
+
+### AI Data Flow: What Gets Sent to the LLM
+
+The LLM prompt contains **only pre-aggregated data** — no raw per-patch XYZ arrays:
+
+| Data sent | Source | Why |
+|---|---|---|
+| `grayscale_avg_de`, `grayscale_max_de`, `grayscale_over_3` | Summary scalars | Trend judgment |
+| `gamma_midtones`, `pq_err_midtones` | Summary scalars | EOTF diagnosis |
+| `color_75/100_avg_de`, `color_75/100_chroma_avg` | Summary scalars | Gamut diagnosis |
+| `top_offenders` (worst 3 patches, label + ΔE only) | Derived from rows | Actionable specifics |
+| `DISPLAY HISTORY` block | `.calibration-history/` | Drift / aging context |
+| Phase, mode, EOTF, target space | Session config | Framing |
+
+**Not sent:** full `grayscale_rows`, full `color_rows` (raw XYZ triples). These exist in the `Summary` for UI rendering but are excluded from the LLM payload.
+
+### New API Endpoints
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/api/session/{sid}/gamut/diagnosis` | Per-primary gamut constraint report (deterministic) |
+| `POST` | `/api/session/{sid}/gamut/advise` | LLM trade-off advice for out-of-range primaries |
+| `GET` | `/api/session/{sid}/history` | Calibration history for this TV model |
+| `POST` | `/api/session/{sid}/hardware/remediate` | LLM-guided hardware fault recovery plan |
+
+SSE stream (`GET /api/session/{sid}/llm/stream`) now emits two event types:
+
+| Event | Description |
+|---|---|
+| `llm_insight` | One-step calibration guidance (existing) |
+| `patch_strategy` | Recommended patch additions/skips for next pass; `auto_apply: true` if confidence ≥ 0.6 |
 
 ---
 
