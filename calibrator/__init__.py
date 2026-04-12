@@ -17,6 +17,7 @@ from calcore import (
     Measurement,
     P3D65_PRIMARIES as P3_PRIMARIES,
     SDR_TARGET,
+    TVSettings,
     XYZ_to_lab,
     ciede2000,
     delta_e_cie76,
@@ -24,7 +25,7 @@ from calcore import (
     xyY_to_lab,
 )
 from .models import CalibrationReport
-from .profiles import TVProfile, TV_PROFILES, DEFAULT_TV_PROFILE
+from .profiles import TVProfile, TV_PROFILES, DEFAULT_TV_PROFILE, get_tv_profile
 from .runtime import REQUIRED_PACKAGES, console, ensure_packages
 from .guidance import (
     cms_control_plan,
@@ -69,7 +70,8 @@ __all__ = [
     "ciede2000", "delta_e_cie76", "delta_e_ciede2000_xyY", "xyY_to_XYZ", "XYZ_to_lab", "xyY_to_lab",
     "delta_xy", "gamma_from_luminance", "rating_emoji", "direction_hint",
     "stimulus_pct_from_code_value",
-    "TVProfile", "TV_PROFILES", "DEFAULT_TV_PROFILE",
+    "TVProfile", "TV_PROFILES", "DEFAULT_TV_PROFILE", "get_tv_profile",
+    "TVSettings",
     "wb_hints", "wb_control_plan", "wb_recommendations",
     "gamma_recommendations", "u8g_gamma_control_plan", "preset_gamma_control_plan",
     "luminance_control_plan",

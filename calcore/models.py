@@ -68,6 +68,29 @@ class Summary:
     grayscale_rows: List[Dict[str, Any]]
     color_rows: List[Dict[str, Any]]
     meta: Dict[str, Any]
+    # Sweep completeness tracking — set by analyze() and checked by call_llm()
+    measured_patch_count: int = 0
+    expected_patch_count: Optional[int] = None
+
+    @property
+    def is_sweep_complete(self) -> bool:
+        """True when enough patches are present to support LLM analysis.
+
+        If ``expected_patch_count`` is set by the caller, the measured count
+        must meet or exceed it.  Otherwise a heuristic of ≥5 grayscale steps
+        is used so single-patch imports are silently deferred.
+        """
+        if self.expected_patch_count is not None:
+            return self.measured_patch_count >= self.expected_patch_count
+        return self.measured_patch_count >= 5
+
+
+@dataclass
+class TVSettings:
+    """Current TV hardware slider values supplied by the user for LLM context."""
+    two_point_wb: Optional[Dict[str, int]] = None    # e.g. {"R_gain": 0, "B_gain": -3}
+    multipoint_wb: Optional[Dict[str, Dict]] = None  # keyed by stimulus %
+    cms_sliders: Optional[Dict[str, Dict]] = None    # keyed by primary colour
 
 
 @dataclass
@@ -77,6 +100,7 @@ class SessionState:
     last_report_hash: str = ""
     config: AnalysisConfig = field(default_factory=AnalysisConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
+    grayscale_at_cms_entry: Optional[float] = None  # stored when CMS phase begins
 
 
 class CalMode(Enum):

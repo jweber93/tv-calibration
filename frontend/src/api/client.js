@@ -92,6 +92,7 @@ export const api = {
   // LLM
   configureLlm:  (sid, body)  => api.post(`/api/session/${sid}/llm/configure`, body),
   getLlmStatus:  (sid)        => api.get(`/api/session/${sid}/llm/status`),
+  saveTvSettings: (sid, body) => api.post(`/api/session/${sid}/tv-settings`, body),
 
   // Report
   getReport:     (sid)        => api.get(`/api/session/${sid}/report`),

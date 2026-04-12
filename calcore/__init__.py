@@ -13,7 +13,7 @@ from .colour import (
     xyz_to_lab,
 )
 from .csv_import import parse_measurement_csv
-from .llm import call_llm
+from .llm import AdjustmentPlan, call_llm, parse_adjustment_plan
 from .models import (
     AnalysisConfig,
     CalMode,
@@ -26,8 +26,9 @@ from .models import (
     SDR_TARGET,
     SessionState,
     Summary,
+    TVSettings,
 )
-from .phase import determine_phase
+from .phase import check_cms_regression, determine_phase
 from .spaces import (
     BT2020_PRIMARIES,
     BT2020_RGB_TO_XYZ,
@@ -41,6 +42,7 @@ from .spaces import (
 )
 
 __all__ = [
+    "AdjustmentPlan",
     "AnalysisConfig",
     "BT2020_PRIMARIES",
     "BT2020_RGB_TO_XYZ",
@@ -60,14 +62,17 @@ __all__ = [
     "SDR_TARGET",
     "SessionState",
     "Summary",
+    "TVSettings",
     "XYZ_to_lab",
     "analyze",
     "call_llm",
+    "check_cms_regression",
     "ciede2000",
     "delta_e_cie76",
     "detect_matrix",
     "detect_primaries",
     "determine_phase",
+    "parse_adjustment_plan",
     "parse_measurement_csv",
     "rgb_to_xyz",
     "xyY_to_XYZ",

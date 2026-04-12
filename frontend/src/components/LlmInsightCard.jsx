@@ -2,13 +2,105 @@
  * LlmInsightCard — displays the latest AI assistant insight received via SSE.
  *
  * Props:
- *   insight    — { text: string, phase: string, timestamp: string } | null
+ *   insight    — { text: string, plan: AdjustmentPlan|null, phase: string, timestamp: string } | null
  *   streaming  — bool, true while the LLM is generating
  *   error      — string | null
  *   onDismiss  — () => void
+ *
+ * AdjustmentPlan shape (from calcore/llm.py):
+ *   { adjustments: [{menu, setting, from, to, scope, reason}], next_step, confidence }
  */
+
+const NEXT_STEP_LABEL = {
+  rerun_grayscale: 'Re-run Grayscale',
+  proceed_cms:     'Proceed to CMS',
+  rerun_wb:        'Re-run White Balance',
+  verify:          'Verify / Done',
+};
+
+const SCOPE_BADGE = {
+  global: { label: 'Global', color: 'var(--accent)' },
+  local:  { label: 'Local',  color: 'var(--yellow, #f0a500)' },
+};
+
+function AdjustmentRow({ adj }) {
+  const scope = SCOPE_BADGE[adj.scope] || { label: adj.scope || '—', color: 'var(--muted)' };
+  const fromStr = adj.from != null ? String(adj.from) : '?';
+  const toStr   = adj.to   != null ? String(adj.to)   : '?';
+  return (
+    <div style={{ padding: '8px 0', borderBottom: '1px solid var(--border-subtle, rgba(255,255,255,0.06))' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontWeight: 600, fontSize: '0.83rem', color: 'var(--text)' }}>
+          {adj.setting}
+        </span>
+        <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+          {adj.menu}
+        </span>
+        <span style={{
+          marginLeft: 'auto',
+          fontSize: '0.72rem',
+          fontWeight: 700,
+          color: scope.color,
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+        }}>
+          {scope.label}
+        </span>
+      </div>
+      <div style={{ fontSize: '0.82rem', color: 'var(--accent)', marginTop: 2 }}>
+        {fromStr} → {toStr}
+      </div>
+      {adj.reason && (
+        <div style={{ fontSize: '0.79rem', color: 'var(--muted)', marginTop: 3, lineHeight: 1.5 }}>
+          {adj.reason}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AdjustmentPlanView({ plan }) {
+  const nextLabel = NEXT_STEP_LABEL[plan.next_step] || plan.next_step;
+  const confidencePct = Math.round((plan.confidence ?? 0) * 100);
+  return (
+    <div style={{ padding: '10px 14px' }}>
+      {plan.adjustments.length === 0 ? (
+        <div style={{ fontSize: '0.82rem', color: 'var(--muted)', fontStyle: 'italic' }}>
+          No adjustments needed — data insufficient or sweep complete.
+        </div>
+      ) : (
+        <>
+          <div style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6 }}>
+            Required Adjustments
+          </div>
+          {plan.adjustments.map((adj, i) => (
+            <AdjustmentRow key={i} adj={adj} />
+          ))}
+        </>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10 }}>
+        <div style={{
+          flex: 1,
+          background: 'var(--surface3, rgba(255,255,255,0.05))',
+          borderRadius: 6,
+          padding: '5px 10px',
+          fontSize: '0.8rem',
+        }}>
+          <span style={{ color: 'var(--muted)', marginRight: 6 }}>Next Step:</span>
+          <span style={{ fontWeight: 600, color: 'var(--text)' }}>{nextLabel}</span>
+        </div>
+        <div style={{ fontSize: '0.75rem', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+          Confidence {confidencePct}%
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function LlmInsightCard({ insight, streaming, error, onDismiss }) {
   if (!streaming && !insight && !error) return null;
+
+  const hasPlan = insight?.plan && Array.isArray(insight.plan.adjustments);
 
   return (
     <div style={{
@@ -28,7 +120,7 @@ export function LlmInsightCard({ insight, streaming, error, onDismiss }) {
         borderBottom: `1px solid ${error ? 'rgba(231,76,60,0.2)' : 'rgba(0,180,216,0.2)'}`,
       }}>
         <span style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: error ? 'var(--red)' : 'var(--accent)', flexGrow: 1 }}>
-          {error ? 'AI Assistant — Error' : 'AI Assistant'}
+          {error ? 'AI Assistant — Error' : hasPlan ? 'Adjustment Plan' : 'AI Assistant'}
           {insight?.phase && !error && (
             <span style={{ marginLeft: 8, fontWeight: 400, color: 'var(--muted)', textTransform: 'none', letterSpacing: 0 }}>
               · {insight.phase}
@@ -63,7 +155,10 @@ export function LlmInsightCard({ insight, streaming, error, onDismiss }) {
           {error}
         </div>
       )}
-      {insight?.text && (
+      {hasPlan && (
+        <AdjustmentPlanView plan={insight.plan} />
+      )}
+      {!hasPlan && insight?.text && (
         <div style={{ padding: '12px 14px', fontSize: '0.84rem', lineHeight: 1.65, whiteSpace: 'pre-wrap', color: 'var(--text)' }}>
           {insight.text}
         </div>

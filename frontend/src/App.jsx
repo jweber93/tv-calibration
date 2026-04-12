@@ -41,6 +41,7 @@ import { PostGrayscale } from './pages/PostGrayscale';
 import { Report }        from './pages/Report';
 import { ConfirmModal }  from './components/ConfirmModal';
 import { LlmInsightCard } from './components/LlmInsightCard';
+import { TvSettingsInput } from './components/TvSettingsInput';
 import { LogsPanel }     from './components/LogsPanel';
 
 function QualityDot({ gate }) {
@@ -94,7 +95,7 @@ function scrollToCard(id) {
 export default function App() {
   const sess = useSession();
   const { session, profiles, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, dogegenStatus, adbStatus, loading,
-          llmInsight, llmStreaming, llmError, dismissLlmInsight } = sess;
+          llmInsight, llmStreaming, llmError, dismissLlmInsight, saveTvSettings } = sess;
   const [showStartOver, setShowStartOver] = useState(false);
 
   function handleStartOver() {
@@ -207,6 +208,9 @@ export default function App() {
 
       {/* Main content */}
       <main className="main">
+        {session && saveTvSettings && (
+          <TvSettingsInput onSave={saveTvSettings} />
+        )}
         <LlmInsightCard
           insight={llmInsight}
           streaming={llmStreaming}
