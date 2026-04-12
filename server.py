@@ -593,7 +593,10 @@ def _run_llm_background(
 def _maybe_trigger_llm(sid: str, session: Dict[str, Any]) -> None:
     """Fire a background LLM analysis if the session has LLM configured and measurements."""
     llm_cfg_dict = session.get("llm_config", {})
-    if not (llm_cfg_dict.get("endpoint") and llm_cfg_dict.get("model")):
+    endpoint = llm_cfg_dict.get("endpoint", "")
+    model = llm_cfg_dict.get("model", "")
+    if not (endpoint and model):
+        logger.info("LLM skip  sid=%s reason=not_configured endpoint=%r model=%r", sid, endpoint, model)
         return
 
     all_measurements = (
@@ -604,6 +607,7 @@ def _maybe_trigger_llm(sid: str, session: Dict[str, Any]) -> None:
         + session.get("post_measurements", [])
     )
     if not all_measurements:
+        logger.info("LLM skip  sid=%s reason=no_measurements", sid)
         return
 
     patches = [_measurement_to_patch(m) for m in all_measurements]
@@ -615,6 +619,9 @@ def _maybe_trigger_llm(sid: str, session: Dict[str, Any]) -> None:
         temperature=float(llm_cfg_dict.get("temperature", 0.2)),
         timeout=float(llm_cfg_dict.get("timeout", 30.0)),
     )
+    has_key = bool(llm_cfg_dict.get("api_key"))
+    logger.info("LLM trigger  sid=%s step=%s patches=%d has_api_key=%s",
+                sid, session.get("step", "baseline"), len(patches), has_key)
     threading.Thread(
         target=_run_llm_background,
         args=(sid, patches, cfg, session.get("step", "baseline"), llm_cfg),
