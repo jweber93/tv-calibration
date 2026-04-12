@@ -1127,6 +1127,59 @@ class TestGrayscalePassHelpers:
         assert [m.timestamp for m in latest] == ["2026-03-15T16:00:09", "2026-03-15T16:00:06"]
         assert [m.label for m in latest] == ["Black (0%)", "10% Gray"]
 
+    def test_latest_grayscale_pass_detect_sessions_false_ignores_gaps(self):
+        """With detect_sessions=False (fresh CSV import), all measurements are kept
+        even when there are large timestamp gaps between them."""
+        measurements = [
+            Measurement(x=0.3127, y=0.3290, Y=1.0, X=1.0, Z=1.0,
+                        timestamp="2026-03-15T15:00:00", label="Black (0%)",
+                        stimulus_rgb=(16, 16, 16)),
+            Measurement(x=0.3127, y=0.3290, Y=10.0, X=1.0, Z=1.0,
+                        timestamp="2026-03-15T15:02:00", label="25% Gray",
+                        stimulus_rgb=(77, 77, 77)),
+            # User took a 3-minute break — normally this would split the pass
+            # (but with detect_sessions=True this is just 1 session because
+            # the 2-min gap between black->25% is also within SESSION_BREAK_SECONDS)
+            Measurement(x=0.3127, y=0.3290, Y=30.0, X=1.0, Z=1.0,
+                        timestamp="2026-03-15T15:05:00", label="50% Gray",
+                        stimulus_rgb=(128, 128, 128)),
+            Measurement(x=0.3127, y=0.3290, Y=85.0, X=1.0, Z=1.0,
+                        timestamp="2026-03-15T15:06:00", label="White (100%)",
+                        stimulus_rgb=(235, 235, 235)),
+        ]
+        # With detect_sessions=False (imported CSV), all measurements are kept
+        latest_imported = server_module._latest_grayscale_pass(
+            measurements, max_count=10, detect_sessions=False)
+        assert len(latest_imported) == 4
+        assert [m.label for m in latest_imported] == [
+            "Black (0%)", "25% Gray", "50% Gray", "White (100%)"
+        ]
+
+    def test_latest_grayscale_pass_detect_sessions_false_sorts_by_stimulus(self):
+        """Imported CSV data is sorted purely by stimulus percentage, not by
+        timestamp which could cause incorrect ordering with mixed-import data."""
+        # Measurements in reverse order (like a file read backwards)
+        measurements = [
+            Measurement(x=0.3127, y=0.3290, Y=85.0, X=1.0, Z=1.0,
+                        timestamp="2026-03-15T15:20:00", label="White (100%)",
+                        stimulus_rgb=(235, 235, 235)),
+            Measurement(x=0.3127, y=0.3290, Y=30.0, X=1.0, Z=1.0,
+                        timestamp="2026-03-15T15:19:00", label="50% Gray",
+                        stimulus_rgb=(128, 128, 128)),
+            Measurement(x=0.3127, y=0.3290, Y=10.0, X=1.0, Z=1.0,
+                        timestamp="2026-03-15T15:18:00", label="25% Gray",
+                        stimulus_rgb=(77, 77, 77)),
+            Measurement(x=0.3127, y=0.3290, Y=1.0, X=1.0, Z=1.0,
+                        timestamp="2026-03-15T15:17:00", label="Black (0%)",
+                        stimulus_rgb=(16, 16, 16)),
+        ]
+        latest = server_module._latest_grayscale_pass(
+            measurements, max_count=10, detect_sessions=False)
+        # Sorted by stimulus percentage ascending
+        assert [m.label for m in latest] == [
+            "Black (0%)", "25% Gray", "50% Gray", "White (100%)"
+        ]
+
 
 # ── Report ────────────────────────────────────────────────────────────────────
 
