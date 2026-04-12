@@ -9,12 +9,32 @@ from calcore.colour import ciede2000, xyY_to_xyz, xyz_to_lab
 
 def delta_xy(measured_xy, target_xy) -> float:
     return math.sqrt(
-        (measured_xy[0] - target_xy[0]) ** 2 +
-        (measured_xy[1] - target_xy[1]) ** 2
+        (measured_xy[0] - target_xy[0]) ** 2 + (measured_xy[1] - target_xy[1]) ** 2
     )
 
 
 def stimulus_pct_from_code_value(value: int, signal_range: str = "auto") -> float:
+    if signal_range == "auto":
+        if value > 255:
+            signal_range = "full10"
+        elif value <= 16:
+            return 0.0
+        elif value >= 235:
+            return 100.0
+        else:
+            full_range_pct = value / 255.0 * 100.0
+            legal_range_pct = (value - 16) / (235 - 16) * 100.0
+            snap_levels = range(0, 101, 5)
+
+            def snap_error(pct: float) -> float:
+                return min(abs(pct - level) for level in snap_levels)
+
+            chosen_pct = (
+                legal_range_pct
+                if snap_error(legal_range_pct) < snap_error(full_range_pct)
+                else full_range_pct
+            )
+            return round(chosen_pct, 1)
     if signal_range == "full10":
         return round(min(100.0, max(0.0, value / 1023.0 * 100.0)), 1)
     if signal_range == "full":
@@ -25,21 +45,7 @@ def stimulus_pct_from_code_value(value: int, signal_range: str = "auto") -> floa
         if value >= 235:
             return 100.0
         return round((value - 16) / (235 - 16) * 100.0, 1)
-    if value > 255:
-        return round(min(100.0, max(0.0, value / 1023.0 * 100.0)), 1)
-    if value <= 16:
-        return 0.0
-    if value >= 235:
-        return 100.0
-    full_range_pct = value / 255.0 * 100.0
-    legal_range_pct = (value - 16) / (235 - 16) * 100.0
-    snap_levels = range(0, 101, 5)
-
-    def snap_error(pct: float) -> float:
-        return min(abs(pct - level) for level in snap_levels)
-
-    chosen_pct = legal_range_pct if snap_error(legal_range_pct) < snap_error(full_range_pct) else full_range_pct
-    return round(chosen_pct, 1)
+    return 0.0
 
 
 def gamma_from_luminance(measured_nits, peak_nits, stimulus_pct):

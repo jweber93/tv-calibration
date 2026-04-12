@@ -1,13 +1,16 @@
 import logging
 from typing import List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from calcore.models import Measurement, Patch
 from calibrator.session import ZROImportResult, CalibrationTarget
 
 logger = logging.getLogger(__name__)
 
-def patches_to_session_buckets(patches: List[Patch], target: CalibrationTarget) -> Dict[str, List[Dict[str, Any]]]:
+
+def patches_to_session_buckets(
+    patches: List[Patch], target: CalibrationTarget
+) -> Dict[str, List[Dict[str, Any]]]:
     """
     Convert a list of generic measurement patches into the session bucket structure.
 
@@ -27,7 +30,7 @@ def patches_to_session_buckets(patches: List[Patch], target: CalibrationTarget) 
         "post_measurements": [],
     }
 
-    now_iso = datetime.now().isoformat()
+    now_iso = datetime.now(timezone.utc).isoformat()
 
     for patch in patches:
         # Determine which bucket to use
@@ -70,6 +73,8 @@ def patches_to_session_buckets(patches: List[Patch], target: CalibrationTarget) 
     # Log for debugging
     for bucket, items in buckets.items():
         if items:
-            logger.debug(f"patches_to_session_buckets: assigned {len(items)} patches to {bucket}")
+            logger.debug(
+                f"patches_to_session_buckets: assigned {len(items)} patches to {bucket}"
+            )
 
     return buckets
