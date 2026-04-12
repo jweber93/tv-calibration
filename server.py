@@ -35,6 +35,7 @@ from calcore.gamut import (
 from calcore.llm import (
     build_history_block as _build_history_block,
     call_llm as _call_llm,
+    probe_llm as _probe_llm,
     query_gamut_advice as _query_gamut_advice,
     query_next_patch_strategy as _query_next_patch_strategy,
     query_remediation as _query_remediation,
@@ -523,6 +524,10 @@ def _run_llm_background(
     tv_key: str = "",
     session_step_history: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
+    _llm_broadcast(sid, {
+        "event": "llm_start",
+        "data": {"phase": phase, "timestamp": datetime.utcnow().isoformat() + "Z"},
+    })
     try:
         summary = _calcore_analyze(patches, cfg)
 
@@ -790,17 +795,8 @@ def configure_llm(sid: str, req: LlmConfigureReq):
             raise HTTPException(400, "timeout must be greater than 0")
         llm_cfg["timeout"] = req.timeout
     
-    # Test endpoint reachability if configured
     configured = bool(llm_cfg.get("endpoint") and llm_cfg.get("model"))
-    reachable = False
-    if configured:
-        try:
-            # Simple connectivity test - attempt to reach the endpoint
-            test_resp = httpx.get(llm_cfg["endpoint"].rstrip("/chat/completions"), timeout=5.0)
-            reachable = test_resp.status_code < 500
-        except Exception:
-            reachable = False
-    
+
     _save_session(sid)
     if llm_cfg.get("endpoint"):
         _prefs["llm"]["endpoint"] = llm_cfg["endpoint"]
@@ -810,7 +806,6 @@ def configure_llm(sid: str, req: LlmConfigureReq):
 
     return {
         "configured": configured,
-        "reachable": reachable,
         "model": llm_cfg.get("model", ""),
     }
 
@@ -821,18 +816,16 @@ def llm_status(sid: str):
     llm_cfg = session.get("llm_config", {})
     configured = bool(llm_cfg.get("endpoint") and llm_cfg.get("model"))
     reachable = False
-    
+    error = ""
+
     if configured:
-        try:
-            test_resp = httpx.get(llm_cfg["endpoint"].rstrip("/chat/completions"), timeout=5.0)
-            reachable = test_resp.status_code < 500
-        except Exception:
-            reachable = False
-    
+        reachable, error = _probe_llm(llm_cfg)
+
     return {
         "configured": configured,
         "reachable": reachable,
         "model": llm_cfg.get("model", ""),
+        "error": error,
     }
 
 

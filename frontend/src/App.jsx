@@ -40,6 +40,7 @@ import { ColorTuner }    from './pages/ColorTuner';
 import { PostGrayscale } from './pages/PostGrayscale';
 import { Report }        from './pages/Report';
 import { ConfirmModal }  from './components/ConfirmModal';
+import { LlmInsightCard } from './components/LlmInsightCard';
 
 function QualityDot({ gate }) {
   if (!gate) return null;
@@ -91,7 +92,8 @@ function scrollToCard(id) {
 
 export default function App() {
   const sess = useSession();
-  const { session, profiles, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, dogegenStatus, adbStatus, loading } = sess;
+  const { session, profiles, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, dogegenStatus, adbStatus, loading,
+          llmInsight, llmStreaming, llmError, dismissLlmInsight } = sess;
   const [showStartOver, setShowStartOver] = useState(false);
 
   function handleStartOver() {
@@ -204,6 +206,12 @@ export default function App() {
 
       {/* Main content */}
       <main className="main">
+        <LlmInsightCard
+          insight={llmInsight}
+          streaming={llmStreaming}
+          error={llmError}
+          onDismiss={dismissLlmInsight}
+        />
         <StepErrorBoundary onStartOver={handleConfirmStartOver}>
           {renderStep()}
         </StepErrorBoundary>

@@ -30,6 +30,7 @@ export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onS
   const [llmModel,     setLlmModel]     = useState(llmCfg.model || '');
   const [llmApiKey,    setLlmApiKey]    = useState('');
   const [llmTestStatus, setLlmTestStatus] = useState(null); // null | 'testing' | 'ok' | 'unreachable' | 'error'
+  const [llmTestError,  setLlmTestError]  = useState('');
 
   useEffect(() => setSelectedTier(currentTier), [currentTier]);
   useEffect(() => setSelectedSteps(currentSteps), [currentSteps]);
@@ -117,13 +118,21 @@ export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onS
   async function handleTestConnection() {
     if (!onGetLlmStatus) return;
     setLlmTestStatus('testing');
+    setLlmTestError('');
     try {
       const data = await onGetLlmStatus();
-      if (data?.configured && data?.reachable) setLlmTestStatus('ok');
-      else if (data?.configured)               setLlmTestStatus('unreachable');
-      else                                     setLlmTestStatus('error');
+      if (data?.configured && data?.reachable) {
+        setLlmTestStatus('ok');
+      } else if (data?.configured) {
+        setLlmTestStatus('unreachable');
+        setLlmTestError(data?.error || '');
+      } else {
+        setLlmTestStatus('error');
+        setLlmTestError('Endpoint and model must both be set.');
+      }
     } catch {
       setLlmTestStatus('error');
+      setLlmTestError('Request failed — is the server running?');
     }
   }
 
@@ -447,12 +456,19 @@ export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onS
                   style={{ background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: 'var(--radius)', color: 'var(--text)', fontSize: '0.84rem', padding: '7px 10px', width: '100%', maxWidth: 480, outline: 'none', fontFamily: 'inherit' }}
                 />
               </div>
-              <div className="btn-group" style={{ marginTop: 2 }}>
-                <Button small onClick={handleTestConnection}>Test Connection</Button>
-                {llmTestStatus === 'testing'    && <span style={{ fontSize: '0.8rem', fontWeight: 600, padding: '5px 10px', borderRadius: 'var(--radius)', color: 'var(--muted)', background: 'var(--surface2)', border: '1px solid var(--border)' }}>Testing…</span>}
-                {llmTestStatus === 'ok'         && <span style={{ fontSize: '0.8rem', fontWeight: 600, padding: '5px 10px', borderRadius: 'var(--radius)', color: 'var(--green)', background: 'var(--green-dim)', border: '1px solid #22c98759' }}>✓ Reachable</span>}
-                {llmTestStatus === 'unreachable'&& <span style={{ fontSize: '0.8rem', fontWeight: 600, padding: '5px 10px', borderRadius: 'var(--radius)', color: 'var(--red)',   background: 'var(--red-dim)',   border: '1px solid #e74c3c4d' }}>✗ Unreachable</span>}
-                {llmTestStatus === 'error'      && <span style={{ fontSize: '0.8rem', fontWeight: 600, padding: '5px 10px', borderRadius: 'var(--radius)', color: 'var(--red)',   background: 'var(--red-dim)',   border: '1px solid #e74c3c4d' }}>✗ Error</span>}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 2 }}>
+                <div className="btn-group">
+                  <Button small onClick={handleTestConnection}>Test Connection</Button>
+                  {llmTestStatus === 'testing'    && <span style={{ fontSize: '0.8rem', fontWeight: 600, padding: '5px 10px', borderRadius: 'var(--radius)', color: 'var(--muted)', background: 'var(--surface2)', border: '1px solid var(--border)' }}>Testing…</span>}
+                  {llmTestStatus === 'ok'         && <span style={{ fontSize: '0.8rem', fontWeight: 600, padding: '5px 10px', borderRadius: 'var(--radius)', color: 'var(--green)', background: 'var(--green-dim)', border: '1px solid #22c98759' }}>✓ Connected</span>}
+                  {llmTestStatus === 'unreachable'&& <span style={{ fontSize: '0.8rem', fontWeight: 600, padding: '5px 10px', borderRadius: 'var(--radius)', color: 'var(--red)',   background: 'var(--red-dim)',   border: '1px solid #e74c3c4d' }}>✗ Unreachable</span>}
+                  {llmTestStatus === 'error'      && <span style={{ fontSize: '0.8rem', fontWeight: 600, padding: '5px 10px', borderRadius: 'var(--radius)', color: 'var(--red)',   background: 'var(--red-dim)',   border: '1px solid #e74c3c4d' }}>✗ Error</span>}
+                </div>
+                {llmTestError && (llmTestStatus === 'unreachable' || llmTestStatus === 'error') && (
+                  <div style={{ fontSize: '0.78rem', color: 'var(--red)', fontFamily: 'monospace', padding: '6px 8px', background: 'var(--red-dim)', borderRadius: 'var(--radius)', wordBreak: 'break-all', maxWidth: 480 }}>
+                    {llmTestError}
+                  </div>
+                )}
               </div>
             </div>
           )}
