@@ -774,39 +774,62 @@ def latest_grayscale_pass(
     max_count: int = 51,
     signal_range: str = "auto",
     code_scale: str = "8bit",
+    detect_sessions: bool = True,
 ) -> List[Measurement]:
+    """Extract the latest contiguous grayscale pass from a list of measurements.
+
+    Parameters
+    ----------
+    measurements :
+        Raw grayscale Measurement objects from the session.
+    max_count :
+        Maximum number of measurements to collect (default 51).
+    signal_range, code_scale :
+        Used to decode stimulus percentage from RGB code values.
+    detect_sessions :
+        When True (default), use timestamp gaps to detect session breaks.
+        Set to False for freshly imported CSV data where the entire batch
+        should be treated as a single coherent pass.
+    """
     if not measurements:
         return []
-    latest_reversed: List[Measurement] = []
-    prev_dt: Optional[datetime] = None
-    for measurement in reversed(measurements):
-        ts = measurement.timestamp
-        if not ts:
-            if latest_reversed:
+
+    if detect_sessions:
+        # Walk backwards through measurements, stopping at session gaps
+        latest_reversed: List[Measurement] = []
+        prev_dt: Optional[datetime] = None
+        for measurement in reversed(measurements):
+            ts = measurement.timestamp
+            if not ts:
+                if latest_reversed:
+                    break
+                continue
+            try:
+                current_dt = datetime.fromisoformat(ts)
+            except ValueError:
+                if latest_reversed:
+                    break
+                continue
+            if prev_dt is not None:
+                gap = (prev_dt - current_dt).total_seconds()
+                if gap > ZRO_SESSION_BREAK_SECONDS:
+                    break
+            latest_reversed.append(measurement)
+            prev_dt = current_dt
+            if len(latest_reversed) == max_count:
                 break
-            continue
-        try:
-            current_dt = datetime.fromisoformat(ts)
-        except ValueError:
-            if latest_reversed:
-                break
-            continue
-        if prev_dt is not None:
-            gap = (prev_dt - current_dt).total_seconds()
-            if gap > ZRO_SESSION_BREAK_SECONDS:
-                break
-        latest_reversed.append(measurement)
-        prev_dt = current_dt
-        if len(latest_reversed) == max_count:
-            break
-    latest = list(reversed(latest_reversed))
+        latest = list(reversed(latest_reversed))
+    else:
+        # Use all measurements — assume they form a single coherent pass
+        # (appropriate for freshly imported CSV data)
+        latest = list(measurements)
+
     decode_range = "full10" if signal_range == "full" and code_scale == "10bit" else signal_range
     return sorted(
         latest,
-        key=lambda m: (
-            stimulus_pct_from_code_value(m.stimulus_rgb[0], decode_range) if m.stimulus_rgb else float("inf"),
-            m.timestamp or "",
-        ),
+        key=lambda m: stimulus_pct_from_code_value(m.stimulus_rgb[0], decode_range)
+        if m.stimulus_rgb
+        else float("inf"),
     )
 
 
