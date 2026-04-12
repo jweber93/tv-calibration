@@ -12,9 +12,60 @@ export function useSession() {
   const [adbStatus, setAdbStatus] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // LLM insight state
+  const [llmInsight, setLlmInsight] = useState(null);   // { text, phase, timestamp }
+  const [llmStreaming, setLlmStreaming] = useState(false);
+  const [llmError, setLlmError] = useState(null);
+
   const sseRef = useRef(null);
   const sseRetryRef = useRef(null);
   const watchPollRef = useRef(null);
+  const llmEsRef = useRef(null);
+  const llmEsRetryRef = useRef(null);
+
+  function stopLlmSSE() {
+    clearTimeout(llmEsRetryRef.current);
+    llmEsRef.current?.close();
+    llmEsRef.current = null;
+  }
+
+  function startLlmSSE(sid) {
+    stopLlmSSE();
+    let retryDelay = 2000;
+
+    function connect() {
+      const es = new EventSource(`/api/session/${sid}/llm/stream`);
+      es.addEventListener('llm_start', () => {
+        setLlmStreaming(true);
+        setLlmError(null);
+      });
+      es.addEventListener('llm_insight', e => {
+        try {
+          const data = JSON.parse(e.data);
+          setLlmInsight(data);
+        } catch { /* malformed */ }
+        setLlmStreaming(false);
+      });
+      es.addEventListener('patch_strategy', e => {
+        // patch_strategy arrives alongside llm_insight; streaming is done
+        setLlmStreaming(false);
+      });
+      es.addEventListener('llm_error', e => {
+        try { setLlmError(JSON.parse(e.data)); } catch { setLlmError(String(e.data)); }
+        setLlmStreaming(false);
+      });
+      es.onerror = () => {
+        es.close();
+        llmEsRetryRef.current = setTimeout(() => {
+          retryDelay = Math.min(retryDelay * 2, 30000);
+          connect();
+        }, retryDelay);
+      };
+      llmEsRef.current = es;
+    }
+
+    connect();
+  }
 
   function startSSE(sid) {
     clearTimeout(sseRetryRef.current);
@@ -62,6 +113,7 @@ export function useSession() {
       clearTimeout(sseRetryRef.current);
       sseRef.current?.close();
       clearInterval(watchPollRef.current);
+      stopLlmSSE();
     };
   }, []);
   const refreshWatchStatus = useCallback(async () => {
@@ -96,6 +148,18 @@ export function useSession() {
     const t = setInterval(() => refreshBridgeStatus(bridgeUrl), 8000);
     return () => clearInterval(t);
   }, [bridgeUrl, refreshBridgeStatus, session?.id]);
+
+  // LLM stream — connect when session has LLM configured, disconnect otherwise
+  useEffect(() => {
+    const sid = session?.id;
+    const llmCfg = session?.llm_config || {};
+    if (sid && llmCfg.endpoint && llmCfg.model) {
+      startLlmSSE(sid);
+    } else {
+      stopLlmSSE();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.id, session?.llm_config?.endpoint, session?.llm_config?.model]);
 
   useEffect(() => {
     if (!session?.id) return;
@@ -294,6 +358,11 @@ export function useSession() {
     return api.getLlmStatus(session.id);
   }
 
+  function dismissLlmInsight() {
+    setLlmInsight(null);
+    setLlmError(null);
+  }
+
   return {
     session, profiles, watchStatus, watchDefaultPath, bridgeUrl, bridgeStatus, dogegenStatus, adbStatus, loading,
     createSession, deleteSession, nextStep, prevStep, jumpToStep, confirmMode, confirmPrepared, setGammaWorkflow, setSignalRange, setGrayscaleRamp, setCodeScale, setPatternGenerator, setLightspaceTier,
@@ -302,6 +371,7 @@ export function useSession() {
     saveDogegenConfig, startDogegen, stopDogegen, refreshDogegenStatus,
     adbDeploy, adbApply, adbReset, adbSetPicture, adbGetPicture, refreshAdbStatus,
     configureLlm, getLlmStatus,
+    llmInsight, llmStreaming, llmError, dismissLlmInsight,
     reload,
   };
 }

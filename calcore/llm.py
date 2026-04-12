@@ -490,5 +490,49 @@ def query_gamut_advice(
         return None
 
 
+def probe_llm(cfg: Dict[str, Any], timeout: float = 8.0) -> tuple[bool, str]:
+    """POST a minimal completions request to verify endpoint, model, and credentials.
+
+    Returns (reachable, error_detail).  Uses max_tokens=1 to minimise cost/latency.
+    Unlike a bare TCP check, this catches invalid model names, wrong API keys, and
+    misconfigured proxies that would otherwise only fail at analysis time.
+    """
+    endpoint = cfg.get("endpoint", "")
+    model = cfg.get("model", "")
+    if not endpoint or not model:
+        return False, "endpoint and model are required"
+
+    url = resolve_endpoint(endpoint)
+    body = {
+        "model": model,
+        "messages": [{"role": "user", "content": "hi"}],
+        "max_tokens": 1,
+        "temperature": 0,
+    }
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
+    )
+    if cfg.get("api_key"):
+        req.add_header("Authorization", f"Bearer {cfg['api_key']}")
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8")
+        parsed = json.loads(raw)
+        # Validate the response has the expected shape
+        _ = parsed["choices"][0]["message"]["content"]
+        return True, ""
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = exc.read().decode("utf-8")
+        except Exception:
+            detail = str(exc)
+        # Truncate long error bodies (e.g. HTML error pages)
+        return False, f"HTTP {exc.code}: {detail[:300]}"
+    except Exception as exc:
+        return False, str(exc)[:300]
+
+
 _resolve_endpoint = resolve_endpoint
 call_local_llm = call_llm
