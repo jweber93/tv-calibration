@@ -7,7 +7,7 @@ import logging
 import math
 import uuid
 from dataclasses import asdict, replace as dc_replace
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -65,8 +65,18 @@ TARGETS: Dict[str, CalibrationTarget] = {
 
 MODE_OPTIONS = [
     {"key": "SDR", "label": "SDR", "desc": "Rec.709 · BT.1886", "peak_nits": 120},
-    {"key": "HDR10", "label": "HDR10", "desc": "Rec.2020 · PQ (ST.2084) · 1000 nits", "peak_nits": 1000},
-    {"key": "Dolby Vision", "label": "Dolby Vision", "desc": "Rec.2020 · PQ (ST.2084) · 1000 nits", "peak_nits": 1000},
+    {
+        "key": "HDR10",
+        "label": "HDR10",
+        "desc": "Rec.2020 · PQ (ST.2084) · 1000 nits",
+        "peak_nits": 1000,
+    },
+    {
+        "key": "Dolby Vision",
+        "label": "Dolby Vision",
+        "desc": "Rec.2020 · PQ (ST.2084) · 1000 nits",
+        "peak_nits": 1000,
+    },
 ]
 
 SDR_AMBIENT_GUIDE = [
@@ -191,7 +201,9 @@ def cv(pct: float, signal_range: str, code_scale: str = "8bit") -> int:
     return full(pct) if signal_range == "full" else lim(pct)
 
 
-def cms_patches(signal_range: str, code_scale: str = "8bit") -> Dict[str, Tuple[int, int, int]]:
+def cms_patches(
+    signal_range: str, code_scale: str = "8bit"
+) -> Dict[str, Tuple[int, int, int]]:
     if signal_range == "full" and code_scale == "10bit":
         hi, lo = 1023, 0
         return {
@@ -220,68 +232,212 @@ def workflow_setup(mode: str, pattern_generator: str) -> List[Dict[str, str]]:
     if pattern_generator == "dogegen":
         if mode == "SDR":
             return [
-                {"step": f"Open {app_name}", "detail": f"Launch {app_name} on your Windows PC."},
-                {"step": "New Session", "detail": "File → New Session. Set display type to your TV model."},
-                {"step": "Set colour space target", "detail": "In Display Settings, set: Colour Space = Rec.709, White Point = D65, EOTF = BT.1886 (or 2.2 for brighter rooms)."},
-                {"step": "Start Dogegen", "detail": "Use the Start Dogegen button in the Dogegen Companion card. The app launches Dogegen with resolve_sdr so ColourSpace can connect automatically. Confirm Dogegen is on the HDMI path you will calibrate and the TV is not showing an HDR badge."},
-                {"step": f"Connect {app_name} to Dogegen", "detail": f"In {app_name} go to Hardware → Pattern Generator → Resolve. Dogegen is already listening; ColourSpace should connect automatically."},
-                {"step": "Fullscreen Dogegen", "detail": "Alt+Enter to fullscreen the Dogegen window on your calibration display. This bypasses the Windows compositor and ensures bit-accurate SDR output."},
-                {"step": "Configure patch settings in ColourSpace", "detail": "Set patch size to ~30%, background to black. Confirm the signal-range setting in this app matches Dogegen's GPU output range (Full Range / 0–255 for PC)."},
-                {"step": "Set CSV export folder", "detail": "In ColourSpace preferences, set the auto-export folder to the same folder you configured as your Watch Folder in this app."},
-                {"step": "Set TV picture mode", "detail": "On your TV, select the recommended picture mode shown in the Prepare TV step, then reset all WB/CMS/Gamma controls to factory defaults as listed."},
+                {
+                    "step": f"Open {app_name}",
+                    "detail": f"Launch {app_name} on your Windows PC.",
+                },
+                {
+                    "step": "New Session",
+                    "detail": "File → New Session. Set display type to your TV model.",
+                },
+                {
+                    "step": "Set colour space target",
+                    "detail": "In Display Settings, set: Colour Space = Rec.709, White Point = D65, EOTF = BT.1886 (or 2.2 for brighter rooms).",
+                },
+                {
+                    "step": "Start Dogegen",
+                    "detail": "Use the Start Dogegen button in the Dogegen Companion card. The app launches Dogegen with resolve_sdr so ColourSpace can connect automatically. Confirm Dogegen is on the HDMI path you will calibrate and the TV is not showing an HDR badge.",
+                },
+                {
+                    "step": f"Connect {app_name} to Dogegen",
+                    "detail": f"In {app_name} go to Hardware → Pattern Generator → Resolve. Dogegen is already listening; ColourSpace should connect automatically.",
+                },
+                {
+                    "step": "Fullscreen Dogegen",
+                    "detail": "Alt+Enter to fullscreen the Dogegen window on your calibration display. This bypasses the Windows compositor and ensures bit-accurate SDR output.",
+                },
+                {
+                    "step": "Configure patch settings in ColourSpace",
+                    "detail": "Set patch size to ~30%, background to black. Confirm the signal-range setting in this app matches Dogegen's GPU output range (Full Range / 0–255 for PC).",
+                },
+                {
+                    "step": "Set CSV export folder",
+                    "detail": "In ColourSpace preferences, set the auto-export folder to the same folder you configured as your Watch Folder in this app.",
+                },
+                {
+                    "step": "Set TV picture mode",
+                    "detail": "On your TV, select the recommended picture mode shown in the Prepare TV step, then reset all WB/CMS/Gamma controls to factory defaults as listed.",
+                },
             ]
         if mode == "HDR10":
             return [
-                {"step": f"Open {app_name}", "detail": f"Launch {app_name} on your Windows PC."},
-                {"step": "New Session", "detail": "File → New Session. Set display type to your TV model."},
-                {"step": "Set colour space target", "detail": "In Display Settings, set Target Gamut / EOTF = ST2084 Rec2020. Use D65 as the white point target."},
-                {"step": "Start Dogegen", "detail": "Use the Start Dogegen button in the Dogegen Companion card. The app launches Dogegen with mode 10_hdr, maxcll, and resolve_hdr — no manual mode selection needed. Confirm your TV shows an HDR10 or HDR badge before measuring."},
-                {"step": f"Connect {app_name} to Dogegen", "detail": f"In {app_name} go to Hardware → Pattern Generator → Resolve. Dogegen is already listening; ColourSpace should connect automatically."},
-                {"step": "Fullscreen Dogegen", "detail": "Alt+Enter to fullscreen the Dogegen window on your calibration display for bit-accurate 10-bit HDR output."},
-                {"step": "Configure patch settings", "detail": "The app launches Dogegen with a fixed window size (set via Window % in the Dogegen Companion card, default 10%). Make sure the signal-range selection in this app matches Dogegen's GPU output range — for HDR on PC this is usually Full Range. Use 3% only as a secondary peak-highlight cross-check."},
-                {"step": "Use 10-bit manual values when needed", "detail": "If you enter patches manually in ColourSpace, use full-range 10-bit RGB values (0 to 1023). The repo includes tools/reference/colorspace_zro_hdr10_21step_sequence.csv and tools/reference/dogegen_hdr10_full_range_10bit_reference.csv for this workflow."},
-                {"step": "Set CSV export folder", "detail": "Point ColourSpace auto-export to the same folder as your Watch Folder in this app."},
-                {"step": "Set TV picture mode", "detail": "Select the HDR picture mode shown in Prepare TV. Leave local dimming at your real viewing setting for HDR, usually High on the U8G. Reset WB/CMS controls."},
+                {
+                    "step": f"Open {app_name}",
+                    "detail": f"Launch {app_name} on your Windows PC.",
+                },
+                {
+                    "step": "New Session",
+                    "detail": "File → New Session. Set display type to your TV model.",
+                },
+                {
+                    "step": "Set colour space target",
+                    "detail": "In Display Settings, set Target Gamut / EOTF = ST2084 Rec2020. Use D65 as the white point target.",
+                },
+                {
+                    "step": "Start Dogegen",
+                    "detail": "Use the Start Dogegen button in the Dogegen Companion card. The app launches Dogegen with mode 10_hdr, maxcll, and resolve_hdr — no manual mode selection needed. Confirm your TV shows an HDR10 or HDR badge before measuring.",
+                },
+                {
+                    "step": f"Connect {app_name} to Dogegen",
+                    "detail": f"In {app_name} go to Hardware → Pattern Generator → Resolve. Dogegen is already listening; ColourSpace should connect automatically.",
+                },
+                {
+                    "step": "Fullscreen Dogegen",
+                    "detail": "Alt+Enter to fullscreen the Dogegen window on your calibration display for bit-accurate 10-bit HDR output.",
+                },
+                {
+                    "step": "Configure patch settings",
+                    "detail": "The app launches Dogegen with a fixed window size (set via Window % in the Dogegen Companion card, default 10%). Make sure the signal-range selection in this app matches Dogegen's GPU output range — for HDR on PC this is usually Full Range. Use 3% only as a secondary peak-highlight cross-check.",
+                },
+                {
+                    "step": "Use 10-bit manual values when needed",
+                    "detail": "If you enter patches manually in ColourSpace, use full-range 10-bit RGB values (0 to 1023). The repo includes tools/reference/colorspace_zro_hdr10_21step_sequence.csv and tools/reference/dogegen_hdr10_full_range_10bit_reference.csv for this workflow.",
+                },
+                {
+                    "step": "Set CSV export folder",
+                    "detail": "Point ColourSpace auto-export to the same folder as your Watch Folder in this app.",
+                },
+                {
+                    "step": "Set TV picture mode",
+                    "detail": "Select the HDR picture mode shown in Prepare TV. Leave local dimming at your real viewing setting for HDR, usually High on the U8G. Reset WB/CMS controls.",
+                },
             ]
         return [
-            {"step": "Verify Dolby Vision signal path", "detail": "If your Dogegen workflow can hold an active Dolby Vision path, verify the TV is already in Dolby Vision before measuring. Dolby Vision must be active on the HDMI path you are calibrating."},
-            {"step": f"Open {app_name}", "detail": f"Launch {app_name} on your Windows PC."},
-            {"step": "New Session", "detail": "File → New Session. Set display type to your TV."},
-            {"step": "Set colour space target", "detail": "In Display Settings, set: Colour Space = Rec.2020, White Point = D65, EOTF = PQ (ST.2084). Note: DV applies internal tone mapping so absolute nit readings may not match HDR10."},
-            {"step": "Configure Dogegen", "detail": "Use the Dolby Vision-capable Dogegen path you have verified on this TV. If DV is not active and stable, use the HDR10 workflow instead."},
-            {"step": "Set CSV export folder", "detail": "Point ColourSpace auto-export to your Watch Folder."},
-            {"step": "Set TV picture mode", "detail": "Select the Dolby Vision picture mode (e.g. Dolby Vision Dark). DV handles tone-mapping internally — reset WB/CMS controls but gamma adjustment has limited effect."},
+            {
+                "step": "Verify Dolby Vision signal path",
+                "detail": "If your Dogegen workflow can hold an active Dolby Vision path, verify the TV is already in Dolby Vision before measuring. Dolby Vision must be active on the HDMI path you are calibrating.",
+            },
+            {
+                "step": f"Open {app_name}",
+                "detail": f"Launch {app_name} on your Windows PC.",
+            },
+            {
+                "step": "New Session",
+                "detail": "File → New Session. Set display type to your TV.",
+            },
+            {
+                "step": "Set colour space target",
+                "detail": "In Display Settings, set: Colour Space = Rec.2020, White Point = D65, EOTF = PQ (ST.2084). Note: DV applies internal tone mapping so absolute nit readings may not match HDR10.",
+            },
+            {
+                "step": "Configure Dogegen",
+                "detail": "Use the Dolby Vision-capable Dogegen path you have verified on this TV. If DV is not active and stable, use the HDR10 workflow instead.",
+            },
+            {
+                "step": "Set CSV export folder",
+                "detail": "Point ColourSpace auto-export to your Watch Folder.",
+            },
+            {
+                "step": "Set TV picture mode",
+                "detail": "Select the Dolby Vision picture mode (e.g. Dolby Vision Dark). DV handles tone-mapping internally — reset WB/CMS controls but gamma adjustment has limited effect.",
+            },
         ]
 
     if mode == "SDR":
         return [
-            {"step": f"Open {app_name}", "detail": f"Launch {app_name} on your Windows PC."},
-            {"step": "New Session", "detail": "File → New Session. Set display type to your TV model."},
-            {"step": "Set colour space target", "detail": "In Display Settings, set: Colour Space = Rec.709, White Point = D65, EOTF = BT.1886 (or 2.2)."},
-            {"step": "Connect LightSpace Connect", "detail": "In ColourSpace go to Hardware → Network Server → LightSpace Connect. Enter the IP address shown in the LightSpace Connect app on your Apple TV. Click Connect."},
-            {"step": "Configure patch settings", "detail": "Set patch size to ~30%, background to black. For SDR leave HDR mode off."},
-            {"step": "Set CSV export folder", "detail": "In ColourSpace preferences, set the auto-export folder to the same folder you configured as your Watch Folder in this app."},
-            {"step": "Set TV picture mode", "detail": "On your TV, select the recommended picture mode shown in the Prepare TV step, then reset all WB/CMS/Gamma controls to factory defaults as listed."},
+            {
+                "step": f"Open {app_name}",
+                "detail": f"Launch {app_name} on your Windows PC.",
+            },
+            {
+                "step": "New Session",
+                "detail": "File → New Session. Set display type to your TV model.",
+            },
+            {
+                "step": "Set colour space target",
+                "detail": "In Display Settings, set: Colour Space = Rec.709, White Point = D65, EOTF = BT.1886 (or 2.2).",
+            },
+            {
+                "step": "Connect LightSpace Connect",
+                "detail": "In ColourSpace go to Hardware → Network Server → LightSpace Connect. Enter the IP address shown in the LightSpace Connect app on your Apple TV. Click Connect.",
+            },
+            {
+                "step": "Configure patch settings",
+                "detail": "Set patch size to ~30%, background to black. For SDR leave HDR mode off.",
+            },
+            {
+                "step": "Set CSV export folder",
+                "detail": "In ColourSpace preferences, set the auto-export folder to the same folder you configured as your Watch Folder in this app.",
+            },
+            {
+                "step": "Set TV picture mode",
+                "detail": "On your TV, select the recommended picture mode shown in the Prepare TV step, then reset all WB/CMS/Gamma controls to factory defaults as listed.",
+            },
         ]
     if mode == "HDR10":
         return [
-            {"step": "Set Apple TV to HDR10 first", "detail": "On Apple TV: Settings → Display & Brightness → set Format to 4K HDR. Confirm your TV shows an HDR10 or HDR badge on the HDMI input."},
-            {"step": f"Open {app_name}", "detail": f"Launch {app_name} on your Windows PC."},
-            {"step": "New Session", "detail": "File → New Session. Set display type to your TV model."},
-            {"step": "Set colour space target", "detail": "In Display Settings, set: Colour Space = Rec.2020, White Point = D65, EOTF = PQ (ST.2084)."},
-            {"step": "Connect LightSpace Connect", "detail": "Hardware → Network Server → LightSpace Connect. Enter Apple TV IP. Enable HDR mode in LightSpace Connect settings so patches are sent inside the HDR signal path."},
-            {"step": "Configure patch settings", "detail": "Set a 10% HDR window on black background. Ensure HDR is enabled in both ColourSpace and LightSpace Connect. Use 3% only as a secondary peak-highlight cross-check."},
-            {"step": "Set CSV export folder", "detail": "Point ColourSpace auto-export to the same folder as your Watch Folder in this app."},
-            {"step": "Set TV picture mode", "detail": "Select the HDR picture mode shown in Prepare TV. Leave local dimming at your real viewing setting for HDR, usually High on the U8G. Reset WB/CMS controls."},
+            {
+                "step": "Set Apple TV to HDR10 first",
+                "detail": "On Apple TV: Settings → Display & Brightness → set Format to 4K HDR. Confirm your TV shows an HDR10 or HDR badge on the HDMI input.",
+            },
+            {
+                "step": f"Open {app_name}",
+                "detail": f"Launch {app_name} on your Windows PC.",
+            },
+            {
+                "step": "New Session",
+                "detail": "File → New Session. Set display type to your TV model.",
+            },
+            {
+                "step": "Set colour space target",
+                "detail": "In Display Settings, set: Colour Space = Rec.2020, White Point = D65, EOTF = PQ (ST.2084).",
+            },
+            {
+                "step": "Connect LightSpace Connect",
+                "detail": "Hardware → Network Server → LightSpace Connect. Enter Apple TV IP. Enable HDR mode in LightSpace Connect settings so patches are sent inside the HDR signal path.",
+            },
+            {
+                "step": "Configure patch settings",
+                "detail": "Set a 10% HDR window on black background. Ensure HDR is enabled in both ColourSpace and LightSpace Connect. Use 3% only as a secondary peak-highlight cross-check.",
+            },
+            {
+                "step": "Set CSV export folder",
+                "detail": "Point ColourSpace auto-export to the same folder as your Watch Folder in this app.",
+            },
+            {
+                "step": "Set TV picture mode",
+                "detail": "Select the HDR picture mode shown in Prepare TV. Leave local dimming at your real viewing setting for HDR, usually High on the U8G. Reset WB/CMS controls.",
+            },
         ]
     return [
-        {"step": "Verify Dolby Vision signal path", "detail": "Your Apple TV must already be outputting Dolby Vision: Settings → Display & Brightness → set Format to 4K Dolby Vision. Confirm TV shows Dolby Vision badge. ColourSpace measures within the DV tone-mapping pipeline — you cannot force DV from outside."},
-        {"step": f"Open {app_name}", "detail": f"Launch {app_name} on your Windows PC."},
-        {"step": "New Session", "detail": "File → New Session. Set display type to your TV."},
-        {"step": "Set colour space target", "detail": "In Display Settings, set: Colour Space = Rec.2020, White Point = D65, EOTF = PQ (ST.2084). Note: DV applies internal tone mapping so absolute nit readings may not match HDR10."},
-        {"step": "Connect LightSpace Connect", "detail": "Hardware → Network Server → LightSpace Connect. Enter Apple TV IP. LightSpace Connect must send patches through the active DV signal path."},
-        {"step": "Set CSV export folder", "detail": "Point ColourSpace auto-export to your Watch Folder."},
-        {"step": "Set TV picture mode", "detail": "Select the Dolby Vision picture mode (e.g. Dolby Vision Dark). DV handles tone-mapping internally — reset WB/CMS controls but gamma adjustment has limited effect."},
+        {
+            "step": "Verify Dolby Vision signal path",
+            "detail": "Your Apple TV must already be outputting Dolby Vision: Settings → Display & Brightness → set Format to 4K Dolby Vision. Confirm TV shows Dolby Vision badge. ColourSpace measures within the DV tone-mapping pipeline — you cannot force DV from outside.",
+        },
+        {
+            "step": f"Open {app_name}",
+            "detail": f"Launch {app_name} on your Windows PC.",
+        },
+        {
+            "step": "New Session",
+            "detail": "File → New Session. Set display type to your TV.",
+        },
+        {
+            "step": "Set colour space target",
+            "detail": "In Display Settings, set: Colour Space = Rec.2020, White Point = D65, EOTF = PQ (ST.2084). Note: DV applies internal tone mapping so absolute nit readings may not match HDR10.",
+        },
+        {
+            "step": "Connect LightSpace Connect",
+            "detail": "Hardware → Network Server → LightSpace Connect. Enter Apple TV IP. LightSpace Connect must send patches through the active DV signal path.",
+        },
+        {
+            "step": "Set CSV export folder",
+            "detail": "Point ColourSpace auto-export to your Watch Folder.",
+        },
+        {
+            "step": "Set TV picture mode",
+            "detail": "Select the Dolby Vision picture mode (e.g. Dolby Vision Dark). DV handles tone-mapping internally — reset WB/CMS controls but gamma adjustment has limited effect.",
+        },
     ]
 
 
@@ -296,16 +452,31 @@ def grayscale_ramp_instructions(
     levels = list(range(0, 101, interval))
     step_count = len(levels)
     preset_desc = f"{step_count}-step preset: 0, {interval}, {interval * 2} … 100%"
-    patches = [{"label": f"{p}% Gray", "rgb": [cv(p, signal_range, code_scale)] * 3} for p in levels]
+    patches = [
+        {"label": f"{p}% Gray", "rgb": [cv(p, signal_range, code_scale)] * 3}
+        for p in levels
+    ]
     if step == "pre_grayscale":
         return {
             "title": "Run Pre-Cal Grayscale in ZRO",
             "summary": f"Measure a full {step_count}-point grayscale ramp (0–100% in {interval}% steps) before making any adjustments.",
             "steps": [
-                {"step": "Open grayscale workflow", "detail": f"In ZRO, go to Measure → Grayscale Tracking (or Ramp). Select the {preset_desc}."},
-                {"step": "Verify LightSpace Connect", "detail": "Confirm LightSpace Connect is connected — ZRO will send each patch to your Apple TV automatically."},
-                {"step": "Run the ramp", "detail": "Click Run / Start. ZRO will display each gray patch, wait for stabilisation, and take a reading. Do not adjust any TV controls during this pass."},
-                {"step": "Export CSV", "detail": "After the ramp completes, ZRO auto-exports (or use File → Export → CSV). The Watch Folder will pick it up automatically, or use the Upload CSV button below."},
+                {
+                    "step": "Open grayscale workflow",
+                    "detail": f"In ZRO, go to Measure → Grayscale Tracking (or Ramp). Select the {preset_desc}.",
+                },
+                {
+                    "step": "Verify LightSpace Connect",
+                    "detail": "Confirm LightSpace Connect is connected — ZRO will send each patch to your Apple TV automatically.",
+                },
+                {
+                    "step": "Run the ramp",
+                    "detail": "Click Run / Start. ZRO will display each gray patch, wait for stabilisation, and take a reading. Do not adjust any TV controls during this pass.",
+                },
+                {
+                    "step": "Export CSV",
+                    "detail": "After the ramp completes, ZRO auto-exports (or use File → Export → CSV). The Watch Folder will pick it up automatically, or use the Upload CSV button below.",
+                },
             ],
             "patches": patches,
         }
@@ -313,8 +484,14 @@ def grayscale_ramp_instructions(
         "title": "Run Post-Cal Grayscale in ZRO",
         "summary": f"Repeat the full {step_count}-point grayscale ramp to verify improvement after calibration.",
         "steps": [
-            {"step": "Run the grayscale ramp again", "detail": f"Measure → Grayscale Tracking → {preset_desc}. Same as before — ZRO will step through each patch automatically."},
-            {"step": "Export CSV", "detail": "Export after the ramp. The Watch Folder will import it and this app will show the before/after comparison."},
+            {
+                "step": "Run the grayscale ramp again",
+                "detail": f"Measure → Grayscale Tracking → {preset_desc}. Same as before — ZRO will step through each patch automatically.",
+            },
+            {
+                "step": "Export CSV",
+                "detail": "Export after the ramp. The Watch Folder will import it and this app will show the before/after comparison.",
+            },
         ],
         "patches": patches,
     }
@@ -329,26 +506,55 @@ def zro_step_instructions(
         return cv(pct, signal_range, code_scale)
 
     cms = cms_patches(signal_range, code_scale)
-    generator_label = PATTERN_GENERATOR_OPTIONS.get(pattern_generator, PATTERN_GENERATOR_OPTIONS["lightspace_connect"])["label"]
+    generator_label = PATTERN_GENERATOR_OPTIONS.get(
+        pattern_generator, PATTERN_GENERATOR_OPTIONS["lightspace_connect"]
+    )["label"]
     if pattern_generator == "dogegen":
         patch_summary = "Use Dogegen to hold each patch on screen while you adjust the TV. ColourSpace measures whatever Dogegen is displaying."
-        open_patch_step = {"step": "Open Dogegen patch controls", "detail": "Use Dogegen's manual patch controls to hold the exact RGB patch listed below on screen."}
-        color_workflow_step = {"step": "Run all 6 colours", "detail": "Measure Red, Green, Blue, Cyan, Magenta, and Yellow using Dogegen. You can trigger them from ColourSpace if your Dogegen path is integrated there, or hold each patch manually and export the CSV after the set."}
+        open_patch_step = {
+            "step": "Open Dogegen patch controls",
+            "detail": "Use Dogegen's manual patch controls to hold the exact RGB patch listed below on screen.",
+        }
+        color_workflow_step = {
+            "step": "Run all 6 colours",
+            "detail": "Measure Red, Green, Blue, Cyan, Magenta, and Yellow using Dogegen. You can trigger them from ColourSpace if your Dogegen path is integrated there, or hold each patch manually and export the CSV after the set.",
+        }
     else:
         patch_summary = "Use LightSpace Connect's Calibration Gallery to hold each patch on screen while you adjust the TV. ColourSpace measures whatever is displayed."
-        open_patch_step = {"step": "Open the Calibration Gallery", "detail": "On your Apple TV, open LightSpace Connect. From the main menu select Gallery → Calibration Gallery. This lets you display any patch manually without going through ColourSpace's Single Patch command."}
-        color_workflow_step = {"step": "Open Color workflow", "detail": "In ColourSpace, go to Measure → Primaries & Secondaries (or Colour Checker). This will cycle through Red, Green, Blue, Cyan, Magenta, Yellow patches automatically via LightSpace Connect."}
+        open_patch_step = {
+            "step": "Open the Calibration Gallery",
+            "detail": "On your Apple TV, open LightSpace Connect. From the main menu select Gallery → Calibration Gallery. This lets you display any patch manually without going through ColourSpace's Single Patch command.",
+        }
+        color_workflow_step = {
+            "step": "Open Color workflow",
+            "detail": "In ColourSpace, go to Measure → Primaries & Secondaries (or Colour Checker). This will cycle through Red, Green, Blue, Cyan, Magenta, Yellow patches automatically via LightSpace Connect.",
+        }
     return {
         "luminance": {
             "title": "Set Peak Luminance, Black Level & Contrast",
             "summary": patch_summary,
             "steps": [
                 open_patch_step,
-                {"step": "Set Brightness (black level) — 5% gray", "detail": f"Display the 5% gray patch (R=G=B={patch_cv(5)}). Adjust TV Brightness until the patch is just barely visible above black — not crushed, not elevated."},
-                {"step": "Measure black level in ColourSpace", "detail": "With the 5% patch still on screen, take a Single Measure reading. Target is ~0.05–0.10 nits. If you overshoot, back off Brightness by 1 click at a time."},
-                {"step": "Set Contrast (white clipping) — 95% gray", "detail": f"Display the 95% gray patch (R=G=B={patch_cv(95)}). Adjust TV Contrast (not Backlight) until the brightest visible detail is just not clipping. If the TV has a built-in clipping indicator, use it. Otherwise reduce Contrast until the patch is uniform and smooth."},
-                {"step": "Set peak nits — 100% white", "detail": f"Display 100% white (R=G=B={patch_cv(100)}). In ColourSpace take a reading. Compare to the target nits shown below. Adjust Backlight/OLED Light, then re-measure. Repeat until within ±5 nits. Re-check 95% gray for clipping after any Backlight change."},
-                {"step": "Export CSV", "detail": "Once all three patches are set, export from ColourSpace (File → Export → CSV) so this app can record your peak luminance baseline."},
+                {
+                    "step": "Set Brightness (black level) — 5% gray",
+                    "detail": f"Display the 5% gray patch (R=G=B={patch_cv(5)}). Adjust TV Brightness until the patch is just barely visible above black — not crushed, not elevated.",
+                },
+                {
+                    "step": "Measure black level in ColourSpace",
+                    "detail": "With the 5% patch still on screen, take a Single Measure reading. Target is ~0.05–0.10 nits. If you overshoot, back off Brightness by 1 click at a time.",
+                },
+                {
+                    "step": "Set Contrast (white clipping) — 95% gray",
+                    "detail": f"Display the 95% gray patch (R=G=B={patch_cv(95)}). Adjust TV Contrast (not Backlight) until the brightest visible detail is just not clipping. If the TV has a built-in clipping indicator, use it. Otherwise reduce Contrast until the patch is uniform and smooth.",
+                },
+                {
+                    "step": "Set peak nits — 100% white",
+                    "detail": f"Display 100% white (R=G=B={patch_cv(100)}). In ColourSpace take a reading. Compare to the target nits shown below. Adjust Backlight/OLED Light, then re-measure. Repeat until within ±5 nits. Re-check 95% gray for clipping after any Backlight change.",
+                },
+                {
+                    "step": "Export CSV",
+                    "detail": "Once all three patches are set, export from ColourSpace (File → Export → CSV) so this app can record your peak luminance baseline.",
+                },
             ],
             "patches": [
                 {"label": "5% Gray (black level)", "rgb": [patch_cv(5)] * 3},
@@ -360,11 +566,26 @@ def zro_step_instructions(
             "title": "White Balance in ZRO",
             "summary": "Measure 80% gray (Gain) and 30% gray (Offset) to guide 2-point white balance adjustments.",
             "steps": [
-                {"step": "Measure 80% gray (Gain)", "detail": f"In ColourSpace, Single Patch → R={patch_cv(80)}, G={patch_cv(80)}, B={patch_cv(80)}. This is your Gain measurement. Export the CSV."},
-                {"step": "Check Gain guidance", "detail": "Review the control plan below. Make the suggested WB Gain moves on your TV (R/G/B Gain controls)."},
-                {"step": "Measure 30% gray (Offset)", "detail": f"Single Patch → R={patch_cv(30)}, G={patch_cv(30)}, B={patch_cv(30)}. This is your Offset measurement. Export the CSV."},
-                {"step": "Check Offset guidance", "detail": "Make the suggested WB Offset moves. Settle Gain before touching Offset."},
-                {"step": "Iterate", "detail": "Alternate between 80% and 30% measurements, making one-click changes, until both are within ΔE < 2."},
+                {
+                    "step": "Measure 80% gray (Gain)",
+                    "detail": f"In ColourSpace, Single Patch → R={patch_cv(80)}, G={patch_cv(80)}, B={patch_cv(80)}. This is your Gain measurement. Export the CSV.",
+                },
+                {
+                    "step": "Check Gain guidance",
+                    "detail": "Review the control plan below. Make the suggested WB Gain moves on your TV (R/G/B Gain controls).",
+                },
+                {
+                    "step": "Measure 30% gray (Offset)",
+                    "detail": f"Single Patch → R={patch_cv(30)}, G={patch_cv(30)}, B={patch_cv(30)}. This is your Offset measurement. Export the CSV.",
+                },
+                {
+                    "step": "Check Offset guidance",
+                    "detail": "Make the suggested WB Offset moves. Settle Gain before touching Offset.",
+                },
+                {
+                    "step": "Iterate",
+                    "detail": "Alternate between 80% and 30% measurements, making one-click changes, until both are within ΔE < 2.",
+                },
             ],
             "patches": [
                 {"label": "80% Gray (WB Gain)", "rgb": [patch_cv(80)] * 3},
@@ -375,10 +596,22 @@ def zro_step_instructions(
             "title": "Verify Gamma in ZRO",
             "summary": "Run a 20/40/60/80% pass to check gamma tracking. Adjust the TV's gamma preset or per-point controls.",
             "steps": [
-                {"step": "Measure 20, 40, 60, 80% gray", "detail": f"In ColourSpace, measure Single Patch at each level: 20% = R/G/B {patch_cv(20)}, 40% = {patch_cv(40)}, 60% = {patch_cv(60)}, 80% = {patch_cv(80)}. Export CSV after all four."},
-                {"step": "Check effective gamma", "detail": "Review the gamma measurements below. Each point shows the effective gamma calculated from luminance."},
-                {"step": "Adjust TV gamma", "detail": "Follow the control plan. For the U8G use the Gamma Calibration per-point controls. For preset-only TVs, switch the preset (2.2 → BT.1886 → 2.4, etc.)."},
-                {"step": "Re-run the pass", "detail": "After any adjustment, re-measure the full 20/40/60/80% set before making another change."},
+                {
+                    "step": "Measure 20, 40, 60, 80% gray",
+                    "detail": f"In ColourSpace, measure Single Patch at each level: 20% = R/G/B {patch_cv(20)}, 40% = {patch_cv(40)}, 60% = {patch_cv(60)}, 80% = {patch_cv(80)}. Export CSV after all four.",
+                },
+                {
+                    "step": "Check effective gamma",
+                    "detail": "Review the gamma measurements below. Each point shows the effective gamma calculated from luminance.",
+                },
+                {
+                    "step": "Adjust TV gamma",
+                    "detail": "Follow the control plan. For the U8G use the Gamma Calibration per-point controls. For preset-only TVs, switch the preset (2.2 → BT.1886 → 2.4, etc.).",
+                },
+                {
+                    "step": "Re-run the pass",
+                    "detail": "After any adjustment, re-measure the full 20/40/60/80% set before making another change.",
+                },
             ],
             "patches": [
                 {"label": "20% Gray (gamma)", "rgb": [patch_cv(20)] * 3},
@@ -392,9 +625,18 @@ def zro_step_instructions(
             "summary": f"Measure each primary and secondary colour with {generator_label} to guide Hue, Saturation, and Brightness adjustments.",
             "steps": [
                 color_workflow_step,
-                {"step": "Run all 6 colours", "detail": f"Let ColourSpace measure all six colours in sequence using {generator_label}. Export the CSV after the full set."},
-                {"step": "Check guidance per colour", "detail": "This app will show Hue/Saturation/Brightness guidance for each colour. Make one-click adjustments on your TV."},
-                {"step": "Re-measure changed colours", "detail": "After adjusting a colour, re-measure just that patch and export again. Repeat until ΔE < 2."},
+                {
+                    "step": "Run all 6 colours",
+                    "detail": f"Let ColourSpace measure all six colours in sequence using {generator_label}. Export the CSV after the full set.",
+                },
+                {
+                    "step": "Check guidance per colour",
+                    "detail": "This app will show Hue/Saturation/Brightness guidance for each colour. Make one-click adjustments on your TV.",
+                },
+                {
+                    "step": "Re-measure changed colours",
+                    "detail": "After adjusting a colour, re-measure just that patch and export again. Repeat until ΔE < 2.",
+                },
             ],
             "patches": [
                 {"label": "Red", "rgb": list(cms["Red"])},
@@ -409,7 +651,7 @@ def zro_step_instructions(
 
 
 def now() -> datetime:
-    return datetime.now()
+    return datetime.now(timezone.utc)
 
 
 def parse_iso_dt(value: Optional[str]) -> Optional[datetime]:
@@ -452,7 +694,9 @@ def serialize_session(s: Dict[str, Any]) -> Dict[str, Any]:
         "post_measurements": [serialize_measurement(m) for m in s["post_measurements"]],
         "wb_measurements": [serialize_measurement(m) for m in s["wb_measurements"]],
         "lum_measurements": [serialize_measurement(m) for m in s["lum_measurements"]],
-        "gamma_measurements": [serialize_measurement(m) for m in s["gamma_measurements"]],
+        "gamma_measurements": [
+            serialize_measurement(m) for m in s["gamma_measurements"]
+        ],
         "cms_measurements": [serialize_measurement(m) for m in s["cms_measurements"]],
         "peak_luminance": s["peak_luminance"],
         "created_at": s["created_at"],
@@ -483,17 +727,35 @@ def deserialize_session(data: Dict[str, Any]) -> Dict[str, Any]:
         "lightspace_tier": data.get("lightspace_tier", "free"),
         "pattern_generator": data.get("pattern_generator", "dogegen"),
         "grayscale_ramp_steps": data.get("grayscale_ramp_steps", 11),
-        "target": dc_replace(SDR_TARGET, peak_luminance_nits=data["sdr_peak_nits"]) if mode == "SDR" and data.get("sdr_peak_nits") else TARGETS.get(mode) if mode else None,
+        "target": dc_replace(SDR_TARGET, peak_luminance_nits=data["sdr_peak_nits"])
+        if mode == "SDR" and data.get("sdr_peak_nits")
+        else TARGETS.get(mode)
+        if mode
+        else None,
         "sdr_peak_nits": data.get("sdr_peak_nits"),
-        "pre_measurements": [deserialize_measurement(m) for m in data.get("pre_measurements", [])],
-        "post_measurements": [deserialize_measurement(m) for m in data.get("post_measurements", [])],
-        "wb_measurements": [deserialize_measurement(m) for m in data.get("wb_measurements", [])],
-        "lum_measurements": [deserialize_measurement(m) for m in data.get("lum_measurements", [])],
-        "gamma_measurements": [deserialize_measurement(m) for m in data.get("gamma_measurements", [])],
-        "cms_measurements": [deserialize_measurement(m) for m in data.get("cms_measurements", [])],
+        "pre_measurements": [
+            deserialize_measurement(m) for m in data.get("pre_measurements", [])
+        ],
+        "post_measurements": [
+            deserialize_measurement(m) for m in data.get("post_measurements", [])
+        ],
+        "wb_measurements": [
+            deserialize_measurement(m) for m in data.get("wb_measurements", [])
+        ],
+        "lum_measurements": [
+            deserialize_measurement(m) for m in data.get("lum_measurements", [])
+        ],
+        "gamma_measurements": [
+            deserialize_measurement(m) for m in data.get("gamma_measurements", [])
+        ],
+        "cms_measurements": [
+            deserialize_measurement(m) for m in data.get("cms_measurements", [])
+        ],
         "peak_luminance": data.get("peak_luminance", 0.0),
         "created_at": data.get("created_at", current_time),
-        "last_accessed_at": data.get("last_accessed_at", data.get("created_at", current_time)),
+        "last_accessed_at": data.get(
+            "last_accessed_at", data.get("created_at", current_time)
+        ),
         "zro_imports": data.get("zro_imports", []),
         "llm_config": {
             "endpoint": data.get("llm_config", {}).get("endpoint", ""),
@@ -505,7 +767,9 @@ def deserialize_session(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def measurement_time_bounds(bucket_map: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Optional[str]]:
+def measurement_time_bounds(
+    bucket_map: Dict[str, List[Dict[str, Any]]],
+) -> Dict[str, Optional[str]]:
     timestamps: List[str] = []
     for measurements in bucket_map.values():
         for measurement in measurements:
@@ -562,26 +826,44 @@ def recontextualize_import_result(
             continue
         stim_pct = stimulus_pct_from_code_value(m.stimulus_rgb[0], decode_range)
         if stim_pct >= 99.0:
-            result.lum_measurements.append(serialize_measurement(dc_replace(m, label="White (100%)")))
+            result.lum_measurements.append(
+                serialize_measurement(dc_replace(m, label="White (100%)"))
+            )
         if abs(stim_pct - 80.0) <= 7.0:
-            result.wb_measurements.append(serialize_measurement(dc_replace(m, label=f"WB Gain ({stim_pct:.0f}% gray)")))
+            result.wb_measurements.append(
+                serialize_measurement(
+                    dc_replace(m, label=f"WB Gain ({stim_pct:.0f}% gray)")
+                )
+            )
         elif abs(stim_pct - 30.0) <= 7.0:
-            result.wb_measurements.append(serialize_measurement(dc_replace(m, label=f"WB Offset ({stim_pct:.0f}% gray)")))
+            result.wb_measurements.append(
+                serialize_measurement(
+                    dc_replace(m, label=f"WB Offset ({stim_pct:.0f}% gray)")
+                )
+            )
         gamma_targets = [pct for pct in range(5, 100, 5) if abs(stim_pct - pct) <= 7.0]
         if gamma_targets:
             nearest = min(gamma_targets, key=lambda pct: abs(stim_pct - pct))
-            result.gamma_measurements.append(serialize_measurement(dc_replace(m, label=f"Gamma {nearest:.0f}%")))
+            result.gamma_measurements.append(
+                serialize_measurement(dc_replace(m, label=f"Gamma {nearest:.0f}%"))
+            )
 
     for row in result.raw_rows:
         if row.get("r") == row.get("g") == row.get("b"):
-            row["stimulus_pct"] = stimulus_pct_from_code_value(int(row["r"]), decode_range)
+            row["stimulus_pct"] = stimulus_pct_from_code_value(
+                int(row["r"]), decode_range
+            )
 
     return result
 
 
-def warnings_for_session_step(result: ZROImportResult, session_step: Optional[str]) -> List[str]:
+def warnings_for_session_step(
+    result: ZROImportResult, session_step: Optional[str]
+) -> List[str]:
     if session_step in ("pre_grayscale", "post_grayscale"):
-        return result.grayscale_pass_warnings[-1] if result.grayscale_pass_warnings else []
+        return (
+            result.grayscale_pass_warnings[-1] if result.grayscale_pass_warnings else []
+        )
     return result.abl_warnings
 
 
@@ -592,7 +874,10 @@ def gamma_levels_for_session(session: Dict[str, Any]) -> Tuple[int, ...]:
 
 def gamma_workflows_for_tv(tv: TVProfile) -> List[Dict[str, str]]:
     workflows = getattr(tv, "GAMMA_WORKFLOWS", ["quick"])
-    return [{"id": workflow, "label": GAMMA_WORKFLOW_LABELS.get(workflow, workflow.title())} for workflow in workflows]
+    return [
+        {"id": workflow, "label": GAMMA_WORKFLOW_LABELS.get(workflow, workflow.title())}
+        for workflow in workflows
+    ]
 
 
 def gamma_workflow_instructions(
@@ -606,11 +891,26 @@ def gamma_workflow_instructions(
             "title": "Run Fine Gamma in ZRO",
             "summary": "Run a 5%-increment gamma pass to tune TVs that expose 5% input-level gamma controls.",
             "steps": [
-                {"step": "Measure 5% through 95% gray", "detail": "In ZRO, run a grayscale/gamma pass at 5% increments: 5, 10, 15 ... 95%. Export the CSV after the pass completes."},
-                {"step": "Use 5% gamma controls", "detail": "Match each measurement to the nearest TV Gamma Calibration input level and make small moves only where the curve is off."},
-                {"step": "Rerun the full fine pass", "detail": "After any gamma-control changes, rerun the 5%-increment pass before making more adjustments."},
+                {
+                    "step": "Measure 5% through 95% gray",
+                    "detail": "In ZRO, run a grayscale/gamma pass at 5% increments: 5, 10, 15 ... 95%. Export the CSV after the pass completes.",
+                },
+                {
+                    "step": "Use 5% gamma controls",
+                    "detail": "Match each measurement to the nearest TV Gamma Calibration input level and make small moves only where the curve is off.",
+                },
+                {
+                    "step": "Rerun the full fine pass",
+                    "detail": "After any gamma-control changes, rerun the 5%-increment pass before making more adjustments.",
+                },
             ],
-            "patches": [{"label": f"{p}% Gray (gamma)", "rgb": [cv(p, signal_range, code_scale)] * 3} for p in FINE_GAMMA_TRACKING_LEVELS],
+            "patches": [
+                {
+                    "label": f"{p}% Gray (gamma)",
+                    "rgb": [cv(p, signal_range, code_scale)] * 3,
+                }
+                for p in FINE_GAMMA_TRACKING_LEVELS
+            ],
         }
     return zro_step_instructions(signal_range, pattern_generator, code_scale)["gamma"]
 
@@ -623,14 +923,22 @@ def m_to_dict(
 ) -> Dict[str, Any]:
     stim_pct = 100.0
     if m.stimulus_rgb:
-        decode_range = "full10" if signal_range == "full" and code_scale == "10bit" else signal_range
-        stim_pct = gamma_nominal_pct(m) if (m.label or "").startswith("Gamma ") else stimulus_pct_from_code_value(m.stimulus_rgb[0], decode_range)
+        decode_range = (
+            "full10"
+            if signal_range == "full" and code_scale == "10bit"
+            else signal_range
+        )
+        stim_pct = (
+            gamma_nominal_pct(m)
+            if (m.label or "").startswith("Gamma ")
+            else stimulus_pct_from_code_value(m.stimulus_rgb[0], decode_range)
+        )
 
     cms_colour_names = {"Red", "Green", "Blue", "Cyan", "Magenta", "Yellow"}
     colour_name = (m.label or "") if (m.label or "") in cms_colour_names else None
     is_grayscale_patch = (
-        m.stimulus_rgb is not None and
-        m.stimulus_rgb[0] == m.stimulus_rgb[1] == m.stimulus_rgb[2]
+        m.stimulus_rgb is not None
+        and m.stimulus_rgb[0] == m.stimulus_rgb[1] == m.stimulus_rgb[2]
     )
     if colour_name and target:
         ref_xy = target_xy_for_colour(target, colour_name)
@@ -654,25 +962,38 @@ def m_to_dict(
         warnings.append("Non-black patch measured at 0 nits.")
     invalid = len(warnings) > 0
 
-    de = None if invalid else delta_e_ciede2000_xyY(
-        m.x,
-        m.y,
-        m.Y,
-        ref_xy[0],
-        ref_xy[1],
-        ref_Y,
+    de = (
+        None
+        if invalid
+        else delta_e_ciede2000_xyY(
+            m.x,
+            m.y,
+            m.Y,
+            ref_xy[0],
+            ref_xy[1],
+            ref_Y,
+        )
     )
     dxy = None if invalid else delta_xy((m.x, m.y), ref_xy)
     eff_gamma: Optional[float] = None
-    if not invalid and 0 < stim_pct < 100 and m.Y > 0 and target.peak_luminance_nits > 0:
+    if (
+        not invalid
+        and 0 < stim_pct < 100
+        and m.Y > 0
+        and target.peak_luminance_nits > 0
+    ):
         g = gamma_from_luminance(m.Y, target.peak_luminance_nits, stim_pct)
         eff_gamma = round(g, 3) if g is not None else None
     rating = (
-        "invalid" if invalid else
-        "excellent" if de <= 1.0 else
-        "good" if de <= 2.0 else
-        "acceptable" if de <= 3.0 else
-        "poor"
+        "invalid"
+        if invalid
+        else "excellent"
+        if de <= 1.0
+        else "good"
+        if de <= 2.0
+        else "acceptable"
+        if de <= 3.0
+        else "poor"
     )
     data = asdict(m)
     data["stimulus_rgb"] = list(data["stimulus_rgb"])
@@ -690,17 +1011,47 @@ def m_to_dict(
     }
 
 
-def validate_peak_luminance(measured_nits: float, target: CalibrationTarget) -> Dict[str, Any]:
+def validate_peak_luminance(
+    measured_nits: float, target: CalibrationTarget
+) -> Dict[str, Any]:
     mode = str(target.mode)
     lower_bound = 1.0
     upper_bound = 1000.0 if target.mode == CalMode.SDR else 5000.0
     if not math.isfinite(measured_nits):
-        return {"valid": False, "severity": "error", "code": "non_finite", "message": "Peak luminance reading is not a real number. Re-measure 100% white.", "bounds": {"min": lower_bound, "max": upper_bound}, "mode": mode}
+        return {
+            "valid": False,
+            "severity": "error",
+            "code": "non_finite",
+            "message": "Peak luminance reading is not a real number. Re-measure 100% white.",
+            "bounds": {"min": lower_bound, "max": upper_bound},
+            "mode": mode,
+        }
     if measured_nits < lower_bound:
-        return {"valid": False, "severity": "error", "code": "too_low", "message": f"100% white measured only {measured_nits:.1f} nits — too low to trust. Re-measure and check that all dimming features are disabled.", "bounds": {"min": lower_bound, "max": upper_bound}, "mode": mode}
+        return {
+            "valid": False,
+            "severity": "error",
+            "code": "too_low",
+            "message": f"100% white measured only {measured_nits:.1f} nits — too low to trust. Re-measure and check that all dimming features are disabled.",
+            "bounds": {"min": lower_bound, "max": upper_bound},
+            "mode": mode,
+        }
     if measured_nits > upper_bound:
-        return {"valid": False, "severity": "error", "code": "too_high", "message": f"100% white measured {measured_nits:.1f} nits — above the plausible range. Verify the meter is reading the panel, not ambient light.", "bounds": {"min": lower_bound, "max": upper_bound}, "mode": mode}
-    return {"valid": True, "severity": "ok", "code": "ok", "message": "", "bounds": {"min": lower_bound, "max": upper_bound}, "mode": mode}
+        return {
+            "valid": False,
+            "severity": "error",
+            "code": "too_high",
+            "message": f"100% white measured {measured_nits:.1f} nits — above the plausible range. Verify the meter is reading the panel, not ambient light.",
+            "bounds": {"min": lower_bound, "max": upper_bound},
+            "mode": mode,
+        }
+    return {
+        "valid": True,
+        "severity": "ok",
+        "code": "ok",
+        "message": "",
+        "bounds": {"min": lower_bound, "max": upper_bound},
+        "mode": mode,
+    }
 
 
 def bucket_map_for_session_step(
@@ -727,7 +1078,9 @@ def bucket_map_for_session_step(
     elif session_step == "color_tuner":
         bucket_map["cms_measurements"] = result.cms_measurements
     elif session_step == "post_grayscale":
-        bucket_map["post_measurements"] = latest_grayscale or result.post_measurements or result.pre_measurements
+        bucket_map["post_measurements"] = (
+            latest_grayscale or result.post_measurements or result.pre_measurements
+        )
     return bucket_map
 
 
@@ -762,10 +1115,14 @@ def latest_gamma_pass(
     latest = list(reversed(latest_reversed))
     latest_by_target: Dict[int, Measurement] = {}
     for measurement in latest:
-        target_pct = gamma_target_for_measurement(measurement, levels, signal_range, code_scale)
+        target_pct = gamma_target_for_measurement(
+            measurement, levels, signal_range, code_scale
+        )
         if target_pct is None:
             continue
-        latest_by_target[target_pct] = dc_replace(measurement, label=f"Gamma {target_pct}%")
+        latest_by_target[target_pct] = dc_replace(
+            measurement, label=f"Gamma {target_pct}%"
+        )
     return [latest_by_target[pct] for pct in levels if pct in latest_by_target]
 
 
@@ -824,12 +1181,16 @@ def latest_grayscale_pass(
         # (appropriate for freshly imported CSV data)
         latest = list(measurements)
 
-    decode_range = "full10" if signal_range == "full" and code_scale == "10bit" else signal_range
+    decode_range = (
+        "full10" if signal_range == "full" and code_scale == "10bit" else signal_range
+    )
     return sorted(
         latest,
-        key=lambda m: stimulus_pct_from_code_value(m.stimulus_rgb[0], decode_range)
-        if m.stimulus_rgb
-        else float("inf"),
+        key=lambda m: (
+            stimulus_pct_from_code_value(m.stimulus_rgb[0], decode_range)
+            if m.stimulus_rgb
+            else float("inf")
+        ),
     )
 
 
@@ -839,7 +1200,9 @@ def gamma_pass_complete(
     signal_range: str = "auto",
     code_scale: str = "8bit",
 ) -> bool:
-    return len(latest_gamma_pass(measurements, levels, signal_range, code_scale)) == len(levels)
+    return len(
+        latest_gamma_pass(measurements, levels, signal_range, code_scale)
+    ) == len(levels)
 
 
 def measurement_warning_messages(measurements: List[Dict[str, Any]]) -> List[str]:
@@ -851,7 +1214,9 @@ def measurement_warning_messages(measurements: List[Dict[str, Any]]) -> List[str
     return messages
 
 
-def latest_wb_measurements(measurements: List[Measurement]) -> Dict[str, Optional[Measurement]]:
+def latest_wb_measurements(
+    measurements: List[Measurement],
+) -> Dict[str, Optional[Measurement]]:
     latest: Dict[str, Optional[Measurement]] = {"gain": None, "offset": None}
     for measurement in measurements:
         measurement_type = wb_measurement_type(measurement)
@@ -865,7 +1230,11 @@ def recommended_code_scale(
     signal_range: str,
     mode: Optional[str],
 ) -> str:
-    if pattern_generator == "dogegen" and signal_range == "full" and mode in ("HDR10", "Dolby Vision"):
+    if (
+        pattern_generator == "dogegen"
+        and signal_range == "full"
+        and mode in ("HDR10", "Dolby Vision")
+    ):
         return "10bit"
     return "8bit"
 
@@ -917,38 +1286,74 @@ def session_view(s: Dict[str, Any]) -> Dict[str, Any]:
     if step == "prepare" and mode:
         mode_enum = CalMode(mode)
         pattern_generator = s.get("pattern_generator", "lightspace_connect")
-        generator_meta = PATTERN_GENERATOR_OPTIONS.get(pattern_generator, PATTERN_GENERATOR_OPTIONS["lightspace_connect"])
+        generator_meta = PATTERN_GENERATOR_OPTIONS.get(
+            pattern_generator, PATTERN_GENERATOR_OPTIONS["lightspace_connect"]
+        )
         view["prepare_data"] = {
             "picture_mode": tv.PICTURE_MODES.get(mode_enum, ""),
-            "disable_settings": [{"setting": k, "value": v} for k, v in tv.DISABLE_BEFORE_CAL],
-            "configure_settings": [{"setting": k, "value": v} for k, v in tv.CONFIGURE_FOR_CAL],
-            "reset_settings": [{"setting": k, "value": v} for k, v in tv.RESET_BEFORE_CAL],
-            "picture_control_guide": [{"control": k, "instruction": v} for k, v in tv.PICTURE_CONTROL_GUIDE],
+            "disable_settings": [
+                {"setting": k, "value": v} for k, v in tv.DISABLE_BEFORE_CAL
+            ],
+            "configure_settings": [
+                {"setting": k, "value": v} for k, v in tv.CONFIGURE_FOR_CAL
+            ],
+            "reset_settings": [
+                {"setting": k, "value": v} for k, v in tv.RESET_BEFORE_CAL
+            ],
+            "picture_control_guide": [
+                {"control": k, "instruction": v} for k, v in tv.PICTURE_CONTROL_GUIDE
+            ],
             "wb_menu_path": tv.WB_MENU_PATH,
             "gamma_menu_path": tv.GAMMA_MENU_PATH,
             "gamma_note": tv.gamma_note,
             "is_hdr": mode in ("HDR10", "Dolby Vision"),
             "service_menu_access": tv.SERVICE_MENU_ACCESS,
-            "service_menu_controls": [{"control": k, "desc": v} for k, v in tv.SERVICE_MENU_CONTROLS] if tv.SERVICE_MENU_CONTROLS else [],
+            "service_menu_controls": [
+                {"control": k, "desc": v} for k, v in tv.SERVICE_MENU_CONTROLS
+            ]
+            if tv.SERVICE_MENU_CONTROLS
+            else [],
             "pattern_generator": pattern_generator,
             "pattern_generator_label": generator_meta["label"],
             "pattern_generator_desc": generator_meta["desc"],
             "pattern_generator_signal_range_hint": generator_meta["signal_range_hint"],
             "code_scale": code_scale,
             "code_scale_options": [
-                {"key": "8bit", "label": "8-bit Codes", "desc": "Use 0..255 for Full Range or 16..235 for Limited Range."},
-                {"key": "10bit", "label": "10-bit Codes", "desc": "Use 0..1023 for Full Range workflows such as Dogegen HDR on PC."},
+                {
+                    "key": "8bit",
+                    "label": "8-bit Codes",
+                    "desc": "Use 0..255 for Full Range or 16..235 for Limited Range.",
+                },
+                {
+                    "key": "10bit",
+                    "label": "10-bit Codes",
+                    "desc": "Use 0..1023 for Full Range workflows such as Dogegen HDR on PC.",
+                },
             ],
-            "pattern_generator_options": [{"key": key, "label": meta["label"], "desc": meta["desc"]} for key, meta in PATTERN_GENERATOR_OPTIONS.items()],
+            "pattern_generator_options": [
+                {"key": key, "label": meta["label"], "desc": meta["desc"]}
+                for key, meta in PATTERN_GENERATOR_OPTIONS.items()
+            ],
             "zro_setup_steps": workflow_setup(mode, pattern_generator),
             "grayscale_ramp_options": GRAYSCALE_RAMP_OPTIONS_VIEW,
         }
     elif step in ("pre_grayscale", "post_grayscale"):
         ramp_steps = s.get("grayscale_ramp_steps", 11)
         levels = grayscale_levels_for_ramp(ramp_steps)
-        raw_meas = s["pre_measurements"] if step == "pre_grayscale" else s["post_measurements"]
-        meas = latest_grayscale_pass(raw_meas, max_count=len(levels), signal_range=signal_range, code_scale=code_scale)
-        measurement_dicts = [m_to_dict(m, target, signal_range, code_scale) for m in meas] if target else []
+        raw_meas = (
+            s["pre_measurements"] if step == "pre_grayscale" else s["post_measurements"]
+        )
+        meas = latest_grayscale_pass(
+            raw_meas,
+            max_count=len(levels),
+            signal_range=signal_range,
+            code_scale=code_scale,
+        )
+        measurement_dicts = (
+            [m_to_dict(m, target, signal_range, code_scale) for m in meas]
+            if target
+            else []
+        )
         view["grayscale_data"] = {
             "phase": "Pre-Cal" if step == "pre_grayscale" else "Post-Cal",
             "done": len(meas),
@@ -957,43 +1362,84 @@ def session_view(s: Dict[str, Any]) -> Dict[str, Any]:
             "measurements": measurement_dicts,
             "warnings": measurement_warning_messages(measurement_dicts),
         }
-        view["zro_instructions"] = grayscale_ramp_instructions(step, ramp_steps, signal_range, code_scale)
+        view["zro_instructions"] = grayscale_ramp_instructions(
+            step, ramp_steps, signal_range, code_scale
+        )
     elif step == "luminance":
         latest_lum = s["lum_measurements"][-1] if s["lum_measurements"] else None
-        lum_validation = validate_peak_luminance(latest_lum.Y, target) if latest_lum and target else None
+        lum_validation = (
+            validate_peak_luminance(latest_lum.Y, target)
+            if latest_lum and target
+            else None
+        )
         view["luminance_data"] = {
             "target_nits": target.peak_luminance_nits if target else 120,
             "current_nits": s["peak_luminance"],
-            "picture_control_guide": [{"control": k, "instruction": v} for k, v in tv.PICTURE_CONTROL_GUIDE],
-            "control_plan": luminance_control_plan(s["peak_luminance"], target.peak_luminance_nits if target else 120, lum_validation),
+            "picture_control_guide": [
+                {"control": k, "instruction": v} for k, v in tv.PICTURE_CONTROL_GUIDE
+            ],
+            "control_plan": luminance_control_plan(
+                s["peak_luminance"],
+                target.peak_luminance_nits if target else 120,
+                lum_validation,
+            ),
             "validation": lum_validation,
-            "readings": [{"Y": round(m.Y, 1), "ts": m.timestamp} for m in s["lum_measurements"][-10:]],
+            "readings": [
+                {"Y": round(m.Y, 1), "ts": m.timestamp}
+                for m in s["lum_measurements"][-10:]
+            ],
         }
-        view["zro_instructions"] = zro_step_instructions(signal_range, s.get("pattern_generator", "lightspace_connect"), code_scale)["luminance"]
+        view["zro_instructions"] = zro_step_instructions(
+            signal_range, s.get("pattern_generator", "lightspace_connect"), code_scale
+        )["luminance"]
     elif step == "white_balance":
         wb = s["wb_measurements"]
         latest_wb = latest_wb_measurements(wb)
         latest_gain = latest_wb["gain"]
         latest_offset = latest_wb["offset"]
-        current_hints = wb_hints(wb[-1], target.white_point_xy) if wb and target else None
-        last_wb_de = m_to_dict(wb[-1], target, signal_range, code_scale)["delta_e"] if wb and target else None
+        current_hints = (
+            wb_hints(wb[-1], target.white_point_xy) if wb and target else None
+        )
+        last_wb_de = (
+            m_to_dict(wb[-1], target, signal_range, code_scale)["delta_e"]
+            if wb and target
+            else None
+        )
         view["wb_data"] = {
             "menu_path": tv.WB_MENU_PATH,
             "controls": [{"control": k, "desc": v} for k, v in tv.WB_2POINT.items()],
             "notes": list(tv.WB_NOTES),
             "iterations": len(wb),
-            "measurements": [m_to_dict(m, target, signal_range, code_scale) for m in wb[-4:]] if target else [],
-            "gain_measurement": m_to_dict(latest_gain, target, signal_range, code_scale) if latest_gain and target else None,
-            "offset_measurement": m_to_dict(latest_offset, target, signal_range, code_scale) if latest_offset and target else None,
+            "measurements": [
+                m_to_dict(m, target, signal_range, code_scale) for m in wb[-4:]
+            ]
+            if target
+            else [],
+            "gain_measurement": m_to_dict(latest_gain, target, signal_range, code_scale)
+            if latest_gain and target
+            else None,
+            "offset_measurement": m_to_dict(
+                latest_offset, target, signal_range, code_scale
+            )
+            if latest_offset and target
+            else None,
             "has_gain_measurement": latest_gain is not None,
             "has_offset_measurement": latest_offset is not None,
             "ready_to_continue": latest_gain is not None and latest_offset is not None,
             "hints": current_hints,
-            "recommendations": wb_recommendations(wb[-1], current_hints, tv, de=last_wb_de) if wb and target and current_hints else [],
-            "control_plan": wb_control_plan(wb[-1], current_hints, tv, de=last_wb_de) if wb and target and current_hints else [],
+            "recommendations": wb_recommendations(
+                wb[-1], current_hints, tv, de=last_wb_de
+            )
+            if wb and target and current_hints
+            else [],
+            "control_plan": wb_control_plan(wb[-1], current_hints, tv, de=last_wb_de)
+            if wb and target and current_hints
+            else [],
             "target_xy": list(target.white_point_xy) if target else [0.3127, 0.3290],
         }
-        view["zro_instructions"] = zro_step_instructions(signal_range, s.get("pattern_generator", "lightspace_connect"), code_scale)["white_balance"]
+        view["zro_instructions"] = zro_step_instructions(
+            signal_range, s.get("pattern_generator", "lightspace_connect"), code_scale
+        )["white_balance"]
     elif step == "gamma":
         g_meas = s["gamma_measurements"]
         gamma_levels = gamma_levels_for_session(s)
@@ -1005,18 +1451,56 @@ def session_view(s: Dict[str, Any]) -> Dict[str, Any]:
             "notes": list(tv.GAMMA_NOTES),
             "mode": mode,
             "workflow": gamma_workflow,
-            "workflow_label": GAMMA_WORKFLOW_LABELS.get(gamma_workflow, gamma_workflow.title()),
+            "workflow_label": GAMMA_WORKFLOW_LABELS.get(
+                gamma_workflow, gamma_workflow.title()
+            ),
             "available_workflows": gamma_workflows_for_tv(tv),
             "tracking_levels": list(gamma_levels),
             "target_gamma": target.gamma if target else 2.2,
-            "ready_to_continue": gamma_pass_complete(g_meas, gamma_levels, signal_range, code_scale),
-            "measurements": [m_to_dict(m, target, signal_range, code_scale) for m in latest_pass] if target else [],
-            "recommendations": gamma_recommendations(latest_pass, target.gamma if target else 2.2, target.peak_luminance_nits if target else SDR_TARGET.peak_luminance_nits, s["tv_key"], gamma_workflow, signal_range, code_scale, gamma_levels),
+            "ready_to_continue": gamma_pass_complete(
+                g_meas, gamma_levels, signal_range, code_scale
+            ),
+            "measurements": [
+                m_to_dict(m, target, signal_range, code_scale) for m in latest_pass
+            ]
+            if target
+            else [],
+            "recommendations": gamma_recommendations(
+                latest_pass,
+                target.gamma if target else 2.2,
+                target.peak_luminance_nits
+                if target
+                else SDR_TARGET.peak_luminance_nits,
+                s["tv_key"],
+                gamma_workflow,
+                signal_range,
+                code_scale,
+                gamma_levels,
+            ),
             "control_plan": (
-                u8g_gamma_control_plan(latest_pass, target.gamma if target else 2.2, target.peak_luminance_nits if target else SDR_TARGET.peak_luminance_nits, signal_range, code_scale, gamma_levels)
-                if s["tv_key"] == "u8g" and target else
-                preset_gamma_control_plan(latest_pass, target.gamma if target else 2.2, target.peak_luminance_nits if target else SDR_TARGET.peak_luminance_nits, signal_range, code_scale, gamma_levels)
-                if target else []
+                u8g_gamma_control_plan(
+                    latest_pass,
+                    target.gamma if target else 2.2,
+                    target.peak_luminance_nits
+                    if target
+                    else SDR_TARGET.peak_luminance_nits,
+                    signal_range,
+                    code_scale,
+                    gamma_levels,
+                )
+                if s["tv_key"] == "u8g" and target
+                else preset_gamma_control_plan(
+                    latest_pass,
+                    target.gamma if target else 2.2,
+                    target.peak_luminance_nits
+                    if target
+                    else SDR_TARGET.peak_luminance_nits,
+                    signal_range,
+                    code_scale,
+                    gamma_levels,
+                )
+                if target
+                else []
             ),
         }
         view["zro_instructions"] = gamma_workflow_instructions(
@@ -1028,18 +1512,35 @@ def session_view(s: Dict[str, Any]) -> Dict[str, Any]:
     elif step == "color_tuner":
         cms = s["cms_measurements"]
         latest_colour = cms[-1].label.replace(" 100%", "") if cms else None
-        latest_hint = cms_hints(cms[-1], target, latest_colour) if cms and target and latest_colour else None
+        latest_hint = (
+            cms_hints(cms[-1], target, latest_colour)
+            if cms and target and latest_colour
+            else None
+        )
         patch_map = cms_patches(signal_range, code_scale)
         view["cms_data"] = {
             "menu_path": tv.CMS_MENU_PATH,
             "controls": list(tv.CMS_CONTROLS),
-            "colors": [{"name": name, "rgb": list(patch_map.get(name, (235, 235, 235)))} for name in tv.CMS_COLOURS],
+            "colors": [
+                {"name": name, "rgb": list(patch_map.get(name, (235, 235, 235)))}
+                for name in tv.CMS_COLOURS
+            ],
             "notes": list(tv.CMS_NOTES),
-            "measurements": [m_to_dict(m, target, signal_range, code_scale) for m in cms] if target else [],
+            "measurements": [
+                m_to_dict(m, target, signal_range, code_scale) for m in cms
+            ]
+            if target
+            else [],
             "latest_hint": latest_hint,
-            "control_plan": cms_control_plan(latest_hint, list(tv.CMS_CONTROLS), latest_colour, tv) if latest_hint else [],
+            "control_plan": cms_control_plan(
+                latest_hint, list(tv.CMS_CONTROLS), latest_colour, tv
+            )
+            if latest_hint
+            else [],
         }
-        view["zro_instructions"] = zro_step_instructions(signal_range, s.get("pattern_generator", "lightspace_connect"), code_scale)["color_tuner"]
+        view["zro_instructions"] = zro_step_instructions(
+            signal_range, s.get("pattern_generator", "lightspace_connect"), code_scale
+        )["color_tuner"]
     return view
 
 
@@ -1064,7 +1565,9 @@ class SessionStore:
     def session_ttl(self) -> timedelta:
         return self._ttl_getter()
 
-    def touch_session(self, session: Dict[str, Any], *, when: Optional[datetime] = None) -> None:
+    def touch_session(
+        self, session: Dict[str, Any], *, when: Optional[datetime] = None
+    ) -> None:
         session["last_accessed_at"] = (when or now()).isoformat()
 
     def delete_session_persisted_file(self, sid: str) -> None:
@@ -1074,7 +1577,9 @@ class SessionStore:
         except Exception:
             logger.exception("Failed to delete session file for %s", sid)
 
-    def is_session_expired(self, session: Dict[str, Any], *, current_time: Optional[datetime] = None) -> bool:
+    def is_session_expired(
+        self, session: Dict[str, Any], *, current_time: Optional[datetime] = None
+    ) -> bool:
         watched_id = self._watched_session_id_getter()
         if session.get("id") == watched_id:
             return False
@@ -1083,14 +1588,22 @@ class SessionStore:
             # Backward-compatibility for ad-hoc in-memory sessions used by tests and
             # older callers: if no access timestamp exists yet, treat the session as live.
             return False
-        anchor = parse_iso_dt(last_accessed_raw) or parse_iso_dt(session.get("created_at"))
+        anchor = parse_iso_dt(last_accessed_raw) or parse_iso_dt(
+            session.get("created_at")
+        )
         if anchor is None:
             return False
         return anchor <= (current_time or now()) - self.session_ttl
 
-    def evict_expired_sessions(self, *, current_time: Optional[datetime] = None) -> List[str]:
+    def evict_expired_sessions(
+        self, *, current_time: Optional[datetime] = None
+    ) -> List[str]:
         active_time = current_time or now()
-        expired_ids = [sid for sid, session in list(self.sessions.items()) if self.is_session_expired(session, current_time=active_time)]
+        expired_ids = [
+            sid
+            for sid, session in list(self.sessions.items())
+            if self.is_session_expired(session, current_time=active_time)
+        ]
         for sid in expired_ids:
             self.sessions.pop(sid, None)
             self.delete_session_persisted_file(sid)
@@ -1121,7 +1634,9 @@ class SessionStore:
                         continue
                     self.sessions[sid] = session
             except Exception:
-                logger.warning("Could not load session from %s — file may be corrupt", path)
+                logger.warning(
+                    "Could not load session from %s — file may be corrupt", path
+                )
 
     def get(self, sid: str) -> Dict[str, Any]:
         self.evict_expired_sessions()
@@ -1134,9 +1649,14 @@ class SessionStore:
     def latest_session(self) -> Optional[Dict[str, Any]]:
         if not self.sessions:
             return None
-        return max(self.sessions.values(), key=lambda s: s.get("last_accessed_at", s.get("created_at", "")))
+        return max(
+            self.sessions.values(),
+            key=lambda s: s.get("last_accessed_at", s.get("created_at", "")),
+        )
 
-    def create_session(self, tv_key: str, sdr_peak_nits: Optional[float] = None) -> Dict[str, Any]:
+    def create_session(
+        self, tv_key: str, sdr_peak_nits: Optional[float] = None
+    ) -> Dict[str, Any]:
         self.evict_expired_sessions()
         if tv_key not in TV_PROFILES:
             raise HTTPException(400, f"Unknown TV profile: {tv_key}")
@@ -1182,7 +1702,9 @@ class SessionStore:
         self.sessions.pop(sid, None)
         self.delete_session_persisted_file(sid)
 
-    def select_mode(self, sid: str, mode: str, sdr_peak_nits: Optional[float] = None) -> Dict[str, Any]:
+    def select_mode(
+        self, sid: str, mode: str, sdr_peak_nits: Optional[float] = None
+    ) -> Dict[str, Any]:
         session = self.get(sid)
         if session["step"] != "select_mode":
             raise HTTPException(400, "Not in select_mode step")
@@ -1192,7 +1714,9 @@ class SessionStore:
         if mode == "SDR" and sdr_peak_nits is not None:
             if not (50 <= sdr_peak_nits <= 400):
                 raise HTTPException(400, "sdr_peak_nits must be between 50 and 400")
-            session["target"] = dc_replace(SDR_TARGET, peak_luminance_nits=sdr_peak_nits)
+            session["target"] = dc_replace(
+                SDR_TARGET, peak_luminance_nits=sdr_peak_nits
+            )
             session["sdr_peak_nits"] = sdr_peak_nits
         else:
             session["target"] = TARGETS[mode]
@@ -1229,16 +1753,27 @@ class SessionStore:
         if signal_range not in ("limited", "full"):
             raise HTTPException(400, "signal_range must be 'limited' or 'full'")
         session["signal_range"] = signal_range
-        session["code_scale"] = recommended_code_scale(session.get("pattern_generator", "lightspace_connect"), signal_range, session.get("mode"))
+        session["code_scale"] = recommended_code_scale(
+            session.get("pattern_generator", "lightspace_connect"),
+            signal_range,
+            session.get("mode"),
+        )
         self.save_session(sid)
         return session
 
     def set_pattern_generator(self, sid: str, pattern_generator: str) -> Dict[str, Any]:
         session = self.get(sid)
         if pattern_generator not in PATTERN_GENERATOR_OPTIONS:
-            raise HTTPException(400, f"pattern_generator must be one of {sorted(PATTERN_GENERATOR_OPTIONS)}")
+            raise HTTPException(
+                400,
+                f"pattern_generator must be one of {sorted(PATTERN_GENERATOR_OPTIONS)}",
+            )
         session["pattern_generator"] = pattern_generator
-        session["code_scale"] = recommended_code_scale(pattern_generator, session.get("signal_range", "limited"), session.get("mode"))
+        session["code_scale"] = recommended_code_scale(
+            pattern_generator,
+            session.get("signal_range", "limited"),
+            session.get("mode"),
+        )
         self.save_session(sid)
         return session
 
@@ -1247,19 +1782,27 @@ class SessionStore:
         if code_scale not in ("8bit", "10bit"):
             raise HTTPException(400, "code_scale must be '8bit' or '10bit'")
         if code_scale == "10bit" and session.get("signal_range") != "full":
-            raise HTTPException(400, "10bit code_scale currently requires Full signal range")
+            raise HTTPException(
+                400, "10bit code_scale currently requires Full signal range"
+            )
         session["code_scale"] = code_scale
         self.save_session(sid)
         return session
 
-    def set_lightspace_tier(self, sid: str, tier: str, ramp_steps: int) -> Dict[str, Any]:
+    def set_lightspace_tier(
+        self, sid: str, tier: str, ramp_steps: int
+    ) -> Dict[str, Any]:
         session = self.get(sid)
         if tier not in ("free", "paid"):
             raise HTTPException(400, "tier must be 'free' or 'paid'")
         if ramp_steps not in GRAYSCALE_RAMP_OPTIONS:
-            raise HTTPException(400, f"ramp_steps must be one of {sorted(GRAYSCALE_RAMP_OPTIONS)}")
+            raise HTTPException(
+                400, f"ramp_steps must be one of {sorted(GRAYSCALE_RAMP_OPTIONS)}"
+            )
         if GRAYSCALE_RAMP_OPTIONS[ramp_steps]["requires_paid"] and tier != "paid":
-            raise HTTPException(400, f"{ramp_steps}-step ramp requires the paid LightSpace Connect tier")
+            raise HTTPException(
+                400, f"{ramp_steps}-step ramp requires the paid LightSpace Connect tier"
+            )
         session["lightspace_tier"] = tier
         session["grayscale_ramp_steps"] = ramp_steps
         self.save_session(sid)
@@ -1268,7 +1811,9 @@ class SessionStore:
     def set_grayscale_ramp(self, sid: str, ramp_steps: int) -> Dict[str, Any]:
         session = self.get(sid)
         if ramp_steps not in GRAYSCALE_RAMP_OPTIONS:
-            raise HTTPException(400, f"ramp_steps must be one of {sorted(GRAYSCALE_RAMP_OPTIONS)}")
+            raise HTTPException(
+                400, f"ramp_steps must be one of {sorted(GRAYSCALE_RAMP_OPTIONS)}"
+            )
         session["grayscale_ramp_steps"] = ramp_steps
         self.save_session(sid)
         return session
@@ -1276,10 +1821,15 @@ class SessionStore:
     def next_step(self, sid: str, luminance_threshold_pct: float) -> Dict[str, Any]:
         session = self.get(sid)
         step = session["step"]
-        grayscale_levels = grayscale_levels_for_ramp(session.get("grayscale_ramp_steps", 11))
+        grayscale_levels = grayscale_levels_for_ramp(
+            session.get("grayscale_ramp_steps", 11)
+        )
         if step == "pre_grayscale":
             if len(session["pre_measurements"]) < len(grayscale_levels):
-                raise HTTPException(400, f"Need {len(grayscale_levels)} measurements, have {len(session['pre_measurements'])}")
+                raise HTTPException(
+                    400,
+                    f"Need {len(grayscale_levels)} measurements, have {len(session['pre_measurements'])}",
+                )
             session["step"] = "luminance"
         elif step == "luminance":
             if not session["lum_measurements"]:
@@ -1292,25 +1842,43 @@ class SessionStore:
                 target_nits = session["target"].peak_luminance_nits
                 pct_err = abs(latest.Y - target_nits) / target_nits * 100
                 if pct_err > luminance_threshold_pct:
-                    raise HTTPException(400, f"Peak luminance is {latest.Y:.1f} nits but target is {target_nits:.0f} nits ({pct_err:.1f}% off). Adjust Backlight until the reading is within {luminance_threshold_pct:.0f}% of target before continuing.")
+                    raise HTTPException(
+                        400,
+                        f"Peak luminance is {latest.Y:.1f} nits but target is {target_nits:.0f} nits ({pct_err:.1f}% off). Adjust Backlight until the reading is within {luminance_threshold_pct:.0f}% of target before continuing.",
+                    )
             session["step"] = "white_balance"
         elif step == "white_balance":
             latest_wb = latest_wb_measurements(session["wb_measurements"])
             if not latest_wb["gain"] or not latest_wb["offset"]:
-                raise HTTPException(400, "Take both 80% gray and 30% gray white balance readings first")
+                raise HTTPException(
+                    400, "Take both 80% gray and 30% gray white balance readings first"
+                )
             session["step"] = "gamma"
         elif step == "gamma":
             gamma_levels = gamma_levels_for_session(session)
-            if not gamma_pass_complete(session["gamma_measurements"], gamma_levels, session.get("signal_range", "auto"), session.get("code_scale", "8bit")):
-                workflow_label = GAMMA_WORKFLOW_LABELS.get(session.get("gamma_workflow", "quick"), "selected")
-                raise HTTPException(400, f"Run a full {workflow_label.lower()} gamma pass before continuing")
+            if not gamma_pass_complete(
+                session["gamma_measurements"],
+                gamma_levels,
+                session.get("signal_range", "auto"),
+                session.get("code_scale", "8bit"),
+            ):
+                workflow_label = GAMMA_WORKFLOW_LABELS.get(
+                    session.get("gamma_workflow", "quick"), "selected"
+                )
+                raise HTTPException(
+                    400,
+                    f"Run a full {workflow_label.lower()} gamma pass before continuing",
+                )
             session["step"] = "color_tuner"
         elif step == "color_tuner":
             session["post_measurements"] = []
             session["step"] = "post_grayscale"
         elif step == "post_grayscale":
             if len(session["post_measurements"]) < len(grayscale_levels):
-                raise HTTPException(400, f"Need {len(grayscale_levels)} measurements, have {len(session['post_measurements'])}")
+                raise HTTPException(
+                    400,
+                    f"Need {len(grayscale_levels)} measurements, have {len(session['post_measurements'])}",
+                )
             session["step"] = "report"
         else:
             raise HTTPException(400, f"No transition from step '{step}'")
@@ -1319,7 +1887,9 @@ class SessionStore:
 
     def jump_to_step(self, sid: str, target_index: int) -> Dict[str, Any]:
         session = self.get(sid)
-        current_index = STEPS_ORDER.index(session["step"]) if session["step"] in STEPS_ORDER else 0
+        current_index = (
+            STEPS_ORDER.index(session["step"]) if session["step"] in STEPS_ORDER else 0
+        )
         if target_index >= current_index:
             raise HTTPException(400, "Can only jump to a completed step")
         if target_index < 0 or target_index >= len(STEPS_ORDER):
@@ -1358,14 +1928,23 @@ class SessionStore:
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         session = self.get(sid)
         if session.get("mode") is None:
-            raise HTTPException(400, "Select a calibration mode before importing measurements.")
+            raise HTTPException(
+                400, "Select a calibration mode before importing measurements."
+            )
         try:
             result = parse_zro_csv(contents)
         except Exception as exc:
             raise HTTPException(400, f"ZRO CSV parse error: {exc}") from exc
-        result = recontextualize_import_result(result, session.get("signal_range", "full"), session.get("code_scale", "8bit"))
+        result = recontextualize_import_result(
+            result,
+            session.get("signal_range", "full"),
+            session.get("code_scale", "8bit"),
+        )
         if result.total_rows == 0:
-            raise HTTPException(400, "No valid measurement rows found. Expected a tab-separated ZRO export with columns: Date and time, R, G, B, Y, x, y, msec.")
+            raise HTTPException(
+                400,
+                "No valid measurement rows found. Expected a tab-separated ZRO export with columns: Date and time, R, G, B, Y, x, y, msec.",
+            )
         bucket_map = bucket_map_for_session_step(result, session.get("step"))
         step_warnings = warnings_for_session_step(result, session.get("step"))
         counts: Dict[str, int] = {}
@@ -1408,7 +1987,9 @@ class SessionStore:
 
         session = self.get(sid)
         if session.get("mode") is None:
-            raise HTTPException(400, "Select a calibration mode before importing measurements.")
+            raise HTTPException(
+                400, "Select a calibration mode before importing measurements."
+            )
         try:
             patches = parse_measurement_csv(contents)
         except Exception as exc:

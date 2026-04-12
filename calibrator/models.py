@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import json
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from html import escape
 from typing import List
 
@@ -20,7 +20,9 @@ class CalibrationReport:
     target: CalibrationTarget
     tv_model: str = "Unknown TV"
     meter: str = "Calibrite ColorChecker Display Plus"
-    date: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M"))
+    date: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+    )
 
     pre_cal_grayscale: List[Measurement] = field(default_factory=list)
     post_cal_grayscale: List[Measurement] = field(default_factory=list)
@@ -72,15 +74,29 @@ class CalibrationReport:
                         m.Y,
                         self.target.white_point_xy[0],
                         self.target.white_point_xy[1],
-                        self.target.peak_luminance_nits * (stim_pct / 100) ** self.target.gamma
-                        if self.target.gamma > 0 else m.Y,
+                        self.target.peak_luminance_nits
+                        * (stim_pct / 100) ** self.target.gamma
+                        if self.target.gamma > 0
+                        else m.Y,
                     )
-                    writer.writerow([phase, stim_pct, m.x, m.y, m.Y, round(m.cct, 0) if m.cct is not None else '', round(de, 2)])
+                    writer.writerow(
+                        [
+                            phase,
+                            stim_pct,
+                            m.x,
+                            m.y,
+                            m.Y,
+                            round(m.cct, 0) if m.cct is not None else "",
+                            round(de, 2),
+                        ]
+                    )
 
     def save_html(self, filepath: str):
         improvement = None
         if self.pre_cal_avg_de and self.post_cal_avg_de and self.pre_cal_avg_de > 0:
-            improvement = round((1 - self.post_cal_avg_de / self.pre_cal_avg_de) * 100, 1)
+            improvement = round(
+                (1 - self.post_cal_avg_de / self.pre_cal_avg_de) * 100, 1
+            )
 
         def rows(measurements: List[Measurement]) -> str:
             if not measurements:
@@ -132,7 +148,7 @@ class CalibrationReport:
       <div class="card"><div class="label">Pre-Cal Avg ΔE</div><div class="value">{self.pre_cal_avg_de:.2f}</div></div>
       <div class="card"><div class="label">Post-Cal Avg ΔE</div><div class="value">{self.post_cal_avg_de:.2f}</div></div>
       <div class="card"><div class="label">Peak Luminance</div><div class="value">{self.peak_luminance:.1f} nits</div></div>
-      <div class="card"><div class="label">Improvement</div><div class="value">{'—' if improvement is None else f'{improvement:.1f}%'}</div></div>
+      <div class="card"><div class="label">Improvement</div><div class="value">{"—" if improvement is None else f"{improvement:.1f}%"}</div></div>
     </section>
     <section class="two-col">
       <div>

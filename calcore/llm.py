@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional
 
 from .models import AnalysisConfig, LLMConfig, Summary, TVSettings
+
+logger = logging.getLogger(__name__)
 
 
 def _top_offenders(summary: Summary) -> Dict[str, Any]:
@@ -20,9 +23,13 @@ def _top_offenders(summary: Summary) -> Dict[str, Any]:
         result["worst_grayscale"] = [
             {
                 "label": r["label"],
-                "dE2000": round(r["dE2000"], 2) if r.get("dE2000") is not None else None,
+                "dE2000": round(r["dE2000"], 2)
+                if r.get("dE2000") is not None
+                else None,
                 "gamma": round(r["gamma"], 3) if r.get("gamma") is not None else None,
-                "pq_error_pct": round(r["pq_error_pct"], 1) if r.get("pq_error_pct") is not None else None,
+                "pq_error_pct": round(r["pq_error_pct"], 1)
+                if r.get("pq_error_pct") is not None
+                else None,
             }
             for r in worst_gray
         ]
@@ -35,8 +42,12 @@ def _top_offenders(summary: Summary) -> Dict[str, Any]:
             {
                 "label": r["label"],
                 "bucket": r.get("bucket"),
-                "dE2000": round(r["dE2000"], 2) if r.get("dE2000") is not None else None,
-                "dE2000_chroma_only": round(r["dE2000_chroma_only"], 2) if r.get("dE2000_chroma_only") is not None else None,
+                "dE2000": round(r["dE2000"], 2)
+                if r.get("dE2000") is not None
+                else None,
+                "dE2000_chroma_only": round(r["dE2000_chroma_only"], 2)
+                if r.get("dE2000_chroma_only") is not None
+                else None,
             }
             for r in worst_color
         ]
@@ -47,9 +58,10 @@ def _top_offenders(summary: Summary) -> Dict[str, Any]:
 @dataclass
 class AdjustmentPlan:
     """Structured LLM output: a list of hardware adjustments + next-step directive."""
+
     adjustments: List[Dict[str, Any]]  # list of adjustment dicts per schema below
-    next_step: str                      # "rerun_grayscale" | "proceed_cms" | "rerun_wb" | "verify"
-    confidence: float                   # 0.0–1.0
+    next_step: str  # "rerun_grayscale" | "proceed_cms" | "rerun_wb" | "verify"
+    confidence: float  # 0.0–1.0
 
     # Adjustment dict schema (each item):
     # {
@@ -143,15 +155,15 @@ def build_llm_prompt(
         "(no markdown, no prose outside the JSON):\n"
         "{\n"
         '  "adjustments": [\n'
-        '    {\n'
+        "    {\n"
         '      "menu": "<TV menu name>",\n'
         '      "setting": "<setting name>",\n'
         '      "from": <current value or null>,\n'
         '      "to": <target value>,\n'
         '      "scope": "global" | "local",\n'
         '      "reason": "<1-2 sentences, physics-based>"\n'
-        '    }\n'
-        '  ],\n'
+        "    }\n"
+        "  ],\n"
         '  "next_step": "rerun_grayscale" | "proceed_cms" | "rerun_wb" | "verify",\n'
         '  "confidence": <0.0-1.0>\n'
         "}\n\n"
@@ -165,7 +177,9 @@ def build_llm_prompt(
     parts: List[str] = [schema_instructions]
 
     if history_block:
-        parts.append(f"\nDISPLAY HISTORY (prior sessions for this TV):\n{history_block}")
+        parts.append(
+            f"\nDISPLAY HISTORY (prior sessions for this TV):\n{history_block}"
+        )
 
     if guidance_context:
         parts.append(f"\nPRE-COMPUTED GUIDANCE (deterministic):\n{guidance_context}")
@@ -371,11 +385,14 @@ def build_history_block(
 @dataclass
 class PatchStrategy:
     """LLM-recommended patch sequencing adjustment for the next measurement pass."""
-    focus: str               # e.g. "grayscale_fine", "color_blue", "cms_secondary"
-    rationale: str           # plain-English explanation shown to user
-    add_patches: List[str]   # patch labels to inject next (e.g. ["White 35%", "White 45%"])
+
+    focus: str  # e.g. "grayscale_fine", "color_blue", "cms_secondary"
+    rationale: str  # plain-English explanation shown to user
+    add_patches: List[
+        str
+    ]  # patch labels to inject next (e.g. ["White 35%", "White 45%"])
     skip_patches: List[str]  # patch labels to defer (e.g. ["Cyan 75%"])
-    confidence: float        # 0–1; below 0.6 = don't auto-apply, surface for user review
+    confidence: float  # 0–1; below 0.6 = don't auto-apply, surface for user review
 
 
 def query_next_patch_strategy(
@@ -406,12 +423,14 @@ def query_next_patch_strategy(
     # Compact prior-step history for this session
     history_items = []
     for h in session_history[-3:]:
-        history_items.append({
-            "phase": h.get("phase"),
-            "grayscale_avg_de": h.get("grayscale_avg_de"),
-            "gamma_midtones": h.get("gamma_midtones"),
-            "color_100_avg_de": h.get("color_100_avg_de"),
-        })
+        history_items.append(
+            {
+                "phase": h.get("phase"),
+                "grayscale_avg_de": h.get("grayscale_avg_de"),
+                "gamma_midtones": h.get("gamma_midtones"),
+                "color_100_avg_de": h.get("color_100_avg_de"),
+            }
+        )
 
     payload = {
         "current_phase": phase,
@@ -438,7 +457,10 @@ def query_next_patch_strategy(
     body = {
         "model": llm.model,
         "messages": [
-            {"role": "system", "content": "You are a strict JSON-only responder. Output only valid JSON."},
+            {
+                "role": "system",
+                "content": "You are a strict JSON-only responder. Output only valid JSON.",
+            },
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.0,
@@ -469,7 +491,18 @@ def query_next_patch_strategy(
             skip_patches=list(obj.get("skip_patches") or []),
             confidence=float(obj.get("confidence", 0.5)),
         )
-    except Exception:
+    except urllib.error.HTTPError as e:
+        logger.error("LLM HTTP error: %s - %s", e.code, e.reason)
+        return None
+    except json.JSONDecodeError as e:
+        logger.error("LLM response parsing failed: %s", e)
+        return None
+    except Exception as e:
+        logger.error(
+            "Unexpected LLM error in query_next_patch_strategy: %s: %s",
+            type(e).__name__,
+            e,
+        )
         return None
 
 
@@ -521,7 +554,10 @@ def query_remediation(
     body = {
         "model": llm.model,
         "messages": [
-            {"role": "system", "content": "You are a strict JSON-only responder. Output only valid JSON."},
+            {
+                "role": "system",
+                "content": "You are a strict JSON-only responder. Output only valid JSON.",
+            },
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.0,
@@ -549,7 +585,16 @@ def query_remediation(
             "explanation": str(obj.get("explanation", "")),
             "confidence": float(obj.get("confidence", 0.5)),
         }
-    except Exception:
+    except urllib.error.HTTPError as e:
+        logger.error("LLM HTTP error: %s - %s", e.code, e.reason)
+        return None
+    except json.JSONDecodeError as e:
+        logger.error("LLM response parsing failed: %s", e)
+        return None
+    except Exception as e:
+        logger.error(
+            "Unexpected LLM error in query_remediation: %s: %s", type(e).__name__, e
+        )
         return None
 
 
@@ -582,7 +627,10 @@ def query_gamut_advice(
     body = {
         "model": llm.model,
         "messages": [
-            {"role": "system", "content": "You are a strict calibration assistant. Be concise and technical."},
+            {
+                "role": "system",
+                "content": "You are a strict calibration assistant. Be concise and technical.",
+            },
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.2,
@@ -600,7 +648,16 @@ def query_gamut_advice(
             raw = resp.read().decode("utf-8")
         parsed = json.loads(raw)
         return parsed["choices"][0]["message"]["content"].strip()
-    except Exception:
+    except urllib.error.HTTPError as e:
+        logger.error("LLM HTTP error: %s - %s", e.code, e.reason)
+        return None
+    except json.JSONDecodeError as e:
+        logger.error("LLM response parsing failed: %s", e)
+        return None
+    except Exception as e:
+        logger.error(
+            "Unexpected LLM error in query_gamut_advice: %s: %s", type(e).__name__, e
+        )
         return None
 
 

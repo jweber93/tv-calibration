@@ -1,5 +1,10 @@
 """
-Light Illusion Remote Control backend — stub implementation.
+Light Illusion Remote Control backend — experimental/stub implementation.
+
+.. warning::
+    This backend is EXPERIMENTAL and NOT READY FOR USE. The Integration Protocol
+    format has not been obtained from Light Illusion, so the core functionality
+    is not implemented.
 
 The Light Illusion Integration Protocol is documented in Customer Downloads
 (requires a paid ColourSpace licence).  Once you have the protocol document:
@@ -14,7 +19,7 @@ The Light Illusion Integration Protocol is documented in Customer Downloads
 
   3. Implement send_command() below according to the protocol spec.
 
-Current status: STUB — check_connection() works; trigger_measurement() always
+Current status: EXPERIMENTAL — check_connection() works; trigger_measurement() always
 returns {"ok": False} until the protocol is implemented.
 
 Known facts about the protocol:
@@ -50,6 +55,9 @@ def send_command(sock: socket.socket, command: str) -> str:
     """
     Send a command string to ColourSpace and return the response.
 
+    .. warning::
+        This method is not yet implemented and will raise NotImplementedError.
+
     TODO: implement once the Integration Protocol format is known.
           The protocol is likely text-based (similar to the Network Server
           protocol) — replace this placeholder with the real framing.
@@ -64,6 +72,10 @@ def send_command(sock: socket.socket, command: str) -> str:
 def trigger_measurement(host: str = "127.0.0.1", port: int = 20102) -> dict:
     """
     Connect to ColourSpace's Remote Control server and trigger one measurement.
+
+    .. warning::
+        This function is EXPERIMENTAL and not ready for use. It currently
+        always returns an error because the protocol is not implemented.
 
     Returns {"ok": True, "method": "remote_control"} on success,
             {"ok": False, "error": ...} on failure.

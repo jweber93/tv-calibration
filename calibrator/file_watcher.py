@@ -26,12 +26,13 @@ import os
 import queue
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional
 
 try:
     from watchdog.events import FileSystemEvent, FileSystemEventHandler
     from watchdog.observers import Observer
+
     _WATCHDOG_AVAILABLE = True
 except ModuleNotFoundError:
     _WATCHDOG_AVAILABLE = False
@@ -43,7 +44,6 @@ except ModuleNotFoundError:
             self.src_path = src_path
             self.is_directory = is_directory
 
-
     class FileSystemEventHandler:
         """Compatibility shim for environments without watchdog installed."""
 
@@ -52,7 +52,6 @@ except ModuleNotFoundError:
 
         def on_modified(self, event: FileSystemEvent) -> None:
             return None
-
 
     class Observer:
         """
@@ -72,7 +71,9 @@ except ModuleNotFoundError:
             self._stop_event = threading.Event()
             self._known_mtimes: Dict[str, float] = {}
 
-        def schedule(self, handler: FileSystemEventHandler, path: str, recursive: bool = False) -> None:
+        def schedule(
+            self, handler: FileSystemEventHandler, path: str, recursive: bool = False
+        ) -> None:
             del recursive
             self._handler = handler
             self._path = path
@@ -102,7 +103,9 @@ except ModuleNotFoundError:
                 try:
                     current: Dict[str, float] = {}
                     for entry in os.scandir(self._path):
-                        if not entry.is_file() or not entry.name.lower().endswith(".csv"):
+                        if not entry.is_file() or not entry.name.lower().endswith(
+                            ".csv"
+                        ):
                             continue
                         mtime = entry.stat().st_mtime
                         current[entry.path] = mtime
@@ -120,6 +123,7 @@ except ModuleNotFoundError:
                         global _watcher_error
                         _watcher_error = msg
                     break
+
 
 from .zro_import import ZROImportResult, parse_zro_csv
 
@@ -144,7 +148,9 @@ def _read_bytes_with_retry(path: str) -> bytes:
     raise last_exc
 
 
-def _bucket_map_for_session_step(result: ZROImportResult, session_step: Optional[str]) -> Dict[str, List[dict]]:
+def _bucket_map_for_session_step(
+    result: ZROImportResult, session_step: Optional[str]
+) -> Dict[str, List[dict]]:
     """
     Map parsed import buckets into session buckets for the current workflow step.
 
@@ -162,10 +168,14 @@ def _bucket_map_for_session_step(result: ZROImportResult, session_step: Optional
         "gamma_measurements": [],
     }
 
-    latest_grayscale_pass = result.grayscale_passes[-1] if result.grayscale_passes else []
+    latest_grayscale_pass = (
+        result.grayscale_passes[-1] if result.grayscale_passes else []
+    )
 
     if session_step == "pre_grayscale":
-        bucket_map["pre_measurements"] = latest_grayscale_pass or result.pre_measurements
+        bucket_map["pre_measurements"] = (
+            latest_grayscale_pass or result.pre_measurements
+        )
     elif session_step == "luminance":
         bucket_map["lum_measurements"] = result.lum_measurements
     elif session_step == "white_balance":
@@ -176,11 +186,10 @@ def _bucket_map_for_session_step(result: ZROImportResult, session_step: Optional
         bucket_map["cms_measurements"] = result.cms_measurements
     elif session_step == "post_grayscale":
         bucket_map["post_measurements"] = (
-            latest_grayscale_pass
-            or result.post_measurements
-            or result.pre_measurements
+            latest_grayscale_pass or result.post_measurements or result.pre_measurements
         )
     return bucket_map
+
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +232,7 @@ _last_attempt: Optional[Dict] = None
 # ---------------------------------------------------------------------------
 # Internal event handler
 # ---------------------------------------------------------------------------
+
 
 class _ZROHandler(FileSystemEventHandler):
     """
@@ -279,7 +289,7 @@ class _ZROHandler(FileSystemEventHandler):
         with _lock:
             global _last_watch_event
             _last_watch_event = {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "file": os.path.basename(src_path),
                 "path": os.path.abspath(src_path),
                 "event": "modified",
@@ -297,9 +307,7 @@ class _ZROHandler(FileSystemEventHandler):
             if existing is not None:
                 existing.cancel()
 
-            timer = threading.Timer(
-                delay_seconds, self._import_file, args=(src_path,)
-            )
+            timer = threading.Timer(delay_seconds, self._import_file, args=(src_path,))
             timer.daemon = True
             self._timers[src_path] = timer
             timer.start()
@@ -330,7 +338,7 @@ class _ZROHandler(FileSystemEventHandler):
             # File vanished; ignore.
             with _lock:
                 _last_attempt = {
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "file": os.path.basename(src_path),
                     "path": os.path.abspath(src_path),
                     "status": "missing",
@@ -343,7 +351,7 @@ class _ZROHandler(FileSystemEventHandler):
                 logger.debug("Skipping already-imported %s (mtime unchanged)", src_path)
                 with _lock:
                     _last_attempt = {
-                        "timestamp": datetime.now().isoformat(),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                         "file": os.path.basename(src_path),
                         "path": os.path.abspath(src_path),
                         "status": "skipped",
@@ -353,7 +361,7 @@ class _ZROHandler(FileSystemEventHandler):
 
         with _lock:
             _last_attempt = {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "file": os.path.basename(src_path),
                 "path": os.path.abspath(src_path),
                 "status": "reading",
@@ -371,7 +379,7 @@ class _ZROHandler(FileSystemEventHandler):
             with _lock:
                 _watcher_error = msg
                 _last_attempt = {
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "file": os.path.basename(src_path),
                     "path": os.path.abspath(src_path),
                     "status": "locked",
@@ -385,7 +393,7 @@ class _ZROHandler(FileSystemEventHandler):
             with _lock:
                 _watcher_error = msg
                 _last_attempt = {
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "file": os.path.basename(src_path),
                     "path": os.path.abspath(src_path),
                     "status": "error",
@@ -397,7 +405,7 @@ class _ZROHandler(FileSystemEventHandler):
             with _lock:
                 _watcher_error = f"No valid rows in {src_path}"
                 _last_attempt = {
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "file": os.path.basename(src_path),
                     "path": os.path.abspath(src_path),
                     "status": "empty",
@@ -411,7 +419,7 @@ class _ZROHandler(FileSystemEventHandler):
             with _lock:
                 _watcher_error = "No active session — import skipped"
                 _last_attempt = {
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "file": os.path.basename(src_path),
                     "path": os.path.abspath(src_path),
                     "status": "no_session",
@@ -428,8 +436,7 @@ class _ZROHandler(FileSystemEventHandler):
         for key, meas_dicts in bucket_map.items():
             if key in ("pre_measurements", "post_measurements"):
                 candidate_measurements = [
-                    deser(d) if deser is not None else d
-                    for d in meas_dicts
+                    deser(d) if deser is not None else d for d in meas_dicts
                 ]
                 existing_signatures = [
                     _measurement_signature(measurement)
@@ -439,7 +446,10 @@ class _ZROHandler(FileSystemEventHandler):
                     _measurement_signature(measurement)
                     for measurement in candidate_measurements
                 ]
-                if candidate_measurements and candidate_signatures != existing_signatures:
+                if (
+                    candidate_measurements
+                    and candidate_signatures != existing_signatures
+                ):
                     session[key] = candidate_measurements
                     counts[key] = len(candidate_measurements)
                 continue
@@ -463,7 +473,7 @@ class _ZROHandler(FileSystemEventHandler):
         if not counts:
             with _lock:
                 _last_attempt = {
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "file": os.path.basename(src_path),
                     "path": os.path.abspath(src_path),
                     "status": "no_new_rows",
@@ -480,7 +490,7 @@ class _ZROHandler(FileSystemEventHandler):
             latest_y = latest_lum["Y"] if isinstance(latest_lum, dict) else latest_lum.Y
             session["peak_luminance"] = round(latest_y, 2)
 
-        now = datetime.now().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
 
         # Record import metadata on the session.
         measurement_timestamps = []
@@ -500,8 +510,12 @@ class _ZROHandler(FileSystemEventHandler):
             "abl_warnings": step_warnings,
             "unknown_rows": result.unknown_rows,
             "buckets_populated": counts,
-            "measurement_start": min(measurement_timestamps) if measurement_timestamps else None,
-            "measurement_end": max(measurement_timestamps) if measurement_timestamps else None,
+            "measurement_start": min(measurement_timestamps)
+            if measurement_timestamps
+            else None,
+            "measurement_end": max(measurement_timestamps)
+            if measurement_timestamps
+            else None,
             "auto_import": True,
         }
         session.setdefault("zro_imports", []).append(import_meta)
@@ -547,7 +561,12 @@ class _ZROHandler(FileSystemEventHandler):
             _watcher_error = None
 
         _broadcast_event(event_payload)
-        logger.info("Auto-imported %s (%d rows, %d buckets)", src_path, result.total_rows, len(counts))
+        logger.info(
+            "Auto-imported %s (%d rows, %d buckets)",
+            src_path,
+            result.total_rows,
+            len(counts),
+        )
 
         if self._post_import_hook is not None:
             try:
@@ -583,15 +602,20 @@ def _measurement_signature(measurement: object) -> tuple:
     return (timestamp, label, stimulus_rgb, Y, x, y)
 
 
-def _warnings_for_session_step(result: ZROImportResult, session_step: Optional[str]) -> List[str]:
+def _warnings_for_session_step(
+    result: ZROImportResult, session_step: Optional[str]
+) -> List[str]:
     if session_step in ("pre_grayscale", "post_grayscale"):
-        return result.grayscale_pass_warnings[-1] if result.grayscale_pass_warnings else []
+        return (
+            result.grayscale_pass_warnings[-1] if result.grayscale_pass_warnings else []
+        )
     return result.abl_warnings
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def start_watching(
     path: str,
@@ -638,7 +662,9 @@ def start_watching(
         watch_dir = os.path.dirname(path)
         watched_file = path
     else:
-        raise ValueError(f"Watch path does not exist or is not a directory/CSV file: {path!r}")
+        raise ValueError(
+            f"Watch path does not exist or is not a directory/CSV file: {path!r}"
+        )
 
     handler = _ZROHandler(
         session_getter,
@@ -715,7 +741,9 @@ def get_status() -> Dict:
                 try:
                     stat = os.stat(watched_file)
                     diagnostics["watched_file_size_bytes"] = stat.st_size
-                    diagnostics["watched_file_mtime"] = datetime.fromtimestamp(stat.st_mtime).isoformat()
+                    diagnostics["watched_file_mtime"] = datetime.fromtimestamp(
+                        stat.st_mtime
+                    ).isoformat()
                 except OSError:
                     pass
 

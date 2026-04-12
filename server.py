@@ -17,11 +17,13 @@ import queue
 import shutil
 import subprocess
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import httpx
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -99,6 +101,7 @@ logger = logging.getLogger(__name__)
 # In-memory log buffer — streams recent log records to the frontend
 # ---------------------------------------------------------------------------
 
+
 class _LogBuffer(logging.Handler):
     """Circular buffer of recent log records with SSE subscriber support."""
 
@@ -109,7 +112,11 @@ class _LogBuffer(logging.Handler):
         self._lines: collections.deque = collections.deque(maxlen=self.MAX_LINES)
         self._subscribers: List[queue.Queue] = []
         self._sub_lock = threading.Lock()
-        self.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s — %(message)s", "%H:%M:%S"))
+        self.setFormatter(
+            logging.Formatter(
+                "%(asctime)s %(levelname)s %(name)s — %(message)s", "%H:%M:%S"
+            )
+        )
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -147,12 +154,15 @@ _log_buffer.setLevel(logging.DEBUG)
 logging.getLogger().addHandler(_log_buffer)
 logging.getLogger().setLevel(logging.DEBUG)
 
-app = FastAPI(title="ZRO Calibration Helper")
 
-
-@app.on_event("startup")
-def _startup() -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     _load_prefs()
+    yield
+
+
+app = FastAPI(title="ZRO Calibration Helper", lifespan=lifespan)
+
 
 SESSION_STORE_DIR = Path(__file__).parent / ".sessions"
 SESSION_TTL = timedelta(days=7)
@@ -230,6 +240,8 @@ def _save_prefs() -> None:
         tmp.replace(_PREFS_PATH)
     except Exception:
         pass  # best-effort — never crash on a prefs write failure
+
+
 _save_session = store.save_session
 
 
@@ -314,6 +326,7 @@ class _AdbPictureGetReq(BaseModel):
 
 class TvSettingsReq(BaseModel):
     """Current TV hardware slider values for LLM context (#96)."""
+
     two_point_wb: Optional[Dict[str, int]] = None
     multipoint_wb: Optional[Dict[str, Any]] = None
     cms_sliders: Optional[Dict[str, Any]] = None
@@ -376,7 +389,9 @@ def _external_dogegen_pid() -> Optional[int]:
                     text=True,
                     check=False,
                 )
-                lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+                lines = [
+                    line.strip() for line in proc.stdout.splitlines() if line.strip()
+                ]
                 for line in lines:
                     if "No tasks are running" in line:
                         continue
@@ -417,7 +432,11 @@ def _dogegen_status_payload() -> Dict[str, Any]:
     if external_pid is not None:
         ready = True
     elif managed_running:
-        elapsed = 0.0 if _dogegen_started_at is None else (_now() - _dogegen_started_at).total_seconds()
+        elapsed = (
+            0.0
+            if _dogegen_started_at is None
+            else (_now() - _dogegen_started_at).total_seconds()
+        )
         ready = elapsed >= _DOGEGEN_READY_DELAY_SECONDS
         if not ready:
             ready_in_ms = max(0, int((_DOGEGEN_READY_DELAY_SECONDS - elapsed) * 1000))
@@ -444,7 +463,11 @@ def _dogegen_command_for_session(session: Dict[str, Any], exe_path: str) -> List
     resolve_host = (_dogegen_config.get("resolve_host") or "").strip()
     if mode == "HDR10":
         cmd = [exe_path, "mode 10_hdr", f"maxcll {maxcll}"]
-        resolve_arg = f"resolve_hdr {resolve_host} {window_pct}" if resolve_host else f"resolve_hdr {window_pct}"
+        resolve_arg = (
+            f"resolve_hdr {resolve_host} {window_pct}"
+            if resolve_host
+            else f"resolve_hdr {window_pct}"
+        )
         cmd.append(resolve_arg)
         return cmd
     if mode == "SDR":
@@ -505,7 +528,9 @@ def _stop_dogegen() -> Dict[str, Any]:
 def _watch_status_payload() -> Dict[str, Any]:
     status = _fw_status()
     status["session_id"] = _watched_session_id
-    status["session_exists"] = bool(_watched_session_id and _watched_session_id in _sessions)
+    status["session_exists"] = bool(
+        _watched_session_id and _watched_session_id in _sessions
+    )
     return status
 
 
@@ -586,12 +611,25 @@ def _run_llm_background(
     session_step_history: Optional[List[Dict[str, Any]]] = None,
     tv_settings: Optional[TVSettings] = None,
 ) -> None:
-    logger.info("LLM run started  sid=%s phase=%s endpoint=%s model=%s",
-                sid, phase, llm_cfg.endpoint, llm_cfg.model)
-    _llm_broadcast(sid, {
-        "event": "llm_start",
-        "data": {"phase": phase, "timestamp": datetime.utcnow().isoformat() + "Z"},
-    })
+    logger.info(
+        "LLM run started  sid=%s phase=%s endpoint=%s model=%s",
+        sid,
+        phase,
+        llm_cfg.endpoint,
+        llm_cfg.model,
+    )
+    _llm_broadcast(
+        sid,
+        {
+            "event": "llm_start",
+            "data": {
+                "phase": phase,
+                "timestamp": datetime.now(timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z"),
+            },
+        },
+    )
     try:
         summary = _calcore_analyze(patches, cfg)
 
@@ -622,7 +660,9 @@ def _run_llm_background(
             tv_settings=tv_settings,
             tv_schema=tv_schema,
         )
-        logger.info("LLM run complete sid=%s phase=%s chars=%d", sid, phase, len(result or ""))
+        logger.info(
+            "LLM run complete sid=%s phase=%s chars=%d", sid, phase, len(result or "")
+        )
 
         # Attempt to parse structured AdjustmentPlan from the JSON response (#95)
         plan_data: Optional[Dict[str, Any]] = None
@@ -630,17 +670,23 @@ def _run_llm_background(
             plan = _parse_adjustment_plan(result)
             if plan is not None:
                 from dataclasses import asdict as _asdict
+
                 plan_data = _asdict(plan)
 
-        _llm_broadcast(sid, {
-            "event": "llm_insight",
-            "data": {
-                "phase": phase,
-                "text": result,
-                "plan": plan_data,
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+        _llm_broadcast(
+            sid,
+            {
+                "event": "llm_insight",
+                "data": {
+                    "phase": phase,
+                    "text": result,
+                    "plan": plan_data,
+                    "timestamp": datetime.now(timezone.utc)
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                },
             },
-        })
+        )
 
         # Fire patch strategy query in the same background thread (low-latency path).
         if session_step_history is not None:
@@ -653,21 +699,28 @@ def _run_llm_background(
                 llm_cfg,
             )
             if strategy is not None:
-                _llm_broadcast(sid, {
-                    "event": "patch_strategy",
-                    "data": {
-                        "phase": phase,
-                        "focus": strategy.focus,
-                        "rationale": strategy.rationale,
-                        "add_patches": strategy.add_patches,
-                        "skip_patches": strategy.skip_patches,
-                        "confidence": strategy.confidence,
-                        "auto_apply": strategy.confidence >= 0.6,
-                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                _llm_broadcast(
+                    sid,
+                    {
+                        "event": "patch_strategy",
+                        "data": {
+                            "phase": phase,
+                            "focus": strategy.focus,
+                            "rationale": strategy.rationale,
+                            "add_patches": strategy.add_patches,
+                            "skip_patches": strategy.skip_patches,
+                            "confidence": strategy.confidence,
+                            "auto_apply": strategy.confidence >= 0.6,
+                            "timestamp": datetime.now(timezone.utc)
+                            .isoformat()
+                            .replace("+00:00", "Z"),
+                        },
                     },
-                })
+                )
     except Exception as exc:
-        logger.error("LLM run failed  sid=%s phase=%s error=%s", sid, phase, exc, exc_info=True)
+        logger.error(
+            "LLM run failed  sid=%s phase=%s error=%s", sid, phase, exc, exc_info=True
+        )
         _llm_broadcast(sid, {"event": "llm_error", "data": str(exc)})
 
 
@@ -677,7 +730,12 @@ def _maybe_trigger_llm(sid: str, session: Dict[str, Any]) -> None:
     endpoint = llm_cfg_dict.get("endpoint", "")
     model = llm_cfg_dict.get("model", "")
     if not (endpoint and model):
-        logger.info("LLM skip  sid=%s reason=not_configured endpoint=%r model=%r", sid, endpoint, model)
+        logger.info(
+            "LLM skip  sid=%s reason=not_configured endpoint=%r model=%r",
+            sid,
+            endpoint,
+            model,
+        )
         return
 
     all_measurements = (
@@ -701,8 +759,13 @@ def _maybe_trigger_llm(sid: str, session: Dict[str, Any]) -> None:
         timeout=float(llm_cfg_dict.get("timeout", 30.0)),
     )
     has_key = bool(llm_cfg_dict.get("api_key"))
-    logger.info("LLM trigger  sid=%s step=%s patches=%d has_api_key=%s",
-                sid, session.get("step", "baseline"), len(patches), has_key)
+    logger.info(
+        "LLM trigger  sid=%s step=%s patches=%d has_api_key=%s",
+        sid,
+        session.get("step", "baseline"),
+        len(patches),
+        has_key,
+    )
     # Reconstruct TVSettings from session if the user supplied slider values (#96)
     tv_settings: Optional[TVSettings] = None
     raw_tv_settings = session.get("tv_settings")
@@ -874,14 +937,17 @@ def jump_to_step(sid: str, req: JumpToStepReq):
 @app.post("/api/session/{sid}/llm/configure")
 def configure_llm(sid: str, req: LlmConfigureReq):
     session = store.get(sid)
-    llm_cfg = session.setdefault("llm_config", {
-        "endpoint": "",
-        "model": "",
-        "api_key": "",
-        "temperature": 0.2,
-        "timeout": 30.0,
-    })
-    
+    llm_cfg = session.setdefault(
+        "llm_config",
+        {
+            "endpoint": "",
+            "model": "",
+            "api_key": "",
+            "temperature": 0.2,
+            "timeout": 30.0,
+        },
+    )
+
     # Update fields if provided
     if req.endpoint is not None:
         llm_cfg["endpoint"] = req.endpoint.strip()
@@ -897,7 +963,7 @@ def configure_llm(sid: str, req: LlmConfigureReq):
         if req.timeout <= 0:
             raise HTTPException(400, "timeout must be greater than 0")
         llm_cfg["timeout"] = req.timeout
-    
+
     configured = bool(llm_cfg.get("endpoint") and llm_cfg.get("model"))
 
     _save_session(sid)
@@ -951,7 +1017,9 @@ def llm_run(sid: str):
     llm_cfg_dict = session.get("llm_config", {})
 
     if not (llm_cfg_dict.get("endpoint") and llm_cfg_dict.get("model")):
-        raise HTTPException(400, "LLM not configured; POST /api/session/{sid}/llm/configure first.")
+        raise HTTPException(
+            400, "LLM not configured; POST /api/session/{sid}/llm/configure first."
+        )
 
     all_measurements = (
         session.get("pre_measurements", [])
@@ -961,7 +1029,9 @@ def llm_run(sid: str):
         + session.get("post_measurements", [])
     )
     if not all_measurements:
-        raise HTTPException(400, "No measurements in session; import data before running LLM analysis.")
+        raise HTTPException(
+            400, "No measurements in session; import data before running LLM analysis."
+        )
 
     patches = [_measurement_to_patch(m) for m in all_measurements]
     cfg = _session_to_analysis_config(session)
@@ -1015,13 +1085,16 @@ def llm_stream(sid: str):
 
 # ── Gamut feasibility endpoints ───────────────────────────────────────────────
 
+
 @app.get("/api/session/{sid}/gamut/diagnosis")
 def gamut_diagnosis(sid: str):
     """Return a per-primary gamut constraint report for the current CMS measurements."""
     session = store.get(sid)
     cms_meas = session.get("cms_measurements", [])
     if not cms_meas:
-        raise HTTPException(400, "No CMS measurements in session; import color patches first.")
+        raise HTTPException(
+            400, "No CMS measurements in session; import color patches first."
+        )
     cfg = _session_to_analysis_config(session)
     patches = [_measurement_to_patch(m) for m in cms_meas]
     summary = _calcore_analyze(patches, cfg)
@@ -1038,11 +1111,15 @@ def gamut_advise(sid: str):
     session = store.get(sid)
     llm_cfg_dict = session.get("llm_config", {})
     if not (llm_cfg_dict.get("endpoint") and llm_cfg_dict.get("model")):
-        raise HTTPException(400, "LLM not configured; POST /api/session/{sid}/llm/configure first.")
+        raise HTTPException(
+            400, "LLM not configured; POST /api/session/{sid}/llm/configure first."
+        )
 
     cms_meas = session.get("cms_measurements", [])
     if not cms_meas:
-        raise HTTPException(400, "No CMS measurements in session; import color patches first.")
+        raise HTTPException(
+            400, "No CMS measurements in session; import color patches first."
+        )
 
     cfg = _session_to_analysis_config(session)
     patches = [_measurement_to_patch(m) for m in cms_meas]
@@ -1066,6 +1143,7 @@ def gamut_advise(sid: str):
 
 # ── Calibration history endpoints ─────────────────────────────────────────────
 
+
 @app.get("/api/session/{sid}/history")
 def session_history(sid: str):
     """Return the calibration history for this session's TV model."""
@@ -1081,6 +1159,7 @@ def session_history(sid: str):
 
 
 # ── Hardware remediation endpoint ─────────────────────────────────────────────
+
 
 class _HardwareEventReq(BaseModel):
     event_type: str
@@ -1111,11 +1190,14 @@ def hardware_remediate(sid: str, req: _HardwareEventReq):
         llm=llm_cfg,
     )
     if plan is None:
-        raise HTTPException(503, "LLM remediation query failed or returned unparseable response.")
+        raise HTTPException(
+            503, "LLM remediation query failed or returned unparseable response."
+        )
     return plan
 
 
 # ── CSV import ────────────────────────────────────────────────────────────────
+
 
 @app.post("/api/session/{sid}/import/zro")
 async def import_zro_csv(sid: str, file: UploadFile = File(...)):
@@ -1175,6 +1257,7 @@ def get_report_pdf(sid: str):
     tv_slug = "".join(c if c.isalnum() else "_" for c in report.get("tv", "report"))
     filename = f"calibration_{tv_slug}_{sid[:8]}.pdf"
     from fastapi.responses import Response
+
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -1204,26 +1287,34 @@ def adb_cms_push(device: Optional[str] = None):
 @app.post("/api/adb/cms/set")
 def adb_cms_set(req: _AdbCmsSetReq):
     try:
-        result = _adb.set_cms_value(channel=req.channel, control=req.control, value=req.value, device=req.device)
+        result = _adb.set_cms_value(
+            channel=req.channel, control=req.control, value=req.value, device=req.device
+        )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     except Exception as exc:
         raise HTTPException(500, f"ADB error: {exc}") from exc
     if not result["ok"]:
-        raise HTTPException(502, f"ADB command failed: {result['stderr'] or result['stdout']}")
+        raise HTTPException(
+            502, f"ADB command failed: {result['stderr'] or result['stdout']}"
+        )
     return result
 
 
 @app.post("/api/adb/cms/get")
 def adb_cms_get(req: _AdbCmsGetReq):
     try:
-        result = _adb.get_cms_value(channel=req.channel, control=req.control, device=req.device)
+        result = _adb.get_cms_value(
+            channel=req.channel, control=req.control, device=req.device
+        )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     except Exception as exc:
         raise HTTPException(500, f"ADB error: {exc}") from exc
     if not result["ok"]:
-        raise HTTPException(502, f"ADB command failed: {result['stderr'] or result['stdout']}")
+        raise HTTPException(
+            502, f"ADB command failed: {result['stderr'] or result['stdout']}"
+        )
     return result
 
 
@@ -1234,7 +1325,9 @@ def adb_cms_get_all(device: Optional[str] = None):
     except Exception as exc:
         raise HTTPException(500, f"ADB error: {exc}") from exc
     if not result["ok"]:
-        raise HTTPException(502, f"ADB command failed: {result['stderr'] or result['stdout']}")
+        raise HTTPException(
+            502, f"ADB command failed: {result['stderr'] or result['stdout']}"
+        )
     return result
 
 
@@ -1245,20 +1338,26 @@ def adb_cms_reset(device: Optional[str] = None):
     except Exception as exc:
         raise HTTPException(500, f"ADB error: {exc}") from exc
     if not result["ok"]:
-        raise HTTPException(502, f"ADB command failed: {result['stderr'] or result['stdout']}")
+        raise HTTPException(
+            502, f"ADB command failed: {result['stderr'] or result['stdout']}"
+        )
     return result
 
 
 @app.post("/api/adb/picture/set")
 def adb_picture_set(req: _AdbPictureSetReq):
     try:
-        result = _adb.set_picture_control(control=req.control, value=req.value, device=req.device)
+        result = _adb.set_picture_control(
+            control=req.control, value=req.value, device=req.device
+        )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     except Exception as exc:
         raise HTTPException(500, f"ADB error: {exc}") from exc
     if not result["ok"]:
-        raise HTTPException(502, f"ADB command failed: {result['stderr'] or result['stdout']}")
+        raise HTTPException(
+            502, f"ADB command failed: {result['stderr'] or result['stdout']}"
+        )
     return result
 
 
@@ -1271,7 +1370,9 @@ def adb_picture_get(req: _AdbPictureGetReq):
     except Exception as exc:
         raise HTTPException(500, f"ADB error: {exc}") from exc
     if not result["ok"]:
-        raise HTTPException(502, f"ADB command failed: {result['stderr'] or result['stdout']}")
+        raise HTTPException(
+            502, f"ADB command failed: {result['stderr'] or result['stdout']}"
+        )
     return result
 
 
@@ -1284,16 +1385,31 @@ _ZRO_BRIDGE_TIMEOUT = 5.0
 def zro_bridge_status():
     global _zro_bridge_url
     if not _zro_bridge_url:
-        return {"configured": False, "url": None, "ok": False, "error": "ZRO Bridge URL not configured"}
+        return {
+            "configured": False,
+            "url": None,
+            "ok": False,
+            "error": "ZRO Bridge URL not configured",
+        }
     try:
         resp = httpx.get(f"{_zro_bridge_url}/status", timeout=_ZRO_BRIDGE_TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
         return {"configured": True, "url": _zro_bridge_url, "ok": True, **data}
     except httpx.ConnectError:
-        return {"configured": True, "url": _zro_bridge_url, "ok": False, "error": "Cannot reach ZRO Bridge â€” is start.bat running on the Windows PC?"}
+        return {
+            "configured": True,
+            "url": _zro_bridge_url,
+            "ok": False,
+            "error": "Cannot reach ZRO Bridge â€” is start.bat running on the Windows PC?",
+        }
     except Exception as exc:
-        return {"configured": True, "url": _zro_bridge_url, "ok": False, "error": str(exc)}
+        return {
+            "configured": True,
+            "url": _zro_bridge_url,
+            "ok": False,
+            "error": str(exc),
+        }
 
 
 @app.post("/api/zro/bridge/config")
@@ -1338,13 +1454,19 @@ def save_prefs_endpoint(req: PrefsReq):
 def zro_trigger():
     global _zro_bridge_url
     if not _zro_bridge_url:
-        raise HTTPException(400, 'ZRO Bridge URL not configured.  Set ZRO_BRIDGE_URL env var or POST /api/zro/bridge/config { "url": "http://<windows-pc>:7070" }')
+        raise HTTPException(
+            400,
+            'ZRO Bridge URL not configured.  Set ZRO_BRIDGE_URL env var or POST /api/zro/bridge/config { "url": "http://<windows-pc>:7070" }',
+        )
     try:
         resp = httpx.post(f"{_zro_bridge_url}/measure", timeout=_ZRO_BRIDGE_TIMEOUT)
         resp.raise_for_status()
         return resp.json()
     except httpx.ConnectError:
-        raise HTTPException(502, f"Cannot reach ZRO Bridge at {_zro_bridge_url} â€” is start.bat running on the Windows PC?")
+        raise HTTPException(
+            502,
+            f"Cannot reach ZRO Bridge at {_zro_bridge_url} â€” is start.bat running on the Windows PC?",
+        )
     except httpx.HTTPStatusError as exc:
         raise HTTPException(502, f"ZRO Bridge error: {exc.response.text}")
     except Exception as exc:
@@ -1367,7 +1489,9 @@ def watch_config(body: _WatchConfigBody):
     sid = body.sid
     session = store.get(sid)
     abs_path = os.path.abspath(body.path)
-    csv_parent_exists = abs_path.lower().endswith(".csv") and os.path.isdir(os.path.dirname(abs_path) or ".")
+    csv_parent_exists = abs_path.lower().endswith(".csv") and os.path.isdir(
+        os.path.dirname(abs_path) or "."
+    )
     if not (os.path.isdir(abs_path) or csv_parent_exists):
         raise HTTPException(400, f"Watch path does not exist: {body.path!r}")
     try:
@@ -1376,7 +1500,9 @@ def watch_config(body: _WatchConfigBody):
             lambda: _sessions.get(sid),
             lambda: _save_session(sid),
             measurement_deserializer=_deserialize_measurement,
-            grayscale_level_count=len(_grayscale_levels_for_ramp(session.get("grayscale_ramp_steps", 11))),
+            grayscale_level_count=len(
+                _grayscale_levels_for_ramp(session.get("grayscale_ramp_steps", 11))
+            ),
             post_import_hook=lambda sess: _maybe_trigger_llm(sid, sess),
         )
     except ValueError as exc:
