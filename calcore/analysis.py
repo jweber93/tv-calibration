@@ -161,4 +161,5 @@ def analyze(patches: List[Patch], cfg: AnalysisConfig) -> Summary:
             "target_space": cfg.target_space,
             "code_max": cfg.code_max,
         },
+        measured_patch_count=len(grayscale),
     )

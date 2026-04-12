@@ -36,14 +36,15 @@ from calcore.gamut import (
 from calcore.llm import (
     build_history_block as _build_history_block,
     call_llm as _call_llm,
+    parse_adjustment_plan as _parse_adjustment_plan,
     probe_llm as _probe_llm,
     query_gamut_advice as _query_gamut_advice,
     query_next_patch_strategy as _query_next_patch_strategy,
     query_remediation as _query_remediation,
 )
-from calcore.models import AnalysisConfig, LLMConfig, Patch
+from calcore.models import AnalysisConfig, LLMConfig, Patch, TVSettings
 from calcore.phase import determine_phase as _determine_phase
-from calibrator import TV_PROFILES
+from calibrator import TV_PROFILES, get_tv_profile as _get_tv_profile
 from calibrator.history import (
     history_summary as _history_summary,
     load_baseline as _load_baseline,
@@ -311,6 +312,13 @@ class _AdbPictureGetReq(BaseModel):
     device: Optional[str] = None
 
 
+class TvSettingsReq(BaseModel):
+    """Current TV hardware slider values for LLM context (#96)."""
+    two_point_wb: Optional[Dict[str, int]] = None
+    multipoint_wb: Optional[Dict[str, Any]] = None
+    cms_sliders: Optional[Dict[str, Any]] = None
+
+
 class _ZroBridgeConfigBody(BaseModel):
     url: str
 
@@ -576,6 +584,7 @@ def _run_llm_background(
     llm_cfg: LLMConfig,
     tv_key: str = "",
     session_step_history: Optional[List[Dict[str, Any]]] = None,
+    tv_settings: Optional[TVSettings] = None,
 ) -> None:
     logger.info("LLM run started  sid=%s phase=%s endpoint=%s model=%s",
                 sid, phase, llm_cfg.endpoint, llm_cfg.model)
@@ -597,19 +606,38 @@ def _run_llm_background(
             except Exception:
                 pass  # history is advisory; never block the main LLM call
 
+        # Inject TV settings schema when the TV model is known (#99)
+        tv_schema: Optional[Dict[str, Any]] = None
+        if tv_key:
+            profile = _get_tv_profile(tv_key)
+            if profile and profile.llm_schema:
+                tv_schema = profile.llm_schema
+
         result = _call_llm(
             summary,
             cfg,
             phase,
             llm_cfg,
             history_block=history_block,
+            tv_settings=tv_settings,
+            tv_schema=tv_schema,
         )
         logger.info("LLM run complete sid=%s phase=%s chars=%d", sid, phase, len(result or ""))
+
+        # Attempt to parse structured AdjustmentPlan from the JSON response (#95)
+        plan_data: Optional[Dict[str, Any]] = None
+        if result:
+            plan = _parse_adjustment_plan(result)
+            if plan is not None:
+                from dataclasses import asdict as _asdict
+                plan_data = _asdict(plan)
+
         _llm_broadcast(sid, {
             "event": "llm_insight",
             "data": {
                 "phase": phase,
                 "text": result,
+                "plan": plan_data,
                 "timestamp": datetime.utcnow().isoformat() + "Z",
             },
         })
@@ -675,12 +703,23 @@ def _maybe_trigger_llm(sid: str, session: Dict[str, Any]) -> None:
     has_key = bool(llm_cfg_dict.get("api_key"))
     logger.info("LLM trigger  sid=%s step=%s patches=%d has_api_key=%s",
                 sid, session.get("step", "baseline"), len(patches), has_key)
+    # Reconstruct TVSettings from session if the user supplied slider values (#96)
+    tv_settings: Optional[TVSettings] = None
+    raw_tv_settings = session.get("tv_settings")
+    if raw_tv_settings:
+        tv_settings = TVSettings(
+            two_point_wb=raw_tv_settings.get("two_point_wb"),
+            multipoint_wb=raw_tv_settings.get("multipoint_wb"),
+            cms_sliders=raw_tv_settings.get("cms_sliders"),
+        )
+
     threading.Thread(
         target=_run_llm_background,
         args=(sid, patches, cfg, session.get("step", "baseline"), llm_cfg),
         kwargs={
             "tv_key": session.get("tv_key", ""),
             "session_step_history": session.get("llm_step_history", []),
+            "tv_settings": tv_settings,
         },
         daemon=True,
     ).start()
@@ -872,6 +911,19 @@ def configure_llm(sid: str, req: LlmConfigureReq):
         "configured": configured,
         "model": llm_cfg.get("model", ""),
     }
+
+
+@app.post("/api/session/{sid}/tv-settings")
+def set_tv_settings(sid: str, req: TvSettingsReq):
+    """Store current TV hardware slider values in the session for LLM context (#96)."""
+    session = store.get(sid)
+    session["tv_settings"] = {
+        "two_point_wb": req.two_point_wb,
+        "multipoint_wb": req.multipoint_wb,
+        "cms_sliders": req.cms_sliders,
+    }
+    _save_session(sid)
+    return {"stored": True}
 
 
 @app.get("/api/session/{sid}/llm/status")

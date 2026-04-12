@@ -366,6 +366,11 @@ export function useSession() {
     return api.getLlmStatus(session.id);
   }
 
+  async function saveTvSettings(payload) {
+    if (!session?.id) return;
+    return api.saveTvSettings(session.id, payload);
+  }
+
   function dismissLlmInsight() {
     setLlmInsight(null);
     setLlmError(null);
@@ -378,7 +383,7 @@ export function useSession() {
     saveBridgeUrl, triggerMeasure, refreshBridgeStatus,
     saveDogegenConfig, startDogegen, stopDogegen, refreshDogegenStatus,
     adbDeploy, adbApply, adbReset, adbSetPicture, adbGetPicture, refreshAdbStatus,
-    configureLlm, getLlmStatus,
+    configureLlm, getLlmStatus, saveTvSettings,
     llmInsight, llmStreaming, llmError, dismissLlmInsight,
     reload,
   };

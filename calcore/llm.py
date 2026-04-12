@@ -6,7 +6,7 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional
 
-from .models import AnalysisConfig, LLMConfig, Summary
+from .models import AnalysisConfig, LLMConfig, Summary, TVSettings
 
 
 def _top_offenders(summary: Summary) -> Dict[str, Any]:
@@ -44,12 +44,68 @@ def _top_offenders(summary: Summary) -> Dict[str, Any]:
     return result
 
 
+@dataclass
+class AdjustmentPlan:
+    """Structured LLM output: a list of hardware adjustments + next-step directive."""
+    adjustments: List[Dict[str, Any]]  # list of adjustment dicts per schema below
+    next_step: str                      # "rerun_grayscale" | "proceed_cms" | "rerun_wb" | "verify"
+    confidence: float                   # 0.0–1.0
+
+    # Adjustment dict schema (each item):
+    # {
+    #   "menu":    str         — TV menu name
+    #   "setting": str         — setting name
+    #   "from":    int|float   — current value (if known)
+    #   "to":      int|float   — target value
+    #   "scope":   "global" | "local"
+    #   "reason":  str         — 1-2 sentences, physics-based
+    # }
+
+
+def parse_adjustment_plan(text: str) -> Optional[AdjustmentPlan]:
+    """Parse a JSON LLM response into an AdjustmentPlan.
+
+    Strips markdown code fences if present (defensive, same pattern as
+    query_next_patch_strategy).  Returns None if the text cannot be parsed or
+    required fields are missing.
+    """
+    content = text.strip()
+    if content.startswith("```"):
+        parts = content.split("```")
+        content = parts[1] if len(parts) > 1 else content
+        if content.startswith("json"):
+            content = content[4:]
+        content = content.strip()
+    try:
+        obj = json.loads(content)
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+    adjustments = obj.get("adjustments")
+    next_step = obj.get("next_step")
+    confidence = obj.get("confidence")
+
+    if not isinstance(adjustments, list) or not next_step:
+        return None
+
+    try:
+        return AdjustmentPlan(
+            adjustments=adjustments,
+            next_step=str(next_step),
+            confidence=float(confidence) if confidence is not None else 0.5,
+        )
+    except (TypeError, ValueError):
+        return None
+
+
 def build_llm_prompt(
     summary: Summary,
     cfg: AnalysisConfig,
     phase: str,
     guidance_context: Optional[str] = None,
     history_block: Optional[str] = None,
+    tv_settings: Optional[TVSettings] = None,
+    tv_schema: Optional[Dict[str, Any]] = None,
 ) -> str:
     # Exclude raw per-patch rows from the LLM payload — they waste tokens and
     # tempt the model to do per-patch math it can't reliably perform.
@@ -63,7 +119,7 @@ def build_llm_prompt(
     if top:
         summary_dict["top_offenders"] = top
 
-    payload = {
+    payload: Dict[str, Any] = {
         "phase": phase,
         "mode": cfg.mode,
         "eotf": cfg.eotf,
@@ -71,16 +127,42 @@ def build_llm_prompt(
         "summary": summary_dict,
     }
 
-    parts: List[str] = [
-        "You are a TV calibration co-pilot. Use the provided summary only. "
-        "Do not do new math. Do not invent missing data. "
-        "Return exactly one calibration step in this format:\n\n"
-        "> **Step [Phase.Step]:** [Action title]\n"
-        "> **Do this:** [Specific instruction]\n"
-        "> **Why:** [1-2 sentences]\n"
-        "> **Send me:** [What to send back]\n\n"
-        "If the data is insufficient, say exactly what is missing and stop.",
-    ]
+    # Inject current TV hardware slider values when supplied (#96)
+    if tv_settings is not None:
+        ts_dict = {k: v for k, v in asdict(tv_settings).items() if v is not None}
+        if ts_dict:
+            payload["current_tv_settings"] = ts_dict
+
+    # Inject TV model settings schema (ranges, menu paths) when available (#99)
+    if tv_schema:
+        payload["tv_settings_schema"] = tv_schema
+
+    # Structured JSON output schema instructions
+    schema_instructions = (
+        "Respond with ONLY a valid JSON object matching this exact schema "
+        "(no markdown, no prose outside the JSON):\n"
+        "{\n"
+        '  "adjustments": [\n'
+        '    {\n'
+        '      "menu": "<TV menu name>",\n'
+        '      "setting": "<setting name>",\n'
+        '      "from": <current value or null>,\n'
+        '      "to": <target value>,\n'
+        '      "scope": "global" | "local",\n'
+        '      "reason": "<1-2 sentences, physics-based>"\n'
+        '    }\n'
+        '  ],\n'
+        '  "next_step": "rerun_grayscale" | "proceed_cms" | "rerun_wb" | "verify",\n'
+        '  "confidence": <0.0-1.0>\n'
+        "}\n\n"
+        '"scope" distinguishes Global errors (2-point Gain/Offset) from Local errors '
+        "(multi-point / EOTF adjustment).\n"
+        "If the data is insufficient to produce adjustments, return an empty "
+        '"adjustments" array with "next_step": "rerun_grayscale" and '
+        '"confidence": 0.0.'
+    )
+
+    parts: List[str] = [schema_instructions]
 
     if history_block:
         parts.append(f"\nDISPLAY HISTORY (prior sessions for this TV):\n{history_block}")
@@ -112,6 +194,13 @@ def resolve_endpoint(endpoint: str) -> str:
     return endpoint
 
 
+_SYSTEM_PROMPT = (
+    "You are an expert Display Calibration Engine. "
+    "Identify the highest-dE errors and produce precise hardware adjustment deltas. "
+    "Respond only with valid JSON. No prose, no markdown, no explanations outside the JSON schema."
+)
+
+
 def call_llm(
     summary: Summary,
     cfg: AnalysisConfig,
@@ -119,20 +208,45 @@ def call_llm(
     llm: LLMConfig,
     guidance_context: Optional[str] = None,
     history_block: Optional[str] = None,
+    tv_settings: Optional[TVSettings] = None,
+    tv_schema: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
-    """Call an OpenAI-compatible chat/completions endpoint (e.g. LiteLLM proxy)."""
+    """Call an OpenAI-compatible chat/completions endpoint (e.g. LiteLLM proxy).
+
+    Returns the raw JSON string from the model (to be parsed by
+    parse_adjustment_plan), or a deferred-message string when the sweep is
+    incomplete, or None if the LLM is not configured.
+    """
     if not llm.endpoint or not llm.model:
         return None
 
+    # Gate: defer analysis on partial sweeps (#97)
+    if not summary.is_sweep_complete:
+        measured = summary.measured_patch_count
+        expected = summary.expected_patch_count
+        expected_str = str(expected) if expected is not None else "?"
+        return (
+            f"Partial sweep received ({measured}/{expected_str} patches) "
+            f"— awaiting full {phase} sweep before providing adjustments."
+        )
+
     url = resolve_endpoint(llm.endpoint)
-    prompt = build_llm_prompt(summary, cfg, phase, guidance_context=guidance_context, history_block=history_block)
+    prompt = build_llm_prompt(
+        summary,
+        cfg,
+        phase,
+        guidance_context=guidance_context,
+        history_block=history_block,
+        tv_settings=tv_settings,
+        tv_schema=tv_schema,
+    )
     body = {
         "model": llm.model,
         "messages": [
-            {"role": "system", "content": "You are a strict calibration assistant."},
+            {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ],
-        "temperature": llm.temperature,
+        "temperature": 0.0,
     }
 
     data = json.dumps(body).encode("utf-8")

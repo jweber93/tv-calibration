@@ -7,7 +7,7 @@ registering it in TV_PROFILES.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from calcore.models import CalMode
 
@@ -63,6 +63,10 @@ class TVProfile:
     # Optional hidden / service menu instructions
     SERVICE_MENU_ACCESS: str = ""
     SERVICE_MENU_CONTROLS: List[Tuple[str, str]] = field(default_factory=list)
+
+    # Machine-readable settings schema for LLM injection (#99).
+    # Maps setting key → dict with type, path, options/range, and dependency info.
+    llm_schema: Dict[str, Any] = field(default_factory=dict)
 
 
 def _build_u8g_profile() -> TVProfile:
@@ -151,6 +155,109 @@ def _build_u8g_profile() -> TVProfile:
             ("Sharpness",                              "0  (no edge enhancement — sharpening can corrupt near-white patch readings)"),
         ],
         supported_gamuts=["bt709", "p3d65", "bt2020"],
+        llm_schema={
+            "model": "Hisense U8G",
+            "variants": ["55U8G", "65U8G", "75U8G"],
+            "nomenclature": {
+                "backlight": {
+                    "term": "Backlight Level",
+                    "function": "Overall panel illumination (nits). Sets peak white output. Does NOT affect black crush.",
+                    "path": "Settings > Picture > Backlight > Backlight Level",
+                },
+                "black_level": {
+                    "term": "Brightness",
+                    "function": "Black level control. Sets the point where shadow detail clips. Calibration: set so near-black test patterns are just visible.",
+                    "path": "Settings > Picture > Brightness",
+                },
+            },
+            "settings": {
+                "gamma": {
+                    "path": "Settings > Picture > Calibration settings > Gamma",
+                    "type": "enum",
+                    "options": [2.0, 2.2, 2.4],
+                    "increment": 0.2,
+                    "default": 2.2,
+                    "calibration_target": 2.4,
+                    "note": "Only these three values available as presets.",
+                },
+                "local_dimming": {
+                    "path": "Settings > Picture > Backlight > Dynamic Backlight Control",
+                    "type": "enum",
+                    "options": ["Off", "Low", "Medium", "High"],
+                    "zones": 360,
+                    "calibration_note": "Set High for HDR measurement; Off only as troubleshooting cross-check.",
+                },
+                "color_space": {
+                    "path": "Settings > Picture > Advanced Settings > Color Space",
+                    "type": "enum",
+                    "options": ["Auto", "BT.709", "Rec.2020"],
+                },
+                "color_temperature": {
+                    "path": "Settings > Picture > Advanced Settings > Color Temperature",
+                    "type": "enum",
+                    "options": ["Warm", "Cool"],
+                    "calibration_target": "Warm",
+                },
+                "white_balance_2pt": {
+                    "path": "Settings > Picture > Calibration settings > White Balance > 2 Point",
+                    "type": "slider",
+                    "channels": {
+                        "R_gain": {"label": "R-Gain", "affects": "red highlights (80-100% gray)"},
+                        "G_gain": {"label": "G-Gain", "affects": "green highlights (80-100% gray)"},
+                        "B_gain": {"label": "B-Gain", "affects": "blue highlights (80-100% gray)"},
+                        "R_offset": {"label": "R-Offset", "affects": "red shadows (20-30% gray)"},
+                        "G_offset": {"label": "G-Offset", "affects": "green shadows (20-30% gray)"},
+                        "B_offset": {"label": "B-Offset", "affects": "blue shadows (20-30% gray)"},
+                    },
+                    "neutral_value": 0,
+                    "note": "Start with 2-point. Leave 20-point untouched until 2-point is already close.",
+                },
+                "white_balance_20pt": {
+                    "path": "Settings > Picture > Calibration settings > White Balance > 20 Point",
+                    "type": "multipoint",
+                    "step_pct_options": [5, 10],
+                    "neutral_value": 0,
+                    "note": "Used for fine grayscale tracking after 2-point is close.",
+                },
+                "cms": {
+                    "path": "Settings > Picture > Calibration settings > Color Tuner",
+                    "type": "cms",
+                    "colors": ["Red", "Green", "Blue", "Cyan", "Magenta", "Yellow"],
+                    "params": {
+                        "Hue": "Shifts relative colour angle.",
+                        "Saturation": "Adjusts purity / vibrancy.",
+                        "Brightness": "Controls luminance of that specific colour.",
+                    },
+                    "neutral_value": 0,
+                    "note": "Zero all CMS values before loading a 3D LUT (ColourSpace, Calman).",
+                },
+                "contrast": {
+                    "path": "Settings > Picture > Contrast",
+                    "type": "slider",
+                    "calibration_default": 90,
+                    "note": "Controls peak white levels. Back down if 100% whites clip.",
+                },
+                "brightness": {
+                    "path": "Settings > Picture > Brightness",
+                    "type": "slider",
+                    "calibration_default": 50,
+                    "note": "Black level control — NOT luminance. Set so 5% near-black is just visible.",
+                },
+                "active_contrast": {
+                    "path": "Settings > Picture > Advanced Settings > Active Contrast",
+                    "type": "toggle",
+                    "calibration_value": "Off",
+                    "note": "Auto local contrast — disable during calibration.",
+                },
+                "hdmi_dynamic_range": {
+                    "path": "Settings > Picture > Advanced Settings > HDMI Dynamic Range",
+                    "type": "enum",
+                    "options": ["Auto", "Full"],
+                    "dependency": "Only available when HDMI input is active.",
+                    "calibration_note": "Set Auto (or Full if PC source).",
+                },
+            },
+        },
     )
 
 
@@ -493,3 +600,11 @@ TV_PROFILES: Dict[str, TVProfile] = {
 }
 
 DEFAULT_TV_PROFILE = "u8g"
+
+
+def get_tv_profile(model_name: str) -> Optional[TVProfile]:
+    """Return the TVProfile for the given model key, or None if not found.
+
+    Accepts the short_name key used in TV_PROFILES (e.g. "u8g", "tcl7105x").
+    """
+    return TV_PROFILES.get(model_name)
