@@ -219,7 +219,12 @@ def wb_control_candidates(m: Measurement, hints: Dict[str, Any], tv: TVProfile) 
     return sorted(merged.values(), key=lambda i: (i["label"] != "primary", -i["score"], i["control"]))
 
 
-def wb_control_plan(m: Measurement, hints: Dict[str, Any], tv: TVProfile) -> List[Dict[str, Any]]:
+def wb_control_plan(
+    m: Measurement,
+    hints: Dict[str, Any],
+    tv: TVProfile,
+    de: Optional[float] = None,
+) -> List[Dict[str, Any]]:
     ranked = wb_control_candidates(m, hints, tv)
     controls: List[Dict[str, Any]] = []
     for idx, item in enumerate(ranked[:2], start=1):
@@ -236,6 +241,16 @@ def wb_control_plan(m: Measurement, hints: Dict[str, Any], tv: TVProfile) -> Lis
     if not controls:
         measurement_type = wb_measurement_type(m)
         suffix_label = "Gain" if measurement_type == "gain" else "Offset"
+        # Chromaticity is on target but ΔE may still be high due to luminance error.
+        if de is not None and de > 3.0:
+            reason = (
+                f"Chromaticity on target — no RGB {suffix_label.lower()} adjustment needed. "
+                f"ΔE {de:.1f} is elevated due to luminance error at this stimulus level, "
+                f"not a color cast. This will be addressed during gamma calibration; "
+                f"do not adjust RGB {suffix_label.lower()} controls for it."
+            )
+        else:
+            reason = "This reading is already within tolerance."
         controls.append(
             {
                 "control": f"{suffix_label} controls",
@@ -243,7 +258,7 @@ def wb_control_plan(m: Measurement, hints: Dict[str, Any], tv: TVProfile) -> Lis
                 "amount": 0,
                 "priority": "primary",
                 "summary": f"Leave {suffix_label} as-is",
-                "reason": "This reading is already within tolerance.",
+                "reason": reason,
             }
         )
     return controls[:3]
@@ -253,6 +268,7 @@ def wb_recommendations(
     m: Measurement,
     hints: Dict[str, Any],
     tv: Optional[TVProfile] = None,
+    de: Optional[float] = None,
 ) -> List[str]:
     recs: List[str] = []
     is_gain = "80%" in m.label or "Gain" in m.label
@@ -275,7 +291,13 @@ def wb_recommendations(
             recs.append(hints["y"]["action"])
 
     if hints["overall"] == "excellent":
-        recs.append("White balance is within tolerance. Re-measure the other gray point and move on.")
+        if de is not None and de > 3.0:
+            recs.append(
+                f"Chromaticity on target. ΔE {de:.1f} is elevated due to luminance error — "
+                "not a color cast. Address during gamma calibration."
+            )
+        else:
+            recs.append("White balance is within tolerance. Re-measure the other gray point and move on.")
     elif hints["overall"] == "close":
         recs.append("Make only one-click changes, then re-measure the same patch.")
     else:
