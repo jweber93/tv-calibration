@@ -1267,8 +1267,7 @@ class TestLLMIntegration:
         assert resp.json()["configured"] is False
 
     def test_llm_status_configured_reachable(self, client, session_id, monkeypatch):
-        import httpx as _httpx
-        monkeypatch.setattr(_httpx, "get", lambda *a, **kw: type("R", (), {"status_code": 200})())
+        monkeypatch.setattr(server_module, "_probe_llm", lambda *a, **kw: (True, ""))
         client.post(f"/api/session/{session_id}/llm/configure",
                     json={"endpoint": "http://localhost:4000", "model": "gpt-4o"})
         resp = client.get(f"/api/session/{session_id}/llm/status")
@@ -1306,6 +1305,9 @@ class TestLLMIntegration:
         assert resp.status_code == 200
         assert resp.json()["status"] == "running"
 
+        # llm_start is broadcast first; skip it and wait for llm_insight
+        first = q.get(timeout=2.0)
+        assert first["event"] == "llm_start"
         payload = q.get(timeout=2.0)
         assert payload["event"] == "llm_insight"
         data = payload["data"]
@@ -1331,6 +1333,9 @@ class TestLLMIntegration:
                             lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("connection refused")))
 
         client.post(f"/api/session/{session_id}/llm/run")
+        # llm_start is broadcast first; skip it and wait for llm_error
+        first = q.get(timeout=2.0)
+        assert first["event"] == "llm_start"
         payload = q.get(timeout=2.0)
         assert payload["event"] == "llm_error"
         assert "connection refused" in payload["data"]
@@ -1366,6 +1371,8 @@ class TestLLMIntegration:
         resp = _upload_csv(client, session_id, csv)
         assert resp.status_code == 200
 
+        first = q.get(timeout=2.0)
+        assert first["event"] == "llm_start"
         payload = q.get(timeout=2.0)
         assert payload["event"] == "llm_insight"
         assert "white balance" in payload["data"]["text"]
@@ -1404,6 +1411,8 @@ class TestLLMIntegration:
         )
         assert resp.status_code == 200
 
+        first = q.get(timeout=2.0)
+        assert first["event"] == "llm_start"
         payload = q.get(timeout=2.0)
         assert payload["event"] in ("llm_insight", "llm_error")
         server_module._llm_unsubscribe(session_id, q)
