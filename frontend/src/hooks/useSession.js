@@ -34,27 +34,35 @@ export function useSession() {
     let retryDelay = 2000;
 
     function connect() {
+      console.log('[LLM] connecting to stream', sid);
       const es = new EventSource(`/api/session/${sid}/llm/stream`);
-      es.addEventListener('llm_start', () => {
+      es.addEventListener('llm_start', e => {
+        console.log('[LLM] started', JSON.parse(e.data));
         setLlmStreaming(true);
         setLlmError(null);
       });
       es.addEventListener('llm_insight', e => {
         try {
           const data = JSON.parse(e.data);
+          console.log('[LLM] insight received', data.phase, data.text?.slice(0, 80));
           setLlmInsight(data);
-        } catch { /* malformed */ }
+        } catch (err) {
+          console.warn('[LLM] malformed insight payload', e.data, err);
+        }
         setLlmStreaming(false);
       });
-      es.addEventListener('patch_strategy', () => {
-        // patch_strategy arrives alongside llm_insight; streaming is done
+      es.addEventListener('patch_strategy', e => {
+        console.log('[LLM] patch_strategy received', JSON.parse(e.data));
         setLlmStreaming(false);
       });
       es.addEventListener('llm_error', e => {
-        try { setLlmError(JSON.parse(e.data)); } catch { setLlmError(String(e.data)); }
+        const msg = (() => { try { return JSON.parse(e.data); } catch { return String(e.data); } })();
+        console.error('[LLM] error received', msg);
+        setLlmError(msg);
         setLlmStreaming(false);
       });
-      es.onerror = () => {
+      es.onerror = err => {
+        console.warn('[LLM] SSE connection error — retrying in', retryDelay, 'ms', err);
         es.close();
         llmEsRetryRef.current = setTimeout(() => {
           retryDelay = Math.min(retryDelay * 2, 30000);
