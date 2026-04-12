@@ -41,6 +41,7 @@ import { PostGrayscale } from './pages/PostGrayscale';
 import { Report }        from './pages/Report';
 import { ConfirmModal }  from './components/ConfirmModal';
 import { LlmInsightCard } from './components/LlmInsightCard';
+import { LogsPanel }     from './components/LogsPanel';
 
 function QualityDot({ gate }) {
   if (!gate) return null;
@@ -152,7 +153,7 @@ export default function App() {
   const dogegenConfigured = dogegenStatus?.configured;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', paddingBottom: 28 }}>
       {showStartOver && (
         <ConfirmModal
           title="Discard this calibration session?"
@@ -216,6 +217,7 @@ export default function App() {
           {renderStep()}
         </StepErrorBoundary>
       </main>
+      <LogsPanel />
     </div>
   );
 }

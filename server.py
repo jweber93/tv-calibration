@@ -9,6 +9,7 @@ Run with:
 
 from __future__ import annotations
 
+import collections
 import json
 import logging
 import os
@@ -92,6 +93,58 @@ from calibrator.session import (
 import calibrator.adb_control as _adb
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# In-memory log buffer — streams recent log records to the frontend
+# ---------------------------------------------------------------------------
+
+class _LogBuffer(logging.Handler):
+    """Circular buffer of recent log records with SSE subscriber support."""
+
+    MAX_LINES = 500
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._lines: collections.deque = collections.deque(maxlen=self.MAX_LINES)
+        self._subscribers: List[queue.Queue] = []
+        self._sub_lock = threading.Lock()
+        self.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s — %(message)s", "%H:%M:%S"))
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            line = self.format(record)
+        except Exception:
+            return
+        self._lines.append(line)
+        with self._sub_lock:
+            subs = list(self._subscribers)
+        for q in subs:
+            try:
+                q.put_nowait(line)
+            except queue.Full:
+                pass
+
+    def snapshot(self) -> List[str]:
+        return list(self._lines)
+
+    def subscribe(self) -> queue.Queue:
+        q: queue.Queue = queue.Queue(maxsize=200)
+        with self._sub_lock:
+            self._subscribers.append(q)
+        return q
+
+    def unsubscribe(self, q: queue.Queue) -> None:
+        with self._sub_lock:
+            try:
+                self._subscribers.remove(q)
+            except ValueError:
+                pass
+
+
+_log_buffer = _LogBuffer()
+_log_buffer.setLevel(logging.DEBUG)
+logging.getLogger().addHandler(_log_buffer)
+logging.getLogger().setLevel(logging.DEBUG)
 
 app = FastAPI(title="ZRO Calibration Helper")
 
@@ -1272,6 +1325,7 @@ def watch_config(body: _WatchConfigBody):
             lambda: _save_session(sid),
             measurement_deserializer=_deserialize_measurement,
             grayscale_level_count=len(_grayscale_levels_for_ramp(session.get("grayscale_ramp_steps", 11))),
+            post_import_hook=lambda sess: _maybe_trigger_llm(sid, sess),
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -1340,6 +1394,35 @@ def session_events(sid: str):
                     yield ": keep-alive\n\n"
         finally:
             _fw_unsubscribe(ev_queue)
+
+    return StreamingResponse(
+        _generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.get("/api/logs/stream")
+def logs_stream():
+    q = _log_buffer.subscribe()
+
+    def _generator():
+        try:
+            # Send the recent buffer first so the panel populates immediately
+            for line in _log_buffer.snapshot():
+                yield f"data: {json.dumps(line)}\n\n"
+            while True:
+                try:
+                    line = q.get(timeout=20.0)
+                    yield f"data: {json.dumps(line)}\n\n"
+                except queue.Empty:
+                    yield ": keep-alive\n\n"
+        finally:
+            _log_buffer.unsubscribe(q)
 
     return StreamingResponse(
         _generator(),
