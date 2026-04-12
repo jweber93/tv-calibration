@@ -953,6 +953,7 @@ def session_view(s: Dict[str, Any]) -> Dict[str, Any]:
         latest_gain = latest_wb["gain"]
         latest_offset = latest_wb["offset"]
         current_hints = wb_hints(wb[-1], target.white_point_xy) if wb and target else None
+        last_wb_de = m_to_dict(wb[-1], target, signal_range, code_scale)["delta_e"] if wb and target else None
         view["wb_data"] = {
             "menu_path": tv.WB_MENU_PATH,
             "controls": [{"control": k, "desc": v} for k, v in tv.WB_2POINT.items()],
@@ -965,8 +966,8 @@ def session_view(s: Dict[str, Any]) -> Dict[str, Any]:
             "has_offset_measurement": latest_offset is not None,
             "ready_to_continue": latest_gain is not None and latest_offset is not None,
             "hints": current_hints,
-            "recommendations": wb_recommendations(wb[-1], current_hints, tv) if wb and target and current_hints else [],
-            "control_plan": wb_control_plan(wb[-1], current_hints, tv) if wb and target and current_hints else [],
+            "recommendations": wb_recommendations(wb[-1], current_hints, tv, de=last_wb_de) if wb and target and current_hints else [],
+            "control_plan": wb_control_plan(wb[-1], current_hints, tv, de=last_wb_de) if wb and target and current_hints else [],
             "target_xy": list(target.white_point_xy) if target else [0.3127, 0.3290],
         }
         view["zro_instructions"] = zro_step_instructions(signal_range, s.get("pattern_generator", "lightspace_connect"), code_scale)["white_balance"]
