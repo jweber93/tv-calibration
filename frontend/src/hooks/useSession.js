@@ -46,7 +46,7 @@ export function useSession() {
         } catch { /* malformed */ }
         setLlmStreaming(false);
       });
-      es.addEventListener('patch_strategy', e => {
+      es.addEventListener('patch_strategy', () => {
         // patch_strategy arrives alongside llm_insight; streaming is done
         setLlmStreaming(false);
       });
