@@ -240,6 +240,7 @@ class _ZROHandler(FileSystemEventHandler):
         measurement_deserializer: Optional[Callable[[Dict], object]] = None,
         grayscale_level_count: int = 11,
         watched_file: Optional[str] = None,
+        post_import_hook: Optional[Callable[[Dict], None]] = None,
     ) -> None:
         super().__init__()
         self._session_getter = session_getter
@@ -247,6 +248,7 @@ class _ZROHandler(FileSystemEventHandler):
         self._measurement_deserializer = measurement_deserializer
         self._grayscale_level_count = grayscale_level_count
         self._watched_file = os.path.abspath(watched_file) if watched_file else None
+        self._post_import_hook = post_import_hook
 
         # path → timer
         self._timers: Dict[str, threading.Timer] = {}
@@ -547,6 +549,12 @@ class _ZROHandler(FileSystemEventHandler):
         _broadcast_event(event_payload)
         logger.info("Auto-imported %s (%d rows, %d buckets)", src_path, result.total_rows, len(counts))
 
+        if self._post_import_hook is not None:
+            try:
+                self._post_import_hook(session)
+            except Exception as exc:
+                logger.warning("post_import_hook raised: %s", exc)
+
 
 def _broadcast_event(payload: Dict) -> None:
     """Send an import event to every active SSE subscriber."""
@@ -591,6 +599,7 @@ def start_watching(
     session_saver: Callable[[], None],
     measurement_deserializer: Optional[Callable[[Dict], object]] = None,
     grayscale_level_count: int = 11,
+    post_import_hook: Optional[Callable[[Dict], None]] = None,
 ) -> None:
     """
     Start watching *path* for new or modified ``.csv`` files.
@@ -637,6 +646,7 @@ def start_watching(
         measurement_deserializer=measurement_deserializer,
         grayscale_level_count=grayscale_level_count,
         watched_file=watched_file,
+        post_import_hook=post_import_hook,
     )
     observer = Observer()
     observer.schedule(handler, watch_dir, recursive=False)
