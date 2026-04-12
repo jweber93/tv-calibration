@@ -524,6 +524,8 @@ def _run_llm_background(
     tv_key: str = "",
     session_step_history: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
+    logger.info("LLM run started  sid=%s phase=%s endpoint=%s model=%s",
+                sid, phase, llm_cfg.endpoint, llm_cfg.model)
     _llm_broadcast(sid, {
         "event": "llm_start",
         "data": {"phase": phase, "timestamp": datetime.utcnow().isoformat() + "Z"},
@@ -549,6 +551,7 @@ def _run_llm_background(
             llm_cfg,
             history_block=history_block,
         )
+        logger.info("LLM run complete sid=%s phase=%s chars=%d", sid, phase, len(result or ""))
         _llm_broadcast(sid, {
             "event": "llm_insight",
             "data": {
@@ -583,6 +586,7 @@ def _run_llm_background(
                     },
                 })
     except Exception as exc:
+        logger.error("LLM run failed  sid=%s phase=%s error=%s", sid, phase, exc, exc_info=True)
         _llm_broadcast(sid, {"event": "llm_error", "data": str(exc)})
 
 
