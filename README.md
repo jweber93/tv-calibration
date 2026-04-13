@@ -52,10 +52,13 @@ flowchart TD
         Quality["quality.py\nΔE · CCT · gamma gates"]
         Watcher["file_watcher.py\nauto-import on CSV write"]
         Reports["reports.py\nHTML · PDF via WeasyPrint"]
+        CSVAdapter["csv_adapter.py\ngeneric CSV → session buckets"]
+        Utils["utils.py\nstimulus · ΔE · rating helpers"]
         Session --- Guidance
         Session --- Quality
         Session --- Watcher
         Session --- Reports
+        Session --- CSVAdapter
     end
 
     subgraph Calcore["calcore/"]
@@ -63,11 +66,17 @@ flowchart TD
         Colour["colour.py\nXYZ ↔ Lab · CCT · chromaticity"]
         EOTF["eotf.py\nPQ · BT.1886 · γ2.2"]
         LLM["llm.py\nOpenAI-compatible client"]
+        Spaces["spaces.py\nRGB↔XYZ matrices · primaries"]
+        Targets["targets.py\ntarget XYZ per patch"]
+        CSVImport["csv_import.py\ngeneric CSV parser"]
         Analysis --- Colour
         Analysis --- EOTF
+        Analysis --- Spaces
+        Analysis --- Targets
     end
 
     Storage[(".sessions/\nJSON session files")]
+    Prefs[(".prefs.json\nuser preferences")]
 
     subgraph External["External Integrations"]
         ZRO["ColourSpace ZRO\nmeasurement software"]
@@ -84,6 +93,7 @@ flowchart TD
     Backend --> Calcore
     Calibrator --> Calcore
     Backend <--> Storage
+    Backend <--> Prefs
     Watcher -->|detects new CSV| ZRO
     Backend -->|subprocess| Dogegen
     Backend -->|network API| LSConnect
@@ -209,6 +219,8 @@ The ZRO Bridge lets ColourSpace ZRO trigger a measurement from within the app wo
 
 The Bridge status indicator in the header bar shows whether the connection is live (green) or unreachable (red).
 
+> **Note — Remote Control backend:** The `tools/zro-bridge/backends/remote_control_backend.py` stub is **experimental and not ready for use**. The Light Illusion Integration Protocol format has not been obtained, so `trigger_measurement()` always returns an error. The webhook path (above) is the working integration method.
+
 ### Dogegen Integration
 
 When Dogegen is selected as the pattern generator, the app manages the Dogegen process directly:
@@ -240,6 +252,8 @@ The assistant system has four integrated capabilities:
 | **Patch strategy** | After each import the LLM also recommends which patches to add or skip next (`patch_strategy` SSE event). Strategies with confidence ≥ 0.6 are flagged for auto-apply; lower-confidence ones surface for user review. |
 
 Configure under the **AI Assistant** section on the Prepare page. All AI features are non-blocking — the workflow runs fully without an LLM endpoint configured.
+
+The **Test Connection** button on the Prepare page calls `probe_llm()` to verify that the configured endpoint is reachable and returns a valid chat response before any measurement is triggered. Errors from the LLM (HTTP errors, malformed JSON, timeouts) are logged to the server log stream and surfaced in the UI without interrupting the calibration flow.
 
 #### Recommended Local Models (Ollama)
 
@@ -296,6 +310,10 @@ For supported TVs, the app can apply color management settings directly over And
 
 ADB must be installed and your TV must have ADB debugging enabled over the network. The ADB status card appears on measurement steps when a compatible device is detected.
 
+### Server Logs Panel
+
+A live server log stream is available in the UI for debugging. The panel tails the FastAPI process log in real time via `GET /api/logs/stream` (SSE). Log entries include CSV import events, LLM trigger attempts, Dogegen process lifecycle, and any server-side errors. The panel is collapsed by default; expand it from the header bar.
+
 ### PDF and HTML Reports
 
 The Report page offers three export formats:
@@ -314,7 +332,7 @@ TV profiles define the recommended picture mode, reset values, service menu path
 |---|---|
 | Hisense U8G | SDR, HDR10, Dolby Vision |
 | TCL 6-Series (7105X) | SDR, HDR10 |
-| LG OLED B7 | SDR, HDR10 |
+| LG OLED55B7A (B7, 2017) | SDR, HDR10, Dolby Vision |
 | Vizio V-Series (V4K55M) | SDR, HDR10 |
 
 **Adding a profile** — profiles are defined in `calibrator/profiles.py`. Each profile is a Python dataclass specifying the TV name, supported modes, picture mode name, menu navigation paths, and a list of settings to reset, disable, and configure before calibration.
@@ -328,7 +346,7 @@ If your TV isn't listed, you can still use the app by creating a session with an
 | Setting | Options | Notes |
 |---|---|---|
 | **Grayscale Ramp** | 11-step, 21-step, 51-step | 51-step requires LightSpace Connect paid tier |
-| **Signal Range** | Full (0–255 / 0–1023), Limited (16–235 / 64–940) | Match to your pattern generator's output |
+| **Signal Range** | Auto, Full (0–255 / 0–1023), Limited (16–235 / 64–940) | Auto snaps each code value to the nearest 5% stimulus level and infers the range; override if the auto-detection is wrong |
 | **Patch Code Scale** | 8-bit, 10-bit | Use 10-bit for Dogegen HDR10 workflows |
 
 These are configured on the Prepare page and persist for the session. The Measurement Settings section collapses to show a one-line summary (e.g., *21-step · Full Range · 10-bit*) after setup.
@@ -359,20 +377,26 @@ Options:
 ```
 calibrator/
   session.py          Session state machine and step logic
-  profiles.py         TV model profile definitions
+  profiles.py         TV model profile definitions (including LLM schema per model)
   guidance.py         Adjustment computation (WB, gamma, CMS)
   history.py          Per-display calibration history store (sessions.jsonl)
   quality.py          Quality gate thresholds and evaluation
   zro_import.py       ColourSpace ZRO CSV parser and classifier
+  csv_adapter.py      Generic CSV → session bucket mapper (grayscale vs. color)
   file_watcher.py     Watch folder / auto-import
   adb_control.py      Android Debug Bridge integration
   reports.py          HTML and PDF report rendering
   models.py           Report dataclasses
+  utils.py            Stimulus % conversion, ΔE helpers, rating labels
+  runtime.py          Startup dependency checks and Rich console instance
 
 calcore/
   models.py           Measurement, CalibrationTarget, Patch dataclasses
   analysis.py         ΔE 2000, gamma, PQ EOTF calculations
   colour.py           CIE conversions, CCT, primary chromaticities
+  spaces.py           RGB↔XYZ matrices and primary chromaticities (BT.709, P3-D65, BT.2020)
+  targets.py          Target XYZ computation per patch (grayscale + color primaries)
+  csv_import.py       Generic ColourSpace CSV parser (header and headerless formats)
   gamut.py            Per-primary gamut feasibility check (PrimaryConstraint, GamutDiagnosis)
   phase.py            Calibration phase determination logic
   llm.py              LLM client — guidance, history injection, patch strategy, remediation
@@ -383,6 +407,10 @@ litellm_config.yaml   LiteLLM proxy config (model routing, caching, offline fall
 frontend/             React + Vite source (built output in static/)
 tests/                API, unit, and integration tests
 tools/                Reference CSV sequences for ZRO workflows
+
+.prefs.json           Persisted user preferences — watch path, LLM endpoint, Dogegen
+                      config, ZRO bridge URL. Auto-created; gitignored. Written
+                      atomically on every UI change; loaded at server startup.
 
 .calibration-history/ Per-TV session history (auto-created; gitignored)
   {tv_key}/
@@ -437,11 +465,15 @@ The AI system is structured as three tiers:
 ┌─────────────────────────────────────────────────────────┐
 │                  tv-calibration server                  │
 │                                                         │
-│  CSV import → _calcore_analyze() → Summary              │
+│  CSV import (manual, watch-folder, or generic CSV)      │
+│    → _calcore_analyze() → Summary                       │
 │                    │                                    │
 │                    ├─ scalar metrics (ΔE, gamma, PQ)    │
 │                    ├─ top_offenders (worst 3 patches)   │  ← P0: prompt
 │                    └─ PRE-COMPUTED guidance context     │     leakiness fix
+│                                                         │
+│  profiles.py → llm_schema (per TV model)                │  ← TV-specific
+│    injected into prompt as control-range context        │     nomenclature
 │                                                         │
 │  calibrator/history.py                                  │
 │    load_history(tv_key) → compressed history block      │  ← P1/P2: display
@@ -483,11 +515,12 @@ The LLM prompt contains **only pre-aggregated data** — no raw per-patch XYZ ar
 | `color_75/100_avg_de`, `color_75/100_chroma_avg` | Summary scalars | Gamut diagnosis |
 | `top_offenders` (worst 3 patches, label + ΔE only) | Derived from rows | Actionable specifics |
 | `DISPLAY HISTORY` block | `.calibration-history/` | Drift / aging context |
+| `llm_schema` (control paths, ranges, menu terminology) | `profiles.py` per TV model | TV-specific adjustment guidance |
 | Phase, mode, EOTF, target space | Session config | Framing |
 
 **Not sent:** full `grayscale_rows`, full `color_rows` (raw XYZ triples). These exist in the `Summary` for UI rendering but are excluded from the LLM payload.
 
-### New API Endpoints
+### API Endpoints Reference
 
 | Method | Endpoint | Purpose |
 |---|---|---|
@@ -495,6 +528,10 @@ The LLM prompt contains **only pre-aggregated data** — no raw per-patch XYZ ar
 | `POST` | `/api/session/{sid}/gamut/advise` | LLM trade-off advice for out-of-range primaries |
 | `GET` | `/api/session/{sid}/history` | Calibration history for this TV model |
 | `POST` | `/api/session/{sid}/hardware/remediate` | LLM-guided hardware fault recovery plan |
+| `POST` | `/api/session/{sid}/import/generic` | Import any CSV (header or headerless; grayscale or color) |
+| `GET` | `/api/prefs` | Read persisted user preferences |
+| `POST` | `/api/prefs` | Write user preferences (watch path, LLM config, Dogegen, bridge URL) |
+| `GET` | `/api/logs/stream` | SSE stream of server log lines (for the in-UI logs panel) |
 
 SSE stream (`GET /api/session/{sid}/llm/stream`) now emits two event types:
 
