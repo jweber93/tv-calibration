@@ -59,13 +59,26 @@ export function useSession() {
       console.log('[LLM] connecting to stream', sid);
       const es = new EventSource(`/api/session/${sid}/llm/stream`);
       es.addEventListener('llm_start', e => {
-        console.log('[LLM] started', JSON.parse(e.data));
-        setLlmStreaming(true);
-        setLlmError(null);
+        try {
+          const data = JSON.parse(e.data);
+          if (!data.phase) {
+            console.warn('[LLM] malformed llm_start payload - missing phase', data);
+            return;
+          }
+          console.log('[LLM] started', data.phase);
+          setLlmStreaming(true);
+          setLlmError(null);
+        } catch (err) {
+          console.warn('[LLM] malformed llm_start payload', e.data, err);
+        }
       });
       es.addEventListener('llm_insight', e => {
         try {
           const data = JSON.parse(e.data);
+          if (!data.phase || !data.text) {
+            console.warn('[LLM] malformed insight payload - missing phase or text', data);
+            return;
+          }
           console.log('[LLM] insight received', data.phase, data.text?.slice(0, 80));
           setLlmInsight(data);
         } catch (err) {
@@ -147,20 +160,20 @@ export function useSession() {
     };
   }, []);
   const refreshWatchStatus = useCallback(async () => {
-    try { setWatchStatus(await api.getWatchStatus()); } catch { /* poll failure is non-fatal */ }
+    try { setWatchStatus(await api.getWatchStatus()); } catch (err) { console.warn('watch status poll error:', err); }
   }, []);
 
   const refreshBridgeStatus = useCallback(async (url = bridgeUrl) => {
     if (!url) return;
-    try { setBridgeStatus(await api.getBridgeStatus(url)); } catch { setBridgeStatus(null); }
+    try { setBridgeStatus(await api.getBridgeStatus(url)); } catch (err) { console.warn('bridge status poll error:', err); setBridgeStatus(null); }
   }, [bridgeUrl]);
 
   const refreshAdbStatus = useCallback(async () => {
-    try { setAdbStatus(await api.getAdbStatus()); } catch { setAdbStatus(null); }
+    try { setAdbStatus(await api.getAdbStatus()); } catch (err) { console.warn('ADB status poll error:', err); setAdbStatus(null); }
   }, []);
 
   const refreshDogegenStatus = useCallback(async () => {
-    try { setDogegenStatus(await api.getDogegenStatus()); } catch { setDogegenStatus(null); }
+    try { setDogegenStatus(await api.getDogegenStatus()); } catch (err) { console.warn('dogegen status poll error:', err); setDogegenStatus(null); }
   }, []);
 
   // Polling for watch status when SSE not available

@@ -25,6 +25,9 @@ import httpx
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+
+MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024  # 10MB limit for CSV uploads
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -196,6 +199,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ZRO Calibration Helper", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 SESSION_STORE_DIR = Path(__file__).parent / ".sessions"
@@ -1240,6 +1251,12 @@ async def import_zro_csv(sid: str, file: UploadFile = File(...)):
         contents = await file.read()
     except Exception as exc:
         raise HTTPException(400, f"Could not read uploaded file: {exc}") from exc
+
+    if len(contents) > MAX_UPLOAD_SIZE_BYTES:
+        raise HTTPException(
+            413, f"File too large: {len(contents)} bytes (max {MAX_UPLOAD_SIZE_BYTES})"
+        )
+
     session, import_meta = store.import_zro_bytes(sid, file.filename, contents)
     _maybe_trigger_llm(sid, session)
     return {"session": _session_view(session), "import_summary": import_meta}
@@ -1251,6 +1268,12 @@ async def import_generic_csv(sid: str, file: UploadFile = File(...)):
         contents = await file.read()
     except Exception as exc:
         raise HTTPException(400, f"Could not read uploaded file: {exc}") from exc
+
+    if len(contents) > MAX_UPLOAD_SIZE_BYTES:
+        raise HTTPException(
+            413, f"File too large: {len(contents)} bytes (max {MAX_UPLOAD_SIZE_BYTES})"
+        )
+
     session, import_meta = store.import_generic_bytes(sid, file.filename, contents)
     _maybe_trigger_llm(sid, session)
     return {"session": _session_view(session), "import_summary": import_meta}
