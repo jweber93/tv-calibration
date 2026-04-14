@@ -334,15 +334,29 @@ class _ZROHandler(FileSystemEventHandler):
         # ── mtime dedup ───────────────────────────────────────────────────
         try:
             mtime = os.path.getmtime(src_path)
-        except OSError:
-            # File vanished; ignore.
+        except OSError as exc:
+            if isinstance(exc, PermissionError):
+                msg = f"Permission denied accessing {src_path}, may be locked by another process"
+                logger.info(msg)
+                with _lock:
+                    _watcher_error = msg
+                    _last_attempt = {
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "file": os.path.basename(src_path),
+                        "path": os.path.abspath(src_path),
+                        "status": "locked",
+                        "detail": str(exc),
+                    }
+                self._schedule_timer(src_path, LOCKED_FILE_RETRY_SECONDS)
+                return
+            logger.warning("OSError accessing mtime for %s: %s", src_path, exc)
             with _lock:
                 _last_attempt = {
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "file": os.path.basename(src_path),
                     "path": os.path.abspath(src_path),
-                    "status": "missing",
-                    "detail": "File disappeared before it could be imported.",
+                    "status": "error",
+                    "detail": str(exc),
                 }
             return
 

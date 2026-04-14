@@ -22,6 +22,7 @@ export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onS
   const [selectedSignalRange, setSelectedSignalRange] = useState(currentSignalRange);
   const [selectedCodeScale,   setSelectedCodeScale]   = useState(currentCodeScale);
   const [selectedGenerator,   setSelectedGenerator]   = useState(currentGenerator);
+  const [settingsLoading, setSettingsLoading] = useState(false);
 
   // AI Assistant state
   const llmCfg = session.llm_config || {};
@@ -92,26 +93,45 @@ export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onS
 
   async function handleLlmToggle(enabled) {
     setLlmEnabled(enabled);
-    if (!enabled) {
-      setLlmEndpoint('');
-      setLlmModel('');
-      setLlmTestStatus(null);
-      if (onConfigureLlm) await onConfigureLlm({ endpoint: '', model: '' });
+    setSettingsLoading(true);
+    try {
+      if (!enabled) {
+        setLlmEndpoint('');
+        setLlmModel('');
+        setLlmTestStatus(null);
+        if (onConfigureLlm) await onConfigureLlm({ endpoint: '', model: '' });
+      }
+    } finally {
+      setSettingsLoading(false);
     }
   }
 
   async function handleLlmEndpointBlur(value) {
-    if (onConfigureLlm) await onConfigureLlm({ endpoint: value.trim() });
+    setSettingsLoading(true);
+    try {
+      if (onConfigureLlm) await onConfigureLlm({ endpoint: value.trim() });
+    } finally {
+      setSettingsLoading(false);
+    }
   }
 
   async function handleLlmModelBlur(value) {
-    if (onConfigureLlm) await onConfigureLlm({ model: value.trim() });
+    setSettingsLoading(true);
+    try {
+      if (onConfigureLlm) await onConfigureLlm({ model: value.trim() });
+    } finally {
+      setSettingsLoading(false);
+    }
   }
 
   async function handleLlmApiKeyBlur(value) {
-    if (value && onConfigureLlm) {
+    if (!value || !onConfigureLlm) return;
+    setSettingsLoading(true);
+    try {
       await onConfigureLlm({ api_key: value });
       setLlmApiKey('');
+    } finally {
+      setSettingsLoading(false);
     }
   }
 
@@ -421,6 +441,7 @@ export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onS
                   placeholder="http://localhost:11434/v1"
                   autoComplete="off"
                   spellCheck={false}
+                  disabled={settingsLoading}
                   style={{ background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: 'var(--radius)', color: 'var(--text)', fontSize: '0.84rem', padding: '7px 10px', width: '100%', maxWidth: 480, outline: 'none', fontFamily: 'inherit' }}
                 />
               </div>
@@ -436,6 +457,7 @@ export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onS
                   placeholder="llama3"
                   autoComplete="off"
                   spellCheck={false}
+                  disabled={settingsLoading}
                   style={{ background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: 'var(--radius)', color: 'var(--text)', fontSize: '0.84rem', padding: '7px 10px', width: '100%', maxWidth: 480, outline: 'none', fontFamily: 'inherit' }}
                 />
               </div>
@@ -453,6 +475,7 @@ export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onS
                   onBlur={e => handleLlmApiKeyBlur(e.target.value)}
                   placeholder="sk-…"
                   autoComplete="new-password"
+                  disabled={settingsLoading}
                   style={{ background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: 'var(--radius)', color: 'var(--text)', fontSize: '0.84rem', padding: '7px 10px', width: '100%', maxWidth: 480, outline: 'none', fontFamily: 'inherit' }}
                 />
               </div>
