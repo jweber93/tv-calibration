@@ -217,6 +217,7 @@ _dogegen_proc: Optional[subprocess.Popen] = None
 _dogegen_launch_cmd: List[str] = []
 _dogegen_last_error: Optional[str] = None
 _dogegen_started_at: Optional[datetime] = None
+_dogegen_lock = threading.RLock()  # Guards all reads/writes of _dogegen_proc
 _DOGEGEN_READY_DELAY_SECONDS = 2.0
 _dogegen_config: Dict[str, Any] = {
     "path": os.getenv("DOGEGEN_PATH", "").strip(),
@@ -415,13 +416,14 @@ def _find_dogegen_executable() -> Optional[str]:
 
 def _managed_dogegen_is_running() -> bool:
     global _dogegen_proc, _dogegen_started_at
-    if _dogegen_proc is None:
+    with _dogegen_lock:
+        if _dogegen_proc is None:
+            return False
+        if _dogegen_proc.poll() is None:
+            return True
+        _dogegen_proc = None
+        _dogegen_started_at = None
         return False
-    if _dogegen_proc.poll() is None:
-        return True
-    _dogegen_proc = None
-    _dogegen_started_at = None
-    return False
 
 
 def _external_dogegen_pid() -> Optional[int]:
@@ -523,51 +525,53 @@ def _dogegen_command_for_session(session: Dict[str, Any], exe_path: str) -> List
 
 def _start_dogegen_for_session(session: Dict[str, Any]) -> Dict[str, Any]:
     global _dogegen_proc, _dogegen_launch_cmd, _dogegen_last_error, _dogegen_started_at
-    if _managed_dogegen_is_running() or _external_dogegen_pid() is not None:
-        return {"ok": True, "already_running": True, **_dogegen_status_payload()}
-    exe_path = _find_dogegen_executable()
-    if not exe_path:
-        _dogegen_last_error = (
-            "Dogegen.exe not found. Set DOGEGEN_PATH, configure it in the app, "
-            "or place it at tools/dogegen/Dogegen.exe."
-        )
-        raise HTTPException(400, _dogegen_last_error)
-    cmd = _dogegen_command_for_session(session, exe_path)
-    try:
-        kwargs: Dict[str, Any] = {"cwd": str(Path(exe_path).parent)}
-        if os.name == "nt":
-            kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        _dogegen_proc = subprocess.Popen(cmd, **kwargs)
-        _dogegen_started_at = _now()
-        _dogegen_launch_cmd = list(cmd)
-        _dogegen_last_error = None
-        return {"ok": True, "already_running": False, **_dogegen_status_payload()}
-    except Exception as exc:
-        _dogegen_proc = None
-        _dogegen_started_at = None
-        _dogegen_launch_cmd = list(cmd)
-        _dogegen_last_error = str(exc)
-        raise HTTPException(500, f"Failed to start Dogegen: {exc}") from exc
+    with _dogegen_lock:
+        if _managed_dogegen_is_running() or _external_dogegen_pid() is not None:
+            return {"ok": True, "already_running": True, **_dogegen_status_payload()}
+        exe_path = _find_dogegen_executable()
+        if not exe_path:
+            _dogegen_last_error = (
+                "Dogegen.exe not found. Set DOGEGEN_PATH, configure it in the app, "
+                "or place it at tools/dogegen/Dogegen.exe."
+            )
+            raise HTTPException(400, _dogegen_last_error)
+        cmd = _dogegen_command_for_session(session, exe_path)
+        try:
+            kwargs: Dict[str, Any] = {"cwd": str(Path(exe_path).parent)}
+            if os.name == "nt":
+                kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            _dogegen_proc = subprocess.Popen(cmd, **kwargs)
+            _dogegen_started_at = _now()
+            _dogegen_launch_cmd = list(cmd)
+            _dogegen_last_error = None
+            return {"ok": True, "already_running": False, **_dogegen_status_payload()}
+        except Exception as exc:
+            _dogegen_proc = None
+            _dogegen_started_at = None
+            _dogegen_launch_cmd = list(cmd)
+            _dogegen_last_error = str(exc)
+            raise HTTPException(500, f"Failed to start Dogegen: {exc}") from exc
 
 
 def _stop_dogegen() -> Dict[str, Any]:
     global _dogegen_proc, _dogegen_started_at
-    if not _managed_dogegen_is_running():
-        return {"ok": True, "already_stopped": True, **_dogegen_status_payload()}
-    try:
-        assert _dogegen_proc is not None
-        _dogegen_proc.terminate()
-        _dogegen_proc.wait(timeout=3)
-    except Exception:
+    with _dogegen_lock:
+        if not _managed_dogegen_is_running():
+            return {"ok": True, "already_stopped": True, **_dogegen_status_payload()}
         try:
             assert _dogegen_proc is not None
-            _dogegen_proc.kill()
+            _dogegen_proc.terminate()
+            _dogegen_proc.wait(timeout=3)
         except Exception:
-            pass
-    finally:
-        _dogegen_proc = None
-        _dogegen_started_at = None
-    return {"ok": True, "already_stopped": False, **_dogegen_status_payload()}
+            try:
+                assert _dogegen_proc is not None
+                _dogegen_proc.kill()
+            except Exception:
+                pass
+        finally:
+            _dogegen_proc = None
+            _dogegen_started_at = None
+        return {"ok": True, "already_stopped": False, **_dogegen_status_payload()}
 
 
 def _watch_status_payload() -> Dict[str, Any]:

@@ -715,8 +715,19 @@ def serialize_session(s: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+_VALID_SESSION_MODES = {"SDR", "HDR10", "Dolby Vision"}
+
+
 def deserialize_session(data: Dict[str, Any]) -> Dict[str, Any]:
+    for required in ("id", "tv_key", "tv_name", "step"):
+        if required not in data:
+            raise ValueError(f"Session file missing required field: {required!r}")
     mode = data.get("mode")
+    if mode is not None and mode not in _VALID_SESSION_MODES:
+        raise ValueError(
+            f"Session file has invalid mode: {mode!r}. "
+            f"Valid values: {sorted(_VALID_SESSION_MODES)}"
+        )
     current_time = now().isoformat()
     return {
         "id": data["id"],

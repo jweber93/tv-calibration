@@ -69,7 +69,7 @@ class TestDeserializeSession:
             "tv_name": "Hisense U8G",
             "step": "baseline",
         }
-        with pytest.raises(KeyError):
+        with pytest.raises(ValueError, match="missing required field"):
             deserialize_session(data)
 
     def test_corrupted_json_missing_tv_key(self):
@@ -78,7 +78,7 @@ class TestDeserializeSession:
             "tv_name": "Hisense U8G",
             "step": "baseline",
         }
-        with pytest.raises(KeyError):
+        with pytest.raises(ValueError, match="missing required field"):
             deserialize_session(data)
 
     def test_corrupted_json_missing_step(self):
@@ -87,7 +87,7 @@ class TestDeserializeSession:
             "tv_key": "u8g",
             "tv_name": "Hisense U8G",
         }
-        with pytest.raises(KeyError):
+        with pytest.raises(ValueError, match="missing required field"):
             deserialize_session(data)
 
     def test_invalid_mode_type(self):
@@ -105,8 +105,8 @@ class TestDeserializeSession:
             "post_measurements": [],
             "lum_measurements": [],
         }
-        sess = deserialize_session(data)
-        assert sess["mode"] == 12345
+        with pytest.raises(ValueError, match="invalid mode"):
+            deserialize_session(data)
 
     def test_invalid_measurements_not_list(self):
         data = {
