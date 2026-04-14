@@ -1,21 +1,49 @@
-async function request(method, path, body) {
+const DEFAULT_TIMEOUT_MS = 30000;
+
+async function request(method, path, body, timeout = DEFAULT_TIMEOUT_MS) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
   if (body !== undefined) opts.body = JSON.stringify(body);
-  const r = await fetch(path, opts);
-  if (!r.ok) {
-    const err = await r.json().catch(() => ({ detail: r.statusText }));
-    throw new Error(err.detail || r.statusText);
+  
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  opts.signal = controller.signal;
+  
+  try {
+    const r = await fetch(path, opts);
+    clearTimeout(timeoutId);
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || r.statusText);
+    }
+    return r.json();
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeout}ms`);
+    }
+    throw err;
   }
-  return r.json();
 }
 
-async function upload(path, formData) {
-  const r = await fetch(path, { method: 'POST', body: formData });
-  if (!r.ok) {
-    const err = await r.json().catch(() => ({ detail: r.statusText }));
-    throw new Error(err.detail || r.statusText);
+async function upload(path, formData, timeout = DEFAULT_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  
+  try {
+    const r = await fetch(path, { method: 'POST', body: formData, signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || r.statusText);
+    }
+    return r.json();
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error(`Upload timed out after ${timeout}ms`);
+    }
+    throw err;
   }
-  return r.json();
 }
 
 export const api = {

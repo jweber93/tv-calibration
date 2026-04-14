@@ -40,7 +40,7 @@ import io
 import math
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from calcore.models import Measurement
 
@@ -62,70 +62,77 @@ CHANNEL_OFF_THRESHOLD = 20
 # 10-bit equivalents used when ColourSpace ZRO exports full-range 10-bit code values
 # (detected when max(r, g, b) > 255).  Named constants prevent magic-number drift and
 # make the classification thresholds reviewable against the 0–1023 range.
-BIT10_MAX             = 1023
-BIT10_ON_THRESHOLD    = 900   # ~88% of 1023 — channel treated as "fully on"
-BIT10_OFF_THRESHOLD   = 80    # ~8%  of 1023 — channel treated as "fully off"
-BIT10_WHITE_THRESHOLD = 980   # ~95.8% of 1023 — catches near-white patches (>1000 would miss 1001–1023)
-BIT10_BLACK_THRESHOLD = 20    # footroom guard — avoids misclassifying limited-range 0 as black
+BIT10_MAX = 1023
+BIT10_ON_THRESHOLD = 900  # ~88% of 1023 — channel treated as "fully on"
+BIT10_OFF_THRESHOLD = 80  # ~8%  of 1023 — channel treated as "fully off"
+BIT10_WHITE_THRESHOLD = (
+    980  # ~95.8% of 1023 — catches near-white patches (>1000 would miss 1001–1023)
+)
+BIT10_BLACK_THRESHOLD = (
+    20  # footroom guard — avoids misclassifying limited-range 0 as black
+)
 
 GRAYSCALE_EQUAL_TOLERANCE = 4
 """Max channel-to-channel difference for a patch to be classified as grayscale."""
 
 # Grayscale stimulus levels used by the calibration workflow (% of signal range)
-WB_GAIN_TARGET_PCT   = 80.0   # ~204 / 255
-WB_OFFSET_TARGET_PCT = 30.0   # ~77  / 255
-GAMMA_TARGET_PCTS    = tuple(float(pct) for pct in range(5, 100, 5))
-PCT_SNAP_TOLERANCE   = 7.0    # ±% to snap a grayscale step to a target
+WB_GAIN_TARGET_PCT = 80.0  # ~204 / 255
+WB_OFFSET_TARGET_PCT = 30.0  # ~77  / 255
+GAMMA_TARGET_PCTS = tuple(float(pct) for pct in range(5, 100, 5))
+PCT_SNAP_TOLERANCE = 7.0  # ±% to snap a grayscale step to a target
 
 # ---------------------------------------------------------------------------
 # Public result dataclass
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ZROImportResult:
     """Classified measurements ready to be merged into a session."""
 
     # Primary session buckets
-    cms_measurements:   List[dict] = field(default_factory=list)
-    pre_measurements:   List[dict] = field(default_factory=list)
-    post_measurements:  List[dict] = field(default_factory=list)
-    lum_measurements:   List[dict] = field(default_factory=list)
-    wb_measurements:    List[dict] = field(default_factory=list)
+    cms_measurements: List[dict] = field(default_factory=list)
+    pre_measurements: List[dict] = field(default_factory=list)
+    post_measurements: List[dict] = field(default_factory=list)
+    lum_measurements: List[dict] = field(default_factory=list)
+    wb_measurements: List[dict] = field(default_factory=list)
     gamma_measurements: List[dict] = field(default_factory=list)
-    grayscale_passes:   List[List[dict]] = field(default_factory=list)
+    grayscale_passes: List[List[dict]] = field(default_factory=list)
     grayscale_pass_warnings: List[List[str]] = field(default_factory=list)
-    raw_rows:           List[dict] = field(default_factory=list)
+    raw_rows: List[dict] = field(default_factory=list)
 
     # Diagnostic metadata
-    total_rows:          int = 0
-    sessions_detected:   int = 0
-    grayscale_sessions:  int = 0      # how many grayscale ramps were found
-    colour_sessions:     int = 0      # how many colour-patch groups were found
-    session_breaks:      List[str] = field(default_factory=list)  # ISO timestamps
+    total_rows: int = 0
+    sessions_detected: int = 0
+    grayscale_sessions: int = 0  # how many grayscale ramps were found
+    colour_sessions: int = 0  # how many colour-patch groups were found
+    session_breaks: List[str] = field(default_factory=list)  # ISO timestamps
 
     # ABL / anomaly warnings
-    abl_warnings:        List[str] = field(default_factory=list)
-    unknown_rows:        int = 0      # rows that could not be classified
+    abl_warnings: List[str] = field(default_factory=list)
+    unknown_rows: int = 0  # rows that could not be classified
 
 
 # ---------------------------------------------------------------------------
 # Internal row representation
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _Row:
-    dt:  datetime
-    r:   int
-    g:   int
-    b:   int
-    Y:   float
-    x:   float
-    y:   float
+    dt: datetime
+    r: int
+    g: int
+    b: int
+    Y: float
+    x: float
+    y: float
 
 
 # ---------------------------------------------------------------------------
 # Parsing helpers
 # ---------------------------------------------------------------------------
+
 
 def _parse_datetime(raw: str) -> datetime:
     """Parse ZRO's 'DD/MM/YYYY HH:MM:SS' timestamp."""
@@ -180,12 +187,14 @@ def _to_measurement(row: _Row, label: str) -> dict:
     )
     # Server stores measurements as plain dicts (via dataclasses.asdict)
     from dataclasses import asdict
+
     return asdict(m)
 
 
 # ---------------------------------------------------------------------------
 # Patch classifier
 # ---------------------------------------------------------------------------
+
 
 def _classify(r: int, g: int, b: int) -> str:
     """
@@ -200,8 +209,8 @@ def _classify(r: int, g: int, b: int) -> str:
     """
     hi = max(r, g, b)
     if hi > 255:
-        on_threshold    = BIT10_ON_THRESHOLD
-        off_threshold   = BIT10_OFF_THRESHOLD
+        on_threshold = BIT10_ON_THRESHOLD
+        off_threshold = BIT10_OFF_THRESHOLD
         white_threshold = BIT10_WHITE_THRESHOLD
         black_threshold = BIT10_BLACK_THRESHOLD
     else:
@@ -210,15 +219,18 @@ def _classify(r: int, g: int, b: int) -> str:
         white_threshold = 235
         black_threshold = 16
 
-    r_on  = r >= on_threshold
-    g_on  = g >= on_threshold
-    b_on  = b >= on_threshold
+    r_on = r >= on_threshold
+    g_on = g >= on_threshold
+    b_on = b >= on_threshold
     r_off = r <= off_threshold
     g_off = g <= off_threshold
     b_off = b <= off_threshold
 
     # Neutral (grayscale) — all channels within tolerance of each other
-    if abs(r - g) <= GRAYSCALE_EQUAL_TOLERANCE and abs(g - b) <= GRAYSCALE_EQUAL_TOLERANCE:
+    if (
+        abs(r - g) <= GRAYSCALE_EQUAL_TOLERANCE
+        and abs(g - b) <= GRAYSCALE_EQUAL_TOLERANCE
+    ):
         avg = (r + g + b) / 3
         if avg <= black_threshold + GRAYSCALE_EQUAL_TOLERANCE:
             return "black"
@@ -227,14 +239,20 @@ def _classify(r: int, g: int, b: int) -> str:
         return "grayscale"
 
     # Primaries
-    if r_on  and g_off and b_off:  return "red"
-    if r_off and g_on  and b_off:  return "green"
-    if r_off and g_off and b_on:   return "blue"
+    if r_on and g_off and b_off:
+        return "red"
+    if r_off and g_on and b_off:
+        return "green"
+    if r_off and g_off and b_on:
+        return "blue"
 
     # Secondaries
-    if r_on  and g_on  and b_off:  return "yellow"
-    if r_off and g_on  and b_on:   return "cyan"
-    if r_on  and g_off and b_on:   return "magenta"
+    if r_on and g_on and b_off:
+        return "yellow"
+    if r_off and g_on and b_on:
+        return "cyan"
+    if r_on and g_off and b_on:
+        return "magenta"
 
     return "unknown"
 
@@ -242,6 +260,7 @@ def _classify(r: int, g: int, b: int) -> str:
 # ---------------------------------------------------------------------------
 # ABL / anomaly detection
 # ---------------------------------------------------------------------------
+
 
 def _check_abl(grayscale_rows: List[_Row]) -> List[str]:
     """
@@ -255,13 +274,13 @@ def _check_abl(grayscale_rows: List[_Row]) -> List[str]:
     if len(grayscale_rows) < 3:
         return warnings
 
-    sorted_rows = sorted(grayscale_rows, key=lambda r: (r.r + r.g + r.b))
+    sorted_rows = sorted(grayscale_rows, key=lambda r: r.r + r.g + r.b)
     for i in range(1, len(sorted_rows)):
         prev = sorted_rows[i - 1]
         curr = sorted_rows[i]
         prev_pct = _rgb_to_stimulus_pct(prev.r)  # r=g=b for grayscale
         curr_pct = _rgb_to_stimulus_pct(curr.r)
-        if curr.Y < prev.Y * 0.95:               # >5% drop = real anomaly
+        if curr.Y < prev.Y * 0.95:  # >5% drop = real anomaly
             warnings.append(
                 f"ABL/non-monotonic: {curr_pct:.0f}% stimulus → {curr.Y:.2f} nits "
                 f"(lower than {prev_pct:.0f}% → {prev.Y:.2f} nits). "
@@ -274,6 +293,7 @@ def _check_abl(grayscale_rows: List[_Row]) -> List[str]:
 # ---------------------------------------------------------------------------
 # Session grouping
 # ---------------------------------------------------------------------------
+
 
 def _group_into_sessions(rows: List[_Row]) -> List[List[_Row]]:
     """
@@ -293,8 +313,9 @@ def _group_into_sessions(rows: List[_Row]) -> List[List[_Row]]:
 def _session_type(group: List[_Row]) -> str:
     """Infer whether a session group is primarily 'colour' or 'grayscale'."""
     types = [_classify(r.r, r.g, r.b) for r in group]
-    colour_count = sum(1 for t in types if t in
-                       {"red", "green", "blue", "cyan", "magenta", "yellow"})
+    colour_count = sum(
+        1 for t in types if t in {"red", "green", "blue", "cyan", "magenta", "yellow"}
+    )
     gray_count = sum(1 for t in types if t in {"grayscale", "black", "white"})
     if colour_count > gray_count:
         return "colour"
@@ -304,6 +325,7 @@ def _session_type(group: List[_Row]) -> str:
 # ---------------------------------------------------------------------------
 # Main public API
 # ---------------------------------------------------------------------------
+
 
 def parse_zro_csv(source: str | bytes | io.IOBase) -> ZROImportResult:
     """
@@ -353,12 +375,12 @@ def parse_zro_csv(source: str | bytes | io.IOBase) -> ZROImportResult:
     for raw_row in reader:
         try:
             vals = list(raw_row.values())
-            dt       = _parse_datetime(vals[0].strip())
-            r        = int(vals[1].strip())
-            g        = int(vals[2].strip())
-            b        = int(vals[3].strip())
-            Y        = float(vals[4].strip())
-            x        = float(vals[5].strip())
+            dt = _parse_datetime(vals[0].strip())
+            r = int(vals[1].strip())
+            g = int(vals[2].strip())
+            b = int(vals[3].strip())
+            Y = float(vals[4].strip())
+            x = float(vals[5].strip())
             y_chroma = float(vals[6].strip())
         except (IndexError, ValueError):
             result.unknown_rows += 1
@@ -366,17 +388,19 @@ def parse_zro_csv(source: str | bytes | io.IOBase) -> ZROImportResult:
 
         row = _Row(dt=dt, r=r, g=g, b=b, Y=Y, x=x, y=y_chroma)
         rows.append(row)
-        result.raw_rows.append({
-            "timestamp": dt.isoformat(),
-            "r": r,
-            "g": g,
-            "b": b,
-            "Y": Y,
-            "x": x,
-            "y": y_chroma,
-            "classification": _classify(r, g, b),
-            "stimulus_pct": _rgb_to_stimulus_pct(r) if r == g == b else None,
-        })
+        result.raw_rows.append(
+            {
+                "timestamp": dt.isoformat(),
+                "r": r,
+                "g": g,
+                "b": b,
+                "Y": Y,
+                "x": x,
+                "y": y_chroma,
+                "classification": _classify(r, g, b),
+                "stimulus_pct": _rgb_to_stimulus_pct(r) if r == g == b else None,
+            }
+        )
 
     result.total_rows = len(rows)
     if not rows:
@@ -389,7 +413,7 @@ def parse_zro_csv(source: str | bytes | io.IOBase) -> ZROImportResult:
         result.session_breaks.append(g_rows[0].dt.isoformat())
 
     # ── classify each session group ──────────────────────────────────────────
-    grayscale_group_index = 0   # track which grayscale pass we are on
+    grayscale_group_index = 0  # track which grayscale pass we are on
 
     for group in groups:
         stype = _session_type(group)
@@ -398,7 +422,7 @@ def parse_zro_csv(source: str | bytes | io.IOBase) -> ZROImportResult:
             result.colour_sessions += 1
             _process_colour_group(group, result)
 
-        else:   # grayscale (or mixed — treat as grayscale)
+        else:  # grayscale (or mixed — treat as grayscale)
             result.grayscale_sessions += 1
             _process_grayscale_group(group, result, grayscale_group_index)
             grayscale_group_index += 1
@@ -415,12 +439,12 @@ def parse_zro_csv(source: str | bytes | io.IOBase) -> ZROImportResult:
 # ---------------------------------------------------------------------------
 
 _COLOUR_LABELS = {
-    "red":     "Red",
-    "green":   "Green",
-    "blue":    "Blue",
-    "cyan":    "Cyan",
+    "red": "Red",
+    "green": "Green",
+    "blue": "Blue",
+    "cyan": "Cyan",
     "magenta": "Magenta",
-    "yellow":  "Yellow",
+    "yellow": "Yellow",
 }
 
 
@@ -440,13 +464,13 @@ def _extract_colour_rows(group: List[_Row], result: ZROImportResult) -> None:
 def _process_colour_group(group: List[_Row], result: ZROImportResult) -> None:
     """Classify and store primary/secondary colour patches."""
     COLOUR_LABELS = {
-        "red":     "Red",
-        "green":   "Green",
-        "blue":    "Blue",
-        "cyan":    "Cyan",
+        "red": "Red",
+        "green": "Green",
+        "blue": "Blue",
+        "cyan": "Cyan",
         "magenta": "Magenta",
-        "yellow":  "Yellow",
-        "white":   "White (100%)",
+        "yellow": "Yellow",
+        "white": "White (100%)",
     }
     for row in group:
         patch_type = _classify(row.r, row.g, row.b)
@@ -486,11 +510,13 @@ def _process_grayscale_group(
     result.abl_warnings.extend(pass_warnings)
 
     # Populate the primary grayscale bucket
-    target_list = result.pre_measurements if pass_index == 0 else result.post_measurements
+    target_list = (
+        result.pre_measurements if pass_index == 0 else result.post_measurements
+    )
     pass_measurements: List[dict] = []
 
     for row in gray_rows:
-        stim = _rgb_to_stimulus_pct(row.r)   # r=g=b for neutral rows
+        stim = _rgb_to_stimulus_pct(row.r)  # r=g=b for neutral rows
         label = _grayscale_label(stim)
         m = _to_measurement(row, label)
         target_list.append(m)
@@ -536,35 +562,57 @@ def _grayscale_label(stim_pct: float) -> str:
 # Convenience helper for the API layer
 # ---------------------------------------------------------------------------
 
+
+def _measurement_key(m: Dict[str, Any]) -> str:
+    """Generate a unique key for a measurement to detect duplicates."""
+    ts = m.get("timestamp", "")
+    r = m.get("r", m.get("stimulus_rgb", (0, 0, 0))[0])
+    g = m.get("g", m.get("stimulus_rgb", (0, 0, 0))[1])
+    b = m.get("b", m.get("stimulus_rgb", (0, 0, 0))[2])
+    return f"{ts}:{r}:{g}:{b}"
+
+
 def merge_into_session(session: dict, result: ZROImportResult) -> dict:
     """
     Merge a :class:`ZROImportResult` into an existing session dict in-place.
 
     Existing measurements are preserved; imported ones are appended.
+    Duplicate measurements (matching timestamp and stimulus RGB) are skipped.
     Returns the modified session dict.
     """
+    existing_keys: Set[str] = set()
     bucket_map = {
-        "cms_measurements":   result.cms_measurements,
-        "pre_measurements":   result.pre_measurements,
-        "post_measurements":  result.post_measurements,
-        "lum_measurements":   result.lum_measurements,
-        "wb_measurements":    result.wb_measurements,
+        "cms_measurements": result.cms_measurements,
+        "pre_measurements": result.pre_measurements,
+        "post_measurements": result.post_measurements,
+        "lum_measurements": result.lum_measurements,
+        "wb_measurements": result.wb_measurements,
         "gamma_measurements": result.gamma_measurements,
     }
+
+    duplicates_detected = 0
+
     for key, measurements in bucket_map.items():
         if measurements:
             existing = session.setdefault(key, [])
-            existing.extend(measurements)
+            for m in measurements:
+                m_key = _measurement_key(m)
+                if m_key in existing_keys:
+                    duplicates_detected += 1
+                    continue
+                existing_keys.add(m_key)
+                existing.append(m)
 
-    # Store import metadata in session for UI display
-    session.setdefault("zro_imports", []).append({
-        "total_rows":         result.total_rows,
-        "sessions_detected":  result.sessions_detected,
-        "colour_sessions":    result.colour_sessions,
+    import_meta = {
+        "total_rows": result.total_rows,
+        "sessions_detected": result.sessions_detected,
+        "colour_sessions": result.colour_sessions,
         "grayscale_sessions": result.grayscale_sessions,
-        "session_breaks":     result.session_breaks,
-        "abl_warnings":       result.abl_warnings,
-        "unknown_rows":       result.unknown_rows,
+        "session_breaks": result.session_breaks,
+        "abl_warnings": result.abl_warnings,
+        "unknown_rows": result.unknown_rows,
+        "duplicates_skipped": duplicates_detected,
         "buckets_populated": {k: len(v) for k, v in bucket_map.items() if v},
-    })
+    }
+    session.setdefault("zro_imports", []).append(import_meta)
     return session
