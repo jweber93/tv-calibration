@@ -764,10 +764,11 @@ def _maybe_trigger_llm(sid: str, session: Dict[str, Any]) -> None:
     endpoint = llm_cfg_dict.get("endpoint", "")
     model = llm_cfg_dict.get("model", "")
     if not (endpoint and model):
+        endpoint_repr = endpoint.split("?")[0] if endpoint else ""
         logger.info(
             "LLM skip  sid=%s reason=not_configured endpoint=%r model=%r",
             sid,
-            endpoint,
+            endpoint_repr,
             model,
         )
         return
