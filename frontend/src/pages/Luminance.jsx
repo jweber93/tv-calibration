@@ -8,6 +8,7 @@ import { BridgeCard } from '../components/BridgeCard';
 import { ZroInstructions } from '../components/ZroInstructions';
 import { fmtDateTime, fmtNits } from '../utils/fmt';
 import { QualityGate } from '../components/QualityGate';
+import { AdbErrorBoundary } from '../components/AdbErrorBoundary';
 
 const PICTURE_CONTROLS = [
   { key: 'Brightness', label: 'Brightness', hint: 'black level' },
@@ -123,13 +124,15 @@ export function Luminance({ session, watchStatus, watchDefaultPath, bridgeStatus
       <ActionPlan plan={plan} title="Backlight Control Plan" />
 
       {onAdbSetPicture && (
-        <AdbPictureControls
-          adbStatus={adbStatus}
-          onAdbSetPicture={onAdbSetPicture}
-          onAdbGetPicture={onAdbGetPicture}
-          onDeploy={onAdbDeploy}
-          onRefresh={onRefreshAdb}
-        />
+        <AdbErrorBoundary>
+          <AdbPictureControls
+            adbStatus={adbStatus}
+            onAdbSetPicture={onAdbSetPicture}
+            onAdbGetPicture={onAdbGetPicture}
+            onDeploy={onAdbDeploy}
+            onRefresh={onRefreshAdb}
+          />
+        </AdbErrorBoundary>
       )}
 
       <Card title="ZRO Bridge" id="bridge-card">

@@ -6,7 +6,15 @@ from pathlib import Path
 from unittest import mock
 
 import cli
-from calcore import AnalysisConfig, Patch, SessionState, Summary, analyze, determine_phase, parse_measurement_csv
+from calcore import (
+    AnalysisConfig,
+    Patch,
+    SessionState,
+    Summary,
+    analyze,
+    determine_phase,
+    parse_measurement_csv,
+)
 from calcore.llm import _resolve_endpoint, parse_adjustment_plan, build_llm_prompt
 from calcore.phase import check_cms_regression
 
@@ -258,20 +266,22 @@ class SweepGateTests(unittest.TestCase):
 class ParseAdjustmentPlanTests(unittest.TestCase):
     """Tests for parse_adjustment_plan (#95)."""
 
-    VALID_JSON = json.dumps({
-        "adjustments": [
-            {
-                "menu": "White Balance",
-                "setting": "B-Gain",
-                "from": 0,
-                "to": -3,
-                "scope": "global",
-                "reason": "Blue push at 80% lifting xy above D65 locus.",
-            }
-        ],
-        "next_step": "rerun_grayscale",
-        "confidence": 0.85,
-    })
+    VALID_JSON = json.dumps(
+        {
+            "adjustments": [
+                {
+                    "menu": "White Balance",
+                    "setting": "B-Gain",
+                    "from": 0,
+                    "to": -3,
+                    "scope": "global",
+                    "reason": "Blue push at 80% lifting xy above D65 locus.",
+                }
+            ],
+            "next_step": "rerun_grayscale",
+            "confidence": 0.85,
+        }
+    )
 
     def test_parses_valid_json(self):
         plan = parse_adjustment_plan(self.VALID_JSON)
@@ -295,7 +305,9 @@ class ParseAdjustmentPlanTests(unittest.TestCase):
         self.assertIsNone(parse_adjustment_plan(bad))
 
     def test_empty_adjustments_list_is_valid(self):
-        empty = json.dumps({"adjustments": [], "next_step": "rerun_grayscale", "confidence": 0.0})
+        empty = json.dumps(
+            {"adjustments": [], "next_step": "rerun_grayscale", "confidence": 0.0}
+        )
         plan = parse_adjustment_plan(empty)
         self.assertIsNotNone(plan)
         self.assertEqual(plan.adjustments, [])
@@ -332,6 +344,7 @@ class BuildLlmPromptTests(unittest.TestCase):
 
     def test_tv_settings_injected_when_provided(self):
         from calcore.models import TVSettings
+
         cfg = AnalysisConfig(mode="sdr", eotf="gamma22", target_space="bt709")
         settings = TVSettings(two_point_wb={"R_gain": 0, "B_gain": -3})
         prompt = build_llm_prompt(self.make_summary(), cfg, "wb", tv_settings=settings)
@@ -340,7 +353,10 @@ class BuildLlmPromptTests(unittest.TestCase):
 
     def test_tv_schema_injected_when_provided(self):
         cfg = AnalysisConfig(mode="sdr", eotf="gamma22", target_space="bt709")
-        schema = {"model": "Hisense U8G", "settings": {"gamma": {"options": [2.0, 2.2, 2.4]}}}
+        schema = {
+            "model": "Hisense U8G",
+            "settings": {"gamma": {"options": [2.0, 2.2, 2.4]}},
+        }
         prompt = build_llm_prompt(self.make_summary(), cfg, "wb", tv_schema=schema)
         self.assertIn("tv_settings_schema", prompt)
         self.assertIn("Hisense U8G", prompt)
@@ -368,18 +384,91 @@ class WatchTests(unittest.TestCase):
         csv_path = Path("/tmp/measurements.csv")
         state_path = Path("/tmp/state.json")
 
-        with mock.patch("cli.run_once", side_effect=RuntimeError("boom")), mock.patch(
-            "cli.save_state"
-        ) as save_state_mock, mock.patch(
-            "cli.time.sleep", side_effect=KeyboardInterrupt
-        ), mock.patch(
-            "pathlib.Path.stat", return_value=mock.Mock(st_mtime=123.0)
+        with (
+            mock.patch("cli.run_once", side_effect=RuntimeError("boom")),
+            mock.patch("cli.save_state") as save_state_mock,
+            mock.patch("cli.time.sleep", side_effect=KeyboardInterrupt),
+            mock.patch("pathlib.Path.stat", return_value=mock.Mock(st_mtime=123.0)),
         ):
             with self.assertRaises(KeyboardInterrupt):
                 cli.watch(csv_path, state_path, state, interval=0)
 
         self.assertEqual(state.last_mtime, 0.0)
         save_state_mock.assert_not_called()
+
+
+class LlmResponseEdgeCasesTests(unittest.TestCase):
+    """Tests for LLM response edge cases (#132)."""
+
+    def test_parse_adjustment_plan_missing_adjustments_key(self):
+        data = json.dumps({"next_step": "verify", "confidence": 1.0})
+        result = parse_adjustment_plan(data)
+        self.assertIsNone(result)
+
+    def test_parse_adjustment_plan_missing_next_step(self):
+        data = json.dumps({"adjustments": [], "confidence": 0.5})
+        result = parse_adjustment_plan(data)
+        self.assertIsNone(result)
+
+    def test_parse_adjustment_plan_missing_confidence(self):
+        data = json.dumps({"adjustments": [], "next_step": "verify"})
+        result = parse_adjustment_plan(data)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.confidence, 0.5)
+
+    def test_parse_adjustment_plan_empty_string(self):
+        result = parse_adjustment_plan("")
+        self.assertIsNone(result)
+
+    def test_parse_adjustment_plan_whitespace_only(self):
+        result = parse_adjustment_plan("   \n\t  ")
+        self.assertIsNone(result)
+
+    def test_parse_adjustment_plan_null_in_response(self):
+        data = json.dumps(
+            {"adjustments": [], "next_step": "verify", "confidence": None}
+        )
+        result = parse_adjustment_plan(data)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.confidence, 0.5)
+
+    def test_parse_adjustment_plan_adjustments_not_list(self):
+        data = json.dumps(
+            {"adjustments": "not a list", "next_step": "verify", "confidence": 0.5}
+        )
+        result = parse_adjustment_plan(data)
+        self.assertIsNone(result)
+
+    def test_parse_adjustment_plan_adjustments_dict(self):
+        data = json.dumps(
+            {"adjustments": {"key": "value"}, "next_step": "verify", "confidence": 0.5}
+        )
+        result = parse_adjustment_plan(data)
+        self.assertIsNone(result)
+
+    def test_parse_adjustment_plan_adjustment_missing_fields(self):
+        data = json.dumps(
+            {
+                "adjustments": [{"menu": "White Balance"}],
+                "next_step": "verify",
+                "confidence": 0.5,
+            }
+        )
+        result = parse_adjustment_plan(data)
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result.adjustments), 1)
+        self.assertEqual(result.adjustments[0].get("menu"), "White Balance")
+
+    def test_parse_adjustment_plan_valid_json_string(self):
+        invalid = '{"adjustments": [], "next_step": "verify", "confidence": 0.5}'
+        result = parse_adjustment_plan(invalid)
+        self.assertIsNotNone(result)
+
+    def test_parse_adjustment_plan_confidence_out_of_range(self):
+        data = json.dumps({"adjustments": [], "next_step": "verify", "confidence": 1.5})
+        result = parse_adjustment_plan(data)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.confidence, 1.5)
 
 
 if __name__ == "__main__":

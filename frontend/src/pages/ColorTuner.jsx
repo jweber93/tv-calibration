@@ -7,6 +7,7 @@ import { BridgeCard } from '../components/BridgeCard';
 import { ZroInstructions } from '../components/ZroInstructions';
 import { fmtDe, dirIcon } from '../utils/fmt';
 import { QualityGate } from '../components/QualityGate';
+import { AdbErrorBoundary } from '../components/AdbErrorBoundary';
 
 function AdbStatusPanel({ adbStatus, onDeploy, onRefresh }) {
   if (!adbStatus) {
@@ -121,15 +122,17 @@ export function ColorTuner({ session, watchStatus, watchDefaultPath, bridgeStatu
         </Card>
       )}
 
-      <Card title="Programmatic Control (ADB)">
-        <AdbStatusPanel adbStatus={adbStatus} onDeploy={onAdbDeploy} onRefresh={onRefreshAdb} />
-        <div style={{ marginTop: 10 }}>
-          <Button small disabled={!ready} onClick={onAdbReset}>
-            Reset All CMS to 0
-          </Button>
-          <span className="muted text-sm" style={{ marginLeft: 8 }}>Calls setColorTunerReset() on the TV</span>
-        </div>
-      </Card>
+      <AdbErrorBoundary>
+        <Card title="Programmatic Control (ADB)">
+          <AdbStatusPanel adbStatus={adbStatus} onDeploy={onAdbDeploy} onRefresh={onRefreshAdb} />
+          <div style={{ marginTop: 10 }}>
+            <Button small disabled={!ready} onClick={onAdbReset}>
+              Reset All CMS to 0
+            </Button>
+            <span className="muted text-sm" style={{ marginLeft: 8 }}>Calls setColorTunerReset() on the TV</span>
+          </div>
+        </Card>
+      </AdbErrorBoundary>
 
       <Card title="ZRO Bridge" id="bridge-card">
         <BridgeCard bridgeStatus={bridgeStatus} bridgeUrl={bridgeUrl} session={session} dogegenStatus={dogegenStatus} onSaveUrl={onSaveBridgeUrl} onMeasure={onMeasure} />
