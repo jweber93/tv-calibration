@@ -1,6 +1,28 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../api/client';
 
+const SSE_RETRY_DELAY_MS = 1000;
+const SSE_RETRY_MAX_DELAY_MS = 30000;
+const LLM_SSE_RETRY_DELAY_MS = 2000;
+const WATCH_POLL_INTERVAL_MS = 5000;
+const BRIDGE_POLL_INTERVAL_MS = 8000;
+const DOGEGEN_POLL_INTERVAL_MS = 8000;
+const DOGEGEN_READY_RETRY_MS = 500;
+const DOGEGEN_STARTUP_TIMEOUT_MS = 5000;
+const DOGEGEN_POLL_INTERVAL_MS_MIN = 250;
+
+function trySetLocalStorage(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch (err) {
+    if (err.name === 'QuotaExceededError' || err.code === 22) {
+      console.warn(`LocalStorage quota exceeded for key: ${key}`);
+    } else {
+      console.warn(`LocalStorage write failed for key: ${key}`, err);
+    }
+  }
+}
+
 export function useSession() {
   const [session, setSession] = useState(null);
   const [profiles, setProfiles] = useState([]);
@@ -31,7 +53,7 @@ export function useSession() {
 
   function startLlmSSE(sid) {
     stopLlmSSE();
-    let retryDelay = 2000;
+    let retryDelay = LLM_SSE_RETRY_DELAY_MS;
 
     function connect() {
       console.log('[LLM] connecting to stream', sid);
@@ -65,7 +87,7 @@ export function useSession() {
         console.warn('[LLM] SSE connection error — retrying in', retryDelay, 'ms', err);
         es.close();
         llmEsRetryRef.current = setTimeout(() => {
-          retryDelay = Math.min(retryDelay * 2, 30000);
+          retryDelay = Math.min(retryDelay * 2, SSE_RETRY_MAX_DELAY_MS);
           connect();
         }, retryDelay);
       };
@@ -79,7 +101,7 @@ export function useSession() {
     clearTimeout(sseRetryRef.current);
     sseRef.current?.close();
 
-    let retryDelay = 1000;
+    let retryDelay = SSE_RETRY_DELAY_MS;
 
     function connect() {
       const es = new EventSource(`/events/${sid}`);
@@ -92,7 +114,7 @@ export function useSession() {
       es.onerror = () => {
         es.close();
         sseRetryRef.current = setTimeout(() => {
-          retryDelay = Math.min(retryDelay * 2, 30000);
+          retryDelay = Math.min(retryDelay * 2, SSE_RETRY_MAX_DELAY_MS);
           connect();
         }, retryDelay);
       };
@@ -144,7 +166,7 @@ export function useSession() {
   // Polling for watch status when SSE not available
   useEffect(() => {
     clearInterval(watchPollRef.current);
-    watchPollRef.current = setInterval(refreshWatchStatus, 5000);
+    watchPollRef.current = setInterval(refreshWatchStatus, WATCH_POLL_INTERVAL_MS);
     refreshWatchStatus();
     return () => clearInterval(watchPollRef.current);
   }, [refreshWatchStatus]);
@@ -153,7 +175,7 @@ export function useSession() {
   useEffect(() => {
     if (!bridgeUrl || !session?.id) return;
     refreshBridgeStatus(bridgeUrl);
-    const t = setInterval(() => refreshBridgeStatus(bridgeUrl), 8000);
+      const t = setInterval(() => refreshBridgeStatus(bridgeUrl), BRIDGE_POLL_INTERVAL_MS);
     return () => clearInterval(t);
   }, [bridgeUrl, refreshBridgeStatus, session?.id]);
 
@@ -172,13 +194,13 @@ export function useSession() {
   useEffect(() => {
     if (!session?.id) return;
     refreshDogegenStatus();
-    const t = setInterval(refreshDogegenStatus, 8000);
+    const t = setInterval(refreshDogegenStatus, DOGEGEN_POLL_INTERVAL_MS);
     return () => clearInterval(t);
   }, [refreshDogegenStatus, session?.id]);
 
   useEffect(() => {
     if (!dogegenStatus?.running || dogegenStatus?.ready) return;
-    const t = setTimeout(() => refreshDogegenStatus(), 500);
+    const t = setTimeout(() => refreshDogegenStatus(), DOGEGEN_READY_RETRY_MS);
     return () => clearTimeout(t);
   }, [dogegenStatus?.running, dogegenStatus?.ready, refreshDogegenStatus]);
 
@@ -279,7 +301,7 @@ export function useSession() {
   }
 
   async function saveBridgeUrl(url) {
-    localStorage.setItem('bridgeUrl', url);
+    trySetLocalStorage('bridgeUrl', url);
     setBridgeUrl(url);
     await api.saveBridgeUrl(url);
     await refreshBridgeStatus(url);
@@ -297,9 +319,9 @@ export function useSession() {
 
     if (status?.ready) return status;
 
-    const deadline = Date.now() + 5000;
+    const deadline = Date.now() + DOGEGEN_STARTUP_TIMEOUT_MS;
     while (Date.now() < deadline) {
-      await new Promise(resolve => setTimeout(resolve, 250));
+      await new Promise(resolve => setTimeout(resolve, DOGEGEN_POLL_INTERVAL_MS_MIN));
       status = await api.getDogegenStatus();
       setDogegenStatus(status);
       if (status?.ready) return status;

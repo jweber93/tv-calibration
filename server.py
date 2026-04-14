@@ -155,9 +155,43 @@ logging.getLogger().addHandler(_log_buffer)
 logging.getLogger().setLevel(logging.DEBUG)
 
 
+def _validate_startup_config() -> List[str]:
+    """Validate required config paths and settings at startup. Returns list of warnings."""
+    warnings: List[str] = []
+
+    if not SESSION_STORE_DIR.exists():
+        try:
+            SESSION_STORE_DIR.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            warnings.append(
+                f"Cannot create session store directory {SESSION_STORE_DIR}: {exc}"
+            )
+
+    if not os.access(SESSION_STORE_DIR, os.W_OK):
+        warnings.append(f"Session store directory {SESSION_STORE_DIR} is not writable")
+
+    if _PREFS_PATH.exists() and not os.access(_PREFS_PATH, os.W_OK):
+        warnings.append(f"Prefs file {_PREFS_PATH} exists but is not writable")
+
+    dogegen_path = os.getenv("DOGEGEN_PATH", "").strip()
+    if dogegen_path and not Path(dogegen_path).exists():
+        warnings.append(f"DOGEGEN_PATH points to non-existent file: {dogegen_path}")
+
+    return warnings
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _load_prefs()
+    startup_warnings = _validate_startup_config()
+    for w in startup_warnings:
+        logger.warning(f"Startup validation: {w}")
+    if startup_warnings:
+        logger.info(
+            f"Server started with {len(startup_warnings)} configuration warning(s)"
+        )
+    else:
+        logger.info("Server started with all validations passing")
     yield
 
 
