@@ -287,8 +287,11 @@ def call_llm(
         raise RuntimeError(f"LLM request failed: {exc}") from exc
 
     parsed = json.loads(raw)
+    choices = parsed.get("choices") or []
+    if not choices:
+        raise RuntimeError(f"LLM returned empty choices array: {raw[:500]}")
     try:
-        return parsed["choices"][0]["message"]["content"].strip()
+        return choices[0]["message"]["content"].strip()
     except Exception as exc:
         raise RuntimeError(f"LLM response missing content: {raw[:500]}") from exc
 
@@ -477,7 +480,10 @@ def query_next_patch_strategy(
         with urllib.request.urlopen(req, timeout=min(llm.timeout, 30.0)) as resp:
             raw = resp.read().decode("utf-8")
         parsed = json.loads(raw)
-        content = parsed["choices"][0]["message"]["content"].strip()
+        choices = parsed.get("choices") or []
+        if not choices:
+            raise ValueError(f"LLM returned empty choices array: {raw[:300]}")
+        content = choices[0]["message"]["content"].strip()
         # Strip markdown code fences if present
         if content.startswith("```"):
             content = content.split("```")[1]
@@ -574,7 +580,10 @@ def query_remediation(
         with urllib.request.urlopen(req, timeout=min(llm.timeout, 20.0)) as resp:
             raw = resp.read().decode("utf-8")
         parsed = json.loads(raw)
-        content = parsed["choices"][0]["message"]["content"].strip()
+        choices = parsed.get("choices") or []
+        if not choices:
+            raise ValueError(f"LLM returned empty choices array: {raw[:300]}")
+        content = choices[0]["message"]["content"].strip()
         if content.startswith("```"):
             content = content.split("```")[1]
             if content.startswith("json"):
@@ -647,7 +656,10 @@ def query_gamut_advice(
         with urllib.request.urlopen(req, timeout=min(llm.timeout, 30.0)) as resp:
             raw = resp.read().decode("utf-8")
         parsed = json.loads(raw)
-        return parsed["choices"][0]["message"]["content"].strip()
+        choices = parsed.get("choices") or []
+        if not choices:
+            raise ValueError(f"LLM returned empty choices array: {raw[:300]}")
+        return choices[0]["message"]["content"].strip()
     except urllib.error.HTTPError as e:
         logger.error("LLM HTTP error: %s - %s", e.code, e.reason)
         return None
@@ -691,8 +703,10 @@ def probe_llm(cfg: Dict[str, Any], timeout: float = 8.0) -> tuple[bool, str]:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8")
         parsed = json.loads(raw)
-        # Validate the response has the expected shape
-        _ = parsed["choices"][0]["message"]["content"]
+        choices = parsed.get("choices") or []
+        if not choices:
+            return False, "LLM returned empty choices array"
+        _ = choices[0]["message"]["content"]
         return True, ""
     except urllib.error.HTTPError as exc:
         try:

@@ -19,6 +19,7 @@ jobs:
   backend-tests:
     name: Backend / Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -60,6 +61,7 @@ jobs:
   frontend-checks:
     name: Frontend / Node ${{ matrix.node-version }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend
@@ -85,6 +87,8 @@ jobs:
   playwright-e2e:
     name: Playwright E2E
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [frontend-checks]
     defaults:
       run:
         working-directory: frontend
@@ -106,7 +110,7 @@ jobs:
         run: npm run test:e2e
 
       - name: Upload Playwright report on failure
-        if: failure()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
@@ -119,6 +123,7 @@ jobs:
   security:
     name: Security / bandit
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       security-events: write   # for SARIF upload (requires GitHub Advanced Security on private repos)
@@ -145,7 +150,7 @@ jobs:
     steps:
       - name: Check all jobs passed
         run: |
-          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
-            echo "One or more required jobs failed"
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "One or more required jobs failed or were cancelled"
             exit 1
           fi

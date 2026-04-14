@@ -3,7 +3,9 @@ import { api } from '../api/client';
 
 const SSE_RETRY_DELAY_MS = 1000;
 const SSE_RETRY_MAX_DELAY_MS = 30000;
+const SSE_MAX_RETRIES = 10;
 const LLM_SSE_RETRY_DELAY_MS = 2000;
+const LLM_SSE_MAX_RETRIES = 10;
 const WATCH_POLL_INTERVAL_MS = 5000;
 const BRIDGE_POLL_INTERVAL_MS = 8000;
 const DOGEGEN_POLL_INTERVAL_MS = 8000;
@@ -41,19 +43,24 @@ export function useSession() {
 
   const sseRef = useRef(null);
   const sseRetryRef = useRef(null);
+  const sseGenRef = useRef(0);
   const watchPollRef = useRef(null);
   const llmEsRef = useRef(null);
   const llmEsRetryRef = useRef(null);
+  const llmEsGenRef = useRef(0);
 
   function stopLlmSSE() {
     clearTimeout(llmEsRetryRef.current);
+    llmEsGenRef.current++;  // Invalidate any pending reconnects from old session
     llmEsRef.current?.close();
     llmEsRef.current = null;
   }
 
   function startLlmSSE(sid) {
     stopLlmSSE();
+    const generation = llmEsGenRef.current;
     let retryDelay = LLM_SSE_RETRY_DELAY_MS;
+    let retryCount = 0;
 
     function connect() {
       console.log('[LLM] connecting to stream', sid);
@@ -97,8 +104,16 @@ export function useSession() {
         setLlmStreaming(false);
       });
       es.onerror = err => {
-        console.warn('[LLM] SSE connection error — retrying in', retryDelay, 'ms', err);
         es.close();
+        // Guard against stale reconnects after stopLlmSSE() or a new startLlmSSE() call
+        if (llmEsGenRef.current !== generation) return;
+        retryCount++;
+        if (retryCount >= LLM_SSE_MAX_RETRIES) {
+          console.error('[LLM] max retries reached, giving up');
+          setLlmError('LLM stream disconnected — reload to reconnect');
+          return;
+        }
+        console.warn('[LLM] SSE connection error — retrying in', retryDelay, 'ms', err);
         llmEsRetryRef.current = setTimeout(() => {
           retryDelay = Math.min(retryDelay * 2, SSE_RETRY_MAX_DELAY_MS);
           connect();
@@ -113,8 +128,11 @@ export function useSession() {
   function startSSE(sid) {
     clearTimeout(sseRetryRef.current);
     sseRef.current?.close();
+    // Increment generation so any onerror from the just-closed EventSource doesn't reconnect
+    const generation = ++sseGenRef.current;
 
     let retryDelay = SSE_RETRY_DELAY_MS;
+    let retryCount = 0;
 
     function connect() {
       const es = new EventSource(`/events/${sid}`);
@@ -126,6 +144,13 @@ export function useSession() {
       });
       es.onerror = () => {
         es.close();
+        // Guard against stale reconnects after a newer startSSE() call
+        if (sseGenRef.current !== generation) return;
+        retryCount++;
+        if (retryCount >= SSE_MAX_RETRIES) {
+          console.error('[SSE] max retries reached, giving up');
+          return;
+        }
         sseRetryRef.current = setTimeout(() => {
           retryDelay = Math.min(retryDelay * 2, SSE_RETRY_MAX_DELAY_MS);
           connect();
