@@ -1,5 +1,17 @@
 import { useState, useEffect } from 'react';
 
+function trySetLocalStorage(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch (err) {
+    if (err.name === 'QuotaExceededError' || err.code === 22) {
+      console.warn(`LocalStorage quota exceeded for key: ${key}`);
+    } else {
+      console.warn(`LocalStorage write failed for key: ${key}`, err);
+    }
+  }
+}
+
 export function CollapsibleSection({ title, storageKey, defaultOpen = false, summary, children }) {
   const [open, setOpen] = useState(() => {
     if (storageKey) {
@@ -10,7 +22,7 @@ export function CollapsibleSection({ title, storageKey, defaultOpen = false, sum
   });
 
   useEffect(() => {
-    if (storageKey) localStorage.setItem(`section:${storageKey}`, open);
+    if (storageKey) trySetLocalStorage(`section:${storageKey}`, open);
   }, [open, storageKey]);
 
   return (
