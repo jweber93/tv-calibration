@@ -580,9 +580,8 @@ def _process_grayscale_group(
                 _to_measurement(row, f"Gamma {target_pct:.0f}%")
             )
 
-    if pass_measurements:
-        result.grayscale_passes.append(pass_measurements)
-        result.grayscale_pass_warnings.append(pass_warnings)
+    result.grayscale_passes.append(pass_measurements)
+    result.grayscale_pass_warnings.append(pass_warnings)
 
 
 def _grayscale_label(stim_pct: float) -> str:
@@ -657,5 +656,11 @@ def merge_into_session(session: dict, result: ZROImportResult) -> dict:
         "duplicates_skipped": duplicates_detected,
         "buckets_populated": {k: len(v) for k, v in bucket_map.items() if v},
     }
+
+    # Surface mid-calibration ramps in metadata for diagnostic access.
+    if result.grayscale_sessions > 2:
+        import_meta["mid_passes"] = result.grayscale_passes[1:-1]
+    else:
+        import_meta["mid_passes"] = []
     session.setdefault("zro_imports", []).append(import_meta)
     return session
