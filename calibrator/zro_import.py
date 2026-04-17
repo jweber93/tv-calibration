@@ -40,7 +40,7 @@ import io
 import math
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from calcore.models import Measurement
 
@@ -90,6 +90,9 @@ PCT_SNAP_TOLERANCE = 7.0  # ±% to snap a grayscale step to a target
 class ZROImportResult:
     """Classified measurements ready to be merged into a session."""
 
+    # Error state
+    fatal_error: Optional[str] = None
+
     # Primary session buckets
     cms_measurements: List[dict] = field(default_factory=list)
     pre_measurements: List[dict] = field(default_factory=list)
@@ -135,9 +138,18 @@ class _Row:
 
 
 def _parse_datetime(raw: str) -> datetime:
-    """Parse ZRO's 'DD/MM/YYYY HH:MM:SS' timestamp."""
+    """Parse ZRO's timestamp formats, including sub-second precision."""
     raw = raw.strip()
-    for fmt in ("%d/%m/%Y %H:%M:%S", "%m/%d/%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+    for fmt in (
+        "%d/%m/%Y %H:%M:%S",
+        "%m/%d/%Y %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+        "%d/%m/%Y %H:%M:%S.%f",
+        "%m/%d/%Y %H:%M:%S.%f",
+        "%Y-%m-%d %H:%M:%S.%f",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S.%f",
+    ):
         try:
             return datetime.strptime(raw, fmt)
         except ValueError:
@@ -372,7 +384,10 @@ def parse_zro_csv(source: str | bytes | io.IOBase) -> ZROImportResult:
     # Positional indexing avoids the Y/y case-collision that causes DictReader
     # to merge luminance Y and chromaticity y into a single "y" key.
     rows: List[_Row] = []
+    # Keep track of total processed lines to detect if every single row failed parsing
+    processed_rows = 0
     for raw_row in reader:
+        processed_rows += 1
         try:
             vals = list(raw_row.values())
             dt = _parse_datetime(vals[0].strip())
@@ -403,6 +418,16 @@ def parse_zro_csv(source: str | bytes | io.IOBase) -> ZROImportResult:
         )
 
     result.total_rows = len(rows)
+
+    # If we had rows in the CSV but none were successfully parsed, surface a fatal error.
+    if processed_rows > 0 and not rows:
+        result.fatal_error = (
+            f"Failed to parse any rows from the CSV ({processed_rows} total). "
+            "This usually means the timestamp format is unsupported or the file "
+            "structure is unexpected."
+        )
+        return result
+
     if not rows:
         return result
 
@@ -579,7 +604,13 @@ def merge_into_session(session: dict, result: ZROImportResult) -> dict:
     Existing measurements are preserved; imported ones are appended.
     Duplicate measurements (matching timestamp and stimulus RGB) are skipped.
     Returns the modified session dict.
+
+    Raises:
+        ValueError: If result contains a fatal_error from parsing.
     """
+    if result.fatal_error:
+        raise ValueError(result.fatal_error)
+
     existing_keys: Set[str] = set()
     bucket_map = {
         "cms_measurements": result.cms_measurements,

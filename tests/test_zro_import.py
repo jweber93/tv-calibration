@@ -450,6 +450,26 @@ class TestParseZroCsv:
         r = parse_zro_csv(garbage)
         assert r.total_rows == 0
 
+    def test_subsecond_timestamps(self):
+        """Test that sub-second timestamps are parsed correctly."""
+        # Read the test fixture file
+        with open("tests/fixtures/zro_subsecond.csv", "r") as f:
+            csv_content = f.read()
+        
+        # Parse the CSV - should not fail and should parse all rows
+        result = parse_zro_csv(csv_content)
+        
+        # Should have parsed 4 rows successfully
+        assert result.total_rows == 4
+        assert result.unknown_rows == 0
+        
+        # Should have parsed all rows with timestamps including subseconds
+        assert len(result.pre_measurements) == 4
+        
+        # Verify the first timestamp was parsed correctly (has subsecond precision)
+        first_timestamp = result.pre_measurements[0]["timestamp"]
+        assert "19:12:34.527" in first_timestamp or "19:12:34.527000" in first_timestamp
+
     # ── merge_into_session helper ───────────────────────────────────────────
 
     def test_merge_into_session_populates_buckets(self):
