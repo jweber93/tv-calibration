@@ -40,6 +40,10 @@ def analyze(patches: List[Patch], cfg: AnalysisConfig) -> Summary:
         measured_peak_y = None
         measured_black_y = 0.0
 
+    # Define a safe default for peak luminance to prevent None values
+    peak_fallback = 100.0 if cfg.mode.lower() == 'sdr' else 1000.0
+    measured_peak_y_effective = measured_peak_y if measured_peak_y and measured_peak_y > 0 else peak_fallback
+
     grayscale_rows: List[Dict[str, Any]] = []
     color_rows: List[Dict[str, Any]] = []
 
@@ -52,7 +56,7 @@ def analyze(patches: List[Patch], cfg: AnalysisConfig) -> Summary:
             p,
             cfg.code_max,
             cfg,
-            measured_peak_y,
+            measured_peak_y_effective,
             measured_black_y,
         )
         targ_lab = xyz_to_lab(target_xyz)
@@ -64,16 +68,16 @@ def analyze(patches: List[Patch], cfg: AnalysisConfig) -> Summary:
         meas_y = p.meas_yxy[0] if p.meas_yxy is not None else p.meas_xyz[1]
         gamma_val = None
         pq_err_pct = None
-        if 0 < n < 1 and meas_y > 0 and measured_peak_y > 0:
+        if 0 < n < 1 and meas_y > 0 and measured_peak_y_effective > 0:
             if cfg.mode.lower() == "hdr" or cfg.eotf.lower() == "pq":
                 target_rel = pq_eotf(n) / 10000.0
-                meas_rel = meas_y / measured_peak_y
+                meas_rel = meas_y / measured_peak_y_effective
                 pq_err_pct = 100.0 * (meas_rel - target_rel)
                 if 0.20 <= n <= 0.80:
                     gray_pq_err_mid.append(pq_err_pct)
             else:
-                if 0 < meas_y < measured_peak_y:
-                    rel = meas_y / measured_peak_y
+                if 0 < meas_y < measured_peak_y_effective:
+                    rel = meas_y / measured_peak_y_effective
                     gamma_val = math.log(rel) / math.log(n)
                     if 0.20 <= n <= 0.80:
                         gray_gamma_mid.append(gamma_val)
@@ -100,7 +104,7 @@ def analyze(patches: List[Patch], cfg: AnalysisConfig) -> Summary:
             p,
             cfg.code_max,
             cfg,
-            measured_peak_y,
+            measured_peak_y_effective,
             measured_black_y,
         )
         targ_lab = xyz_to_lab(target_xyz)
@@ -160,6 +164,7 @@ def analyze(patches: List[Patch], cfg: AnalysisConfig) -> Summary:
             "eotf": cfg.eotf,
             "target_space": cfg.target_space,
             "code_max": cfg.code_max,
+            "peak_fallback_used": measured_peak_y is None,
         },
         measured_patch_count=len(grayscale),
     )
