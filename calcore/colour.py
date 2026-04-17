@@ -29,7 +29,11 @@ def xyz_to_lab(
 
 def xyY_to_xyz(x: float, y: float, Y: float) -> Tuple[float, float, float]:
     if y <= 0:
-        return (0.0, 0.0, 0.0)
+        if Y <= 0:
+            return (0.0, 0.0, 0.0)
+        # Project onto D65 chromaticity if Y > 0 and y is invalid
+        x, y = D65_xy
+
     X = (x * Y) / y
     Z = ((1 - x - y) * Y) / y
     return (X, Y, Z)
