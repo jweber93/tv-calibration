@@ -51,8 +51,11 @@ class TestXyYToXYZ:
         assert (X, Y, Z) == (0.0, 0.0, 0.0)
 
     def test_zero_y_chromaticity(self):
-        """y=0 should return zeros to avoid division by zero."""
-        assert xyY_to_XYZ(0.3, 0.0, 50.0) == (0, 0, 0)
+        """y=0 should project onto D65 if Y > 0."""
+        X, Y, Z = xyY_to_XYZ(0.3, 0.0, 50.0)
+        assert Y == 50.0
+        assert X == pytest.approx(47.5228, rel=1e-3)
+        assert Z == pytest.approx(54.4529, rel=1e-3)
 
     def test_pure_red_chromaticity(self):
         """Rec.709 red primary chromaticity at 10 nits."""
