@@ -288,11 +288,11 @@ class TestZROBridgeMeasureSequence(unittest.TestCase):
                 raise HTTPException(400, "Patch sequence too long (max 200).")
 
             results = []
-            for i, patch in enumerate(patches):
-                r = int(patch.get("r", 0))
-                g = int(patch.get("g", 0))
-                b = int(patch.get("b", 0))
-                label = patch.get("label", f"RGB({r},{g},{b})")
+            for i, p in enumerate(patches):
+                r = int(p.get("r", 0))
+                g = int(p.get("g", 0))
+                b = int(p.get("b", 0))
+                label = p.get("label", f"RGB({r},{g},{b})")
                 results.append({
                     "index": i,
                     "label": label,
