@@ -123,11 +123,19 @@ except ModuleNotFoundError:
                     logger.warning(msg)
                     with _lock:
                         _watcher_error = msg
+                    # Keep polling; clear error once directory reappears.
                     continue
                 except OSError:
                     with _lock:
                         _watcher_error = None
                     pass
+                else:
+                    # Directory is back — clear the transient error.
+                    with _lock:
+                        if _watcher_error and "temporarily unavailable" in (
+                            _watcher_error or ""
+                        ):
+                            _watcher_error = None
 
 
 from .zro_import import ZROImportResult, parse_zro_csv
