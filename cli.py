@@ -10,7 +10,7 @@ import os
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from calcore import (
     AnalysisConfig,
@@ -21,7 +21,7 @@ from calcore import (
     determine_phase,
     parse_measurement_csv,
 )
-from calcore.llm import hash_summary
+from calcore.llm import hash_summary, query_delta_summary
 from calcore.models import Summary
 
 
@@ -215,11 +215,139 @@ def watch(csv_path: Path, state_path: Path, state: SessionState, interval: float
         time.sleep(interval)
 
 
+def _compare_sessions(
+    path_a: Path,
+    path_b: Path,
+    llm_cfg: Optional[LLMConfig] = None,
+) -> None:
+    """Print a before/after delta comparison for two session JSON report files."""
+    import json as _json
+
+    def _load_report(p: Path) -> Dict[str, Any]:
+        raw = _json.loads(p.read_text(encoding="utf-8"))
+        # Accept either a raw session JSON or an already-computed report payload.
+        # A session JSON has "pre_measurements"; a report payload has "pre_cal".
+        if "pre_cal" in raw:
+            return raw
+        # Build a minimal synthetic report from history-style entries
+        pre_de = raw.get("pre_grayscale_avg_de")
+        post_de = raw.get("post_grayscale_avg_de")
+        return {
+            "tv": raw.get("tv", str(p)),
+            "mode": raw.get("mode", ""),
+            "date": raw.get("date", ""),
+            "peak_luminance": raw.get("peak_luminance"),
+            "pre_cal": {"avg_de": pre_de, "max_de": None, "measurements": []},
+            "post_cal": {"avg_de": post_de, "max_de": None, "measurements": []},
+            "white_balance": {"avg_de": raw.get("wb_avg_de"), "max_de": None},
+            "color_tuner": {"avg_de": raw.get("cms_avg_de"), "max_de": None},
+            "gamma": {"avg_gamma": raw.get("gamma_avg"), "measurements": []},
+            "improvement_pct": raw.get("improvement_pct"),
+            "target": {},
+            "wb_measurements": [],
+            "cms_measurements": [],
+            "gamma_measurements": [],
+        }
+
+    rep_a = _load_report(path_a)
+    rep_b = _load_report(path_b)
+
+    def _delta(b_val: Optional[float], a_val: Optional[float]) -> str:
+        if b_val is None or a_val is None:
+            return "n/a"
+        d = b_val - a_val
+        sign = "+" if d > 0 else ""
+        return f"{sign}{d:.2f}"
+
+    deltas: Dict[str, Any] = {}
+    for key, (b_path, a_path) in {
+        "pre_cal_avg_de": (rep_b["pre_cal"]["avg_de"], rep_a["pre_cal"]["avg_de"]),
+        "post_cal_avg_de": (rep_b["post_cal"]["avg_de"], rep_a["post_cal"]["avg_de"]),
+        "wb_avg_de": (rep_b["white_balance"]["avg_de"], rep_a["white_balance"]["avg_de"]),
+        "cms_avg_de": (rep_b["color_tuner"]["avg_de"], rep_a["color_tuner"]["avg_de"]),
+        "gamma_avg": (rep_b["gamma"]["avg_gamma"], rep_a["gamma"]["avg_gamma"]),
+        "improvement_pct": (rep_b["improvement_pct"], rep_a["improvement_pct"]),
+        "peak_luminance": (rep_b["peak_luminance"], rep_a["peak_luminance"]),
+    }.items():
+        if b_path is not None and a_path is not None:
+            deltas[key] = round(b_path - a_path, 3)
+
+    print("\n" + "═" * 78)
+    print("BEFORE / AFTER DELTA REPORT")
+    print("═" * 78)
+    print(f"Session A (Before): {rep_a.get('tv', '')} — {rep_a.get('mode', '')} — {str(rep_a.get('date', ''))[:10]}")
+    print(f"Session B (After):  {rep_b.get('tv', '')} — {rep_b.get('mode', '')} — {str(rep_b.get('date', ''))[:10]}")
+    print()
+    print(f"{'Metric':<30} {'Session A':>12} {'Session B':>12} {'Δ (B-A)':>12}")
+    print("─" * 70)
+
+    def _row(label: str, a_val: Any, b_val: Any, delta_key: str, digits: int = 2, suffix: str = "") -> None:
+        a_str = f"{a_val:.{digits}f}{suffix}" if a_val is not None else "—"
+        b_str = f"{b_val:.{digits}f}{suffix}" if b_val is not None else "—"
+        d_str = _delta(b_val, a_val)
+        print(f"{label:<30} {a_str:>12} {b_str:>12} {d_str:>12}")
+
+    _row("Pre-Cal Avg ΔE", rep_a["pre_cal"]["avg_de"], rep_b["pre_cal"]["avg_de"], "pre_cal_avg_de")
+    _row("Post-Cal Avg ΔE", rep_a["post_cal"]["avg_de"], rep_b["post_cal"]["avg_de"], "post_cal_avg_de")
+    _row("WB Avg ΔE", rep_a["white_balance"]["avg_de"], rep_b["white_balance"]["avg_de"], "wb_avg_de")
+    _row("CMS Avg ΔE", rep_a["color_tuner"]["avg_de"], rep_b["color_tuner"]["avg_de"], "cms_avg_de")
+    _row("Avg Gamma", rep_a["gamma"]["avg_gamma"], rep_b["gamma"]["avg_gamma"], "gamma_avg", digits=3)
+    _row("Improvement %", rep_a["improvement_pct"], rep_b["improvement_pct"], "improvement_pct", digits=1, suffix="%")
+    _row("Peak Luminance", rep_a["peak_luminance"], rep_b["peak_luminance"], "peak_luminance", digits=1, suffix=" nit")
+    print("═" * 78)
+
+    if llm_cfg and llm_cfg.endpoint and llm_cfg.model:
+        print("\nGenerating LLM delta summary...")
+        try:
+            summary_text = query_delta_summary(rep_a, rep_b, deltas, llm_cfg)
+            if summary_text:
+                print("\nLLM ANALYSIS:")
+                for line in summary_text.splitlines():
+                    print(f"  {line}")
+        except Exception as exc:
+            print(f"[llm unavailable] {exc}")
+    print()
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Live calibration coach for ColourSpace CSV files."
     )
-    ap.add_argument("--csv", required=True, help="Path to the measurement CSV file")
+    subparsers = ap.add_subparsers(dest="command")
+
+    # ── compare subcommand ────────────────────────────────────────────────
+    compare_p = subparsers.add_parser(
+        "compare",
+        help="Compare two session report JSON files and print a delta table.",
+    )
+    compare_p.add_argument(
+        "session_a",
+        metavar="SESSION_A",
+        help="Path to the baseline session report JSON (before).",
+    )
+    compare_p.add_argument(
+        "session_b",
+        metavar="SESSION_B",
+        help="Path to the more recent session report JSON (after).",
+    )
+    compare_p.add_argument(
+        "--llm-endpoint",
+        default=os.environ.get("TVCAL_LLM_ENDPOINT", ""),
+        help="OpenAI-compatible endpoint for LLM delta summary (optional).",
+    )
+    compare_p.add_argument(
+        "--llm-model",
+        default=os.environ.get("TVCAL_LLM_MODEL", ""),
+        help="Model name for LLM delta summary (optional).",
+    )
+    compare_p.add_argument(
+        "--llm-api-key",
+        default=os.environ.get("TVCAL_LLM_API_KEY", ""),
+        help="API key for LLM endpoint.",
+    )
+
+    # ── watch/run subcommand (original behaviour) ─────────────────────────
+    ap.add_argument("--csv", help="Path to the measurement CSV file")
     ap.add_argument("--mode", choices=["sdr", "hdr"], default="hdr", help="Calibration mode")
     ap.add_argument(
         "--eotf",
@@ -268,6 +396,21 @@ def main() -> None:
         help="LLM timeout seconds",
     )
     args = ap.parse_args()
+
+    # ── compare subcommand ────────────────────────────────────────────────
+    if args.command == "compare":
+        llm_cfg: Optional[LLMConfig] = None
+        if args.llm_endpoint and args.llm_model:
+            llm_cfg = LLMConfig(
+                endpoint=args.llm_endpoint.strip(),
+                model=args.llm_model.strip(),
+                api_key=getattr(args, "llm_api_key", "").strip(),
+            )
+        _compare_sessions(Path(args.session_a), Path(args.session_b), llm_cfg)
+        return
+
+    if not args.csv:
+        ap.error("--csv is required when not using a subcommand")
 
     cfg = AnalysisConfig(
         mode=args.mode,

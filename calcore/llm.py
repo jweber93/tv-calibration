@@ -748,5 +748,198 @@ def probe_llm(cfg: Dict[str, Any], timeout: float = 8.0) -> tuple[bool, str]:
         return False, str(exc)[:300]
 
 
+def query_delta_summary(
+    report_a: Dict[str, Any],
+    report_b: Dict[str, Any],
+    deltas: Dict[str, Any],
+    llm: LLMConfig,
+) -> Optional[str]:
+    """Ask the LLM to narrate the before/after delta between two calibration sessions.
+
+    Returns a plain-language paragraph describing what improved, what regressed,
+    and what likely caused the changes. Returns None if LLM is not configured or
+    the response cannot be retrieved.
+    """
+    if not llm.endpoint or not llm.model:
+        return None
+
+    def _compact_report(r: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "tv": r.get("tv"),
+            "mode": r.get("mode"),
+            "date": str(r.get("date", ""))[:10],
+            "pre_cal_avg_de": r.get("pre_cal", {}).get("avg_de"),
+            "post_cal_avg_de": r.get("post_cal", {}).get("avg_de"),
+            "wb_avg_de": r.get("white_balance", {}).get("avg_de"),
+            "cms_avg_de": r.get("color_tuner", {}).get("avg_de"),
+            "gamma_avg": r.get("gamma", {}).get("avg_gamma"),
+            "improvement_pct": r.get("improvement_pct"),
+            "peak_luminance": r.get("peak_luminance"),
+            "target_gamut": r.get("target", {}).get("gamut"),
+            "target_eotf": r.get("target", {}).get("eotf"),
+        }
+
+    payload = {
+        "session_a": _compact_report(report_a),
+        "session_b": _compact_report(report_b),
+        "deltas": deltas,
+    }
+
+    prompt = (
+        "You are a professional display calibration analyst. "
+        "Two calibration sessions for the same TV are shown below. "
+        "Session A is the earlier/baseline; Session B is the more recent.\n\n"
+        "Write a single plain-English paragraph (3-5 sentences) that:\n"
+        "1. States what improved between sessions (lower ΔE, better gamma, etc.)\n"
+        "2. States anything that regressed or stayed roughly the same\n"
+        "3. Provides a brief calibration interpretation (e.g. 'The white balance "
+        "correction in session B significantly reduced grayscale tracking error')\n\n"
+        "Be concise and technical. Do not use JSON — respond with prose only.\n\n"
+        f"DATA:\n{json.dumps(payload, indent=2, default=str)}"
+    )
+
+    url = resolve_endpoint(llm.endpoint)
+    body = {
+        "model": llm.model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a concise display calibration analyst. Write plain prose, no JSON.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.3,
+    }
+
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
+    )
+    if llm.api_key:
+        req.add_header("Authorization", f"Bearer {llm.api_key}")
+
+    try:
+        with urllib.request.urlopen(req, timeout=min(llm.timeout, 45.0)) as resp:
+            raw = resp.read().decode("utf-8")
+        parsed = json.loads(raw)
+        choices = parsed.get("choices") or []
+        if not choices:
+            raise ValueError(f"LLM returned empty choices: {raw[:300]}")
+        return choices[0]["message"]["content"].strip()
+    except urllib.error.HTTPError as e:
+        logger.error("LLM HTTP error in query_delta_summary: %s - %s", e.code, e.reason)
+        return None
+    except Exception as e:
+        logger.error("Unexpected error in query_delta_summary: %s: %s", type(e).__name__, e)
+        return None
+
+
+def query_patch_optimization(
+    grayscale_rows: List[Dict[str, Any]],
+    color_rows: List[Dict[str, Any]],
+    phase: str,
+    patch_budget: int,
+    llm: LLMConfig,
+) -> Optional[Any]:
+    """Ask the LLM to recommend an optimized patch set from per-patch residuals.
+
+    Sends full per-patch error data (not just top-N) so the LLM can identify
+    stimulus regions that need denser sampling. Returns a structured patch list
+    or None if LLM is not configured / response cannot be parsed.
+    """
+    if not llm.endpoint or not llm.model:
+        return None
+
+    from .patch_planner import plan_patches, PatchOptimization, SuggestedPatch
+
+    planning_payload = plan_patches(grayscale_rows, color_rows, budget=patch_budget)
+
+    prompt = (
+        "You are a TV calibration measurement strategist. "
+        "Given per-patch ΔE residuals from the current calibration sweep, "
+        "recommend an optimized patch set for the next measurement pass.\n\n"
+        "Rules:\n"
+        f"- Total patches must not exceed {patch_budget}\n"
+        "- Add denser sampling where ΔE > 3 or gamma deviates > 0.1 from target\n"
+        "- Skip patches where ΔE < 1 to save measurement time\n"
+        "- For grayscale patches, specify r=g=b values (0-255 for 8-bit, 0-1023 for 10-bit)\n"
+        "- For color patches, specify r/g/b independently\n"
+        "- Estimate nits from stimulus level and typical display brightness\n\n"
+        "Respond with ONLY a JSON object in this exact schema (no markdown, no extra text):\n"
+        "{\n"
+        '  "patches": [\n'
+        "    {\n"
+        '      "nits": <estimated_nits>,\n'
+        '      "r": <0-1023>,\n'
+        '      "g": <0-1023>,\n'
+        '      "b": <0-1023>,\n'
+        '      "priority": "high" | "medium" | "low",\n'
+        '      "label": "<human-readable label>",\n'
+        '      "rationale": "<why this patch was added or kept>"\n'
+        "    }\n"
+        "  ],\n"
+        '  "rationale": "<1-2 sentence summary of the optimization strategy>",\n'
+        '  "confidence": <0.0-1.0>\n'
+        "}\n\n"
+        f"PHASE: {phase}\n"
+        f"RESIDUALS:\n{json.dumps(planning_payload, indent=2, default=str)}"
+    )
+
+    url = resolve_endpoint(llm.endpoint)
+    body = {
+        "model": llm.model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a strict JSON-only responder. Output only valid JSON.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.0,
+    }
+
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
+    )
+    if llm.api_key:
+        req.add_header("Authorization", f"Bearer {llm.api_key}")
+
+    try:
+        with urllib.request.urlopen(req, timeout=min(llm.timeout, 60.0)) as resp:
+            raw = resp.read().decode("utf-8")
+        parsed = json.loads(raw)
+        choices = parsed.get("choices") or []
+        if not choices:
+            raise ValueError(f"LLM returned empty choices: {raw[:300]}")
+        content = _extract_json(choices[0]["message"]["content"].strip())
+        obj = json.loads(content)
+
+        raw_patches = obj.get("patches") or []
+        # Cap at budget
+        raw_patches = raw_patches[:patch_budget]
+        patches = [SuggestedPatch.from_dict(p) for p in raw_patches]
+        confidence = float(obj.get("confidence", 0.5))
+
+        return PatchOptimization(
+            patches=patches,
+            rationale=str(obj.get("rationale", "")),
+            confidence=confidence,
+            auto_apply=confidence >= 0.7,
+        )
+    except urllib.error.HTTPError as e:
+        logger.error("LLM HTTP error in query_patch_optimization: %s - %s", e.code, e.reason)
+        return None
+    except json.JSONDecodeError as e:
+        logger.error("LLM response parsing failed in query_patch_optimization: %s", e)
+        return None
+    except Exception as e:
+        logger.error(
+            "Unexpected error in query_patch_optimization: %s: %s", type(e).__name__, e
+        )
+        return None
+
+
+# Type alias for callers that import PatchOptimization from here
 _resolve_endpoint = resolve_endpoint
 call_local_llm = call_llm

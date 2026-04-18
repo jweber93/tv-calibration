@@ -250,6 +250,8 @@ The assistant system has four integrated capabilities:
 | **Display memory** | Prior sessions for this TV model are injected into every prompt as a compressed history block (up to 3 sessions + baseline). The LLM can detect drift, thermal aging, and repeat known compromises. |
 | **Gamut expert** | `POST /api/session/{sid}/gamut/advise` runs a deterministic gamut feasibility check per primary, then asks the LLM to explain trade-offs in plain English when a primary is outside the ADB CMS correction range. |
 | **Patch strategy** | After each import the LLM also recommends which patches to add or skip next (`patch_strategy` SSE event). Strategies with confidence ≥ 0.6 are flagged for auto-apply; lower-confidence ones surface for user review. |
+| **Predictive patch density** | `GET /api/session/{sid}/suggested-patches` analyzes per-patch ΔE residuals and returns an optimized patch list — denser where error is highest, sparser where results are within tolerance. Capped at a configurable budget (default 30). |
+| **Delta summary** | `POST /api/report/compare/delta_summary` compares two sessions and asks the LLM to write a plain-English paragraph describing what improved, what regressed, and likely causes. |
 
 Configure under the **AI Assistant** section on the Prepare page. All AI features are non-blocking — the workflow runs fully without an LLM endpoint configured.
 
@@ -314,6 +316,67 @@ ADB must be installed and your TV must have ADB debugging enabled over the netwo
 
 A live server log stream is available in the UI for debugging. The panel tails the FastAPI process log in real time via `GET /api/logs/stream` (SSE). Log entries include CSV import events, LLM trigger attempts, Dogegen process lifecycle, and any server-side errors. The panel is collapsed by default; expand it from the header bar.
 
+### Before/After Delta Report
+
+Compare any two calibration sessions side-by-side to quantify the impact of adjustments over time — useful for comparing SDR vs. HDR10, pre-treatment vs. post-treatment, or any two arbitrary sessions.
+
+**API:**
+
+```
+GET  /api/report/compare?a={session_id}&b={session_id}           → JSON delta payload
+GET  /api/report/compare?a={session_id}&b={session_id}&format=html → side-by-side HTML
+GET  /api/report/compare?a={session_id}&b={session_id}&format=pdf  → printable PDF
+POST /api/report/compare/delta_summary?a={id}&b={id}             → LLM prose paragraph
+```
+
+The delta payload includes per-metric differences (Δ Pre-Cal ΔE, Δ Post-Cal ΔE, Δ WB ΔE, Δ CMS ΔE, Δ Gamma, Δ Improvement %, Δ Peak Luminance) plus a `tv_mismatch` and `mode_mismatch` flag when sessions aren't directly comparable.
+
+The optional LLM delta summary endpoint asks the configured AI assistant to write a plain-English paragraph explaining what improved, what regressed, and why.
+
+**CLI:**
+
+```bash
+python cli.py compare session_a.json session_b.json
+python cli.py compare session_a.json session_b.json \
+  --llm-endpoint http://localhost:4000 --llm-model tvcal-analyst
+```
+
+Accepts either saved session JSON files or history-entry JSON files from `.calibration-history/`.
+
+### Predictive Patch Density
+
+Instead of a fixed measurement grid, the AI assistant can analyze current ΔE and gamma residuals and recommend a custom next-round patch set: denser sampling where error is highest, sparser where results are already within tolerance.
+
+**API:**
+
+```
+GET  /api/session/{sid}/suggested-patches?budget=30
+POST /api/session/{sid}/suggested-patches/run
+```
+
+`GET suggested-patches` returns a `PatchOptimization` object:
+
+```json
+{
+  "patches": [
+    {
+      "nits": 80.0, "r": 200, "g": 200, "b": 200,
+      "priority": "high",
+      "label": "Gray 78%",
+      "rationale": "ΔE 4.2 at this stimulus — add finer interpolation steps"
+    }
+  ],
+  "rationale": "Dense sampling added in 60–85% range where gamma deviates > 0.15",
+  "confidence": 0.82,
+  "auto_apply": true,
+  "patch_count": 12
+}
+```
+
+Patches with `auto_apply: true` (confidence ≥ 0.7) can be forwarded directly to the ZRO Bridge via `POST suggested-patches/run`, which sends them to `{bridge_url}/measure/sequence` for immediate measurement.
+
+The patch count is capped by the `budget` query parameter (default 30, maximum 200).
+
 ### PDF and HTML Reports
 
 The Report page offers three export formats:
@@ -370,6 +433,18 @@ Options:
 | `--target-space bt709\|p3d65\|bt2020` | Target color gamut |
 | `--watch` | Watch for new CSV files and re-analyze on change |
 
+### Comparing Sessions (CLI)
+
+Compare two saved session or report JSON files from the command line:
+
+```bash
+python cli.py compare before.json after.json
+python cli.py compare before.json after.json \
+  --llm-endpoint http://localhost:4000 --llm-model tvcal-analyst
+```
+
+Accepts session report JSON files (exported via `GET /api/session/{sid}/report`) or `.calibration-history/{tv_key}/sessions.jsonl` entries. When an LLM endpoint is configured, appends a plain-English analysis paragraph below the delta table.
+
 ---
 
 ## Project Structure
@@ -398,8 +473,10 @@ calcore/
   targets.py          Target XYZ computation per patch (grayscale + color primaries)
   csv_import.py       Generic ColourSpace CSV parser (header and headerless formats)
   gamut.py            Per-primary gamut feasibility check (PrimaryConstraint, GamutDiagnosis)
+  patch_planner.py    Predictive patch density planning (SuggestedPatch, PatchOptimization)
   phase.py            Calibration phase determination logic
-  llm.py              LLM client — guidance, history injection, patch strategy, remediation
+  llm.py              LLM client — guidance, history injection, patch strategy, remediation,
+                      delta summary, patch optimization
 
 server.py             FastAPI application (REST + SSE)
 cli.py                Command-line batch analysis entry point
@@ -532,6 +609,12 @@ The LLM prompt contains **only pre-aggregated data** — no raw per-patch XYZ ar
 | `GET` | `/api/prefs` | Read persisted user preferences |
 | `POST` | `/api/prefs` | Write user preferences (watch path, LLM config, Dogegen, bridge URL) |
 | `GET` | `/api/logs/stream` | SSE stream of server log lines (for the in-UI logs panel) |
+| `GET` | `/api/report/compare?a={id}&b={id}` | JSON delta payload comparing two sessions |
+| `GET` | `/api/report/compare?a={id}&b={id}&format=html` | Side-by-side HTML comparison report |
+| `GET` | `/api/report/compare?a={id}&b={id}&format=pdf` | Printable PDF comparison report |
+| `POST` | `/api/report/compare/delta_summary?a={id}&b={id}` | LLM-authored plain-English delta summary |
+| `GET` | `/api/session/{sid}/suggested-patches?budget=30` | LLM-optimized patch list from residual analysis |
+| `POST` | `/api/session/{sid}/suggested-patches/run` | Forward suggested patches to the ZRO Bridge |
 
 SSE stream (`GET /api/session/{sid}/llm/stream`) now emits two event types:
 

@@ -43,8 +43,10 @@ from calcore.llm import (
     call_llm as _call_llm,
     parse_adjustment_plan as _parse_adjustment_plan,
     probe_llm as _probe_llm,
+    query_delta_summary as _query_delta_summary,
     query_gamut_advice as _query_gamut_advice,
     query_next_patch_strategy as _query_next_patch_strategy,
+    query_patch_optimization as _query_patch_optimization,
     query_remediation as _query_remediation,
 )
 from calcore.models import AnalysisConfig, LLMConfig, Patch, TVSettings
@@ -73,6 +75,9 @@ from calibrator.guidance import (
 )
 from calibrator.quality import QG_LUMINANCE_PCT, step_quality as _step_quality
 from calibrator.reports import (
+    comparison_payload as _comparison_payload,
+    render_comparison_html as _render_comparison_html,
+    render_comparison_pdf as _render_comparison_pdf,
     render_report_html as _render_report_html,
     render_report_pdf as _render_report_pdf,
     report_payload as _report_payload,
@@ -1325,6 +1330,185 @@ def get_report_pdf(sid: str):
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ── Before/After Delta Report endpoints (#168) ────────────────────────────────
+
+
+def _load_session_by_id(sid: str) -> Dict[str, Any]:
+    """Load a session from memory or disk. Raises 404 if not found."""
+    try:
+        return store.get(sid)
+    except HTTPException:
+        pass
+    path = SESSION_STORE_DIR / f"{sid}.json"
+    if not path.exists():
+        raise HTTPException(404, f"Session not found: {sid}")
+    try:
+        from calibrator.session import deserialize_session
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return deserialize_session(data)
+    except Exception as exc:
+        raise HTTPException(500, f"Could not load session {sid}: {exc}") from exc
+
+
+@app.get("/api/report/compare")
+def get_report_compare(a: str, b: str, format: str = "json"):
+    """Compare two sessions side-by-side.
+
+    Query params:
+      a: session ID of the baseline/earlier session
+      b: session ID of the more recent session
+      format: "json" (default) | "html" | "pdf"
+    """
+    session_a = _load_session_by_id(a)
+    session_b = _load_session_by_id(b)
+    comparison = _comparison_payload(session_a, session_b)
+
+    if format == "html":
+        return HTMLResponse(_render_comparison_html(comparison))
+    if format == "pdf":
+        try:
+            pdf_bytes = _render_comparison_pdf(comparison)
+        except RuntimeError as exc:
+            raise HTTPException(503, str(exc)) from exc
+        from fastapi.responses import Response
+        filename = f"comparison_{a[:8]}_vs_{b[:8]}.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    return comparison
+
+
+@app.post("/api/report/compare/delta_summary")
+def post_delta_summary(a: str, b: str):
+    """Generate an LLM-authored plain-language delta summary for two sessions.
+
+    Returns {"summary": "<prose paragraph>"} or {"summary": null} if no LLM is configured.
+    Uses the LLM configuration from session B.
+    """
+    session_a = _load_session_by_id(a)
+    session_b = _load_session_by_id(b)
+    comparison = _comparison_payload(session_a, session_b)
+
+    llm_cfg_dict = session_b.get("llm_config") or session_a.get("llm_config") or {}
+    if not (llm_cfg_dict.get("endpoint") and llm_cfg_dict.get("model")):
+        return {"summary": None, "reason": "LLM not configured"}
+
+    llm_cfg = LLMConfig(
+        endpoint=llm_cfg_dict.get("endpoint", ""),
+        model=llm_cfg_dict.get("model", ""),
+        api_key=llm_cfg_dict.get("api_key", ""),
+        temperature=float(llm_cfg_dict.get("temperature", 0.3)),
+        timeout=float(llm_cfg_dict.get("timeout", 45.0)),
+    )
+    summary_text = _query_delta_summary(
+        comparison["session_a"]["report"],
+        comparison["session_b"]["report"],
+        comparison["deltas"],
+        llm_cfg,
+    )
+    return {"summary": summary_text, "deltas": comparison["deltas"]}
+
+
+# ── Suggested patches endpoint (#173) ─────────────────────────────────────────
+
+
+@app.get("/api/session/{sid}/suggested-patches")
+def get_suggested_patches(sid: str, budget: int = 30):
+    """Return an LLM-optimized patch list based on current measurement residuals.
+
+    Analyzes per-patch ΔE from all imported measurements and asks the LLM to
+    recommend denser sampling where error is highest.  budget caps the total
+    patch count (default 30, configurable via query param).
+
+    Returns {"optimization": {...}} with patches list, rationale, confidence,
+    and auto_apply flag.  Returns {"optimization": null} if LLM is not configured.
+    """
+    if budget < 1 or budget > 200:
+        raise HTTPException(400, "budget must be between 1 and 200")
+
+    session = store.get(sid)
+
+    all_measurements = (
+        session.get("pre_measurements", [])
+        + session.get("wb_measurements", [])
+        + session.get("gamma_measurements", [])
+        + session.get("cms_measurements", [])
+        + session.get("post_measurements", [])
+    )
+    if not all_measurements:
+        raise HTTPException(400, "No measurements in session; import data first.")
+
+    llm_cfg_dict = session.get("llm_config", {})
+    if not (llm_cfg_dict.get("endpoint") and llm_cfg_dict.get("model")):
+        return {"optimization": None, "reason": "LLM not configured"}
+
+    cfg = _session_to_analysis_config(session)
+    patches_core = [_measurement_to_patch(m) for m in all_measurements]
+    summary = _calcore_analyze(patches_core, cfg)
+
+    llm_cfg = LLMConfig(
+        endpoint=llm_cfg_dict.get("endpoint", ""),
+        model=llm_cfg_dict.get("model", ""),
+        api_key=llm_cfg_dict.get("api_key", ""),
+        temperature=float(llm_cfg_dict.get("temperature", 0.2)),
+        timeout=float(llm_cfg_dict.get("timeout", 60.0)),
+    )
+    phase = session.get("step", "baseline")
+    optimization = _query_patch_optimization(
+        summary.grayscale_rows,
+        summary.color_rows,
+        phase=phase,
+        patch_budget=budget,
+        llm=llm_cfg,
+    )
+
+    if optimization is None:
+        return {"optimization": None, "reason": "LLM returned no result"}
+
+    return {"optimization": optimization.to_dict()}
+
+
+@app.post("/api/session/{sid}/suggested-patches/run")
+def run_suggested_patches(sid: str, body: dict):
+    """Forward a patch sequence to the ZRO bridge for measurement.
+
+    Body: {"patches": [{nits, r, g, b, priority, label}, ...]}
+    Sends a POST to {_zro_bridge_url}/measure/sequence with the patch list.
+    The ZRO bridge must support arbitrary patch sequences (not just fixed grids).
+    """
+    global _zro_bridge_url
+    if not _zro_bridge_url:
+        raise HTTPException(
+            400,
+            'ZRO Bridge URL not configured. Set ZRO_BRIDGE_URL env var or POST /api/zro/bridge/config.',
+        )
+    patches = body.get("patches")
+    if not patches or not isinstance(patches, list):
+        raise HTTPException(400, "Body must include a non-empty 'patches' list.")
+    if len(patches) > 200:
+        raise HTTPException(400, "Patch sequence too long (max 200).")
+
+    try:
+        resp = httpx.post(
+            f"{_zro_bridge_url}/measure/sequence",
+            json={"patches": patches},
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except httpx.ConnectError:
+        raise HTTPException(
+            502,
+            f"Cannot reach ZRO Bridge at {_zro_bridge_url} — is start.bat running on the Windows PC?",
+        )
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(502, f"ZRO Bridge error: {exc.response.text}")
+    except Exception as exc:
+        raise HTTPException(500, f"ZRO Bridge proxy error: {exc}")
 
 
 @app.get("/api/adb/status")
