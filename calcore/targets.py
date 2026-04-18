@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from typing import Optional, Tuple
 
 from .colour import D65_xy, xyY_to_xyz
 from .eotf import bt1886_eotf, gamma_eotf, pq_eotf
 from .models import AnalysisConfig, Patch
 from .spaces import detect_matrix, rgb_to_xyz
+
+logger = logging.getLogger(__name__)
 
 
 def target_xyz_for_patch(
