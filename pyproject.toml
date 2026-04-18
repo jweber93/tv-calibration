@@ -29,6 +29,46 @@ exclude_lines = [
     "raise NotImplementedError",
 ]
 
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# Initial ruff adoption: select bug-catching rules only.
+# Deferred to a follow-up modernisation PR:
+#   UP (pyupgrade) — typing.List→list, Optional[X]→X|None throughout codebase
+#   I  (isort)     — import ordering throughout codebase
+select = ["E", "F", "W", "B", "C4", "SIM"]
+ignore = [
+    # Style / formatter handles these
+    "E501",   # line length — enforced by ruff format, not the linter
+    "E402",   # module-level import not at top — server.py uses guarded imports
+    "W291",   # trailing whitespace — pre-existing in test files
+    "W292",   # no newline at end of file — pre-existing
+    "W293",   # whitespace in blank line — pre-existing in test files
+    # Pre-existing unused-import debt (widespread; clean up separately)
+    "F401",
+    "F811",   # redefinition of unused name
+    "F841",   # local variable assigned but never used
+    # Pre-existing simplification suggestions (style, not bugs)
+    "SIM105", # use contextlib.suppress instead of try/except/pass
+    "SIM108", # use ternary operator
+    "SIM117", # merge nested with statements
+    "SIM300", # Yoda conditions
+    "C408",   # unnecessary dict() call
+    "B007",   # unused loop control variable
+    "B904",   # raise-without-from inside except — pre-existing in server.py
+    # FastAPI / framework patterns
+    "B008",   # function-call default arg (FastAPI Depends)
+    # Pre-existing style in test files
+    "E702",   # multiple statements on one line (semicolon)
+    "F541",   # f-string without placeholders
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
 [tool.bandit]
 # B101: assert statements are fine outside tests
 # B607: partial executable path — adb/uvicorn must be on PATH, full path is impractical

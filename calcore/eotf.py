@@ -33,6 +33,7 @@ def bt1886_eotf(v: float, lw: float, lb: float, gamma: float = 2.4) -> float:
             "bt1886_eotf: black floor (lb={lb:.4f}) >= white level (lw={lw:.4f}); "
             "falling back to pure gamma.".format(lb=lb, lw=lw),
             RuntimeWarning,
+            stacklevel=2,
         )
         return lw * (v ** gamma)
     a = lw ** (1 / gamma) - lb ** (1 / gamma)

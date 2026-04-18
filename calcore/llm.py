@@ -6,7 +6,12 @@ import re
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+if TYPE_CHECKING:
+    from .models import AnalysisConfig, LLMConfig, Summary, TVSettings
+
+logger = logging.getLogger(__name__)
 
 _FENCE_RE = re.compile(r"```\s*(?:json\s*)?(.*?)\s*```", re.IGNORECASE | re.DOTALL)
 
