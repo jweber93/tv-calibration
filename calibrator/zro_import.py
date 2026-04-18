@@ -96,6 +96,7 @@ class ZROImportResult:
     # Primary session buckets
     cms_measurements: List[dict] = field(default_factory=list)
     pre_measurements: List[dict] = field(default_factory=list)
+    mid_measurements: List[dict] = field(default_factory=list)
     post_measurements: List[dict] = field(default_factory=list)
     lum_measurements: List[dict] = field(default_factory=list)
     wb_measurements: List[dict] = field(default_factory=list)
@@ -114,6 +115,7 @@ class ZROImportResult:
     # ABL / anomaly warnings
     abl_warnings: List[str] = field(default_factory=list)
     unknown_rows: int = 0  # rows that could not be classified
+    row_errors: List[str] = field(default_factory=list)  # per-row diagnostic (capped at 20)
 
 
 # ---------------------------------------------------------------------------
@@ -389,16 +391,30 @@ def parse_zro_csv(source: str | bytes | io.IOBase) -> ZROImportResult:
     for raw_row in reader:
         processed_rows += 1
         try:
-            vals = list(raw_row.values())
-            dt = _parse_datetime(vals[0].strip())
-            r = int(vals[1].strip())
-            g = int(vals[2].strip())
-            b = int(vals[3].strip())
-            Y = float(vals[4].strip())
-            x = float(vals[5].strip())
-            y_chroma = float(vals[6].strip())
-        except (IndexError, ValueError):
+            # Normalize: csv.DictReader fills missing trailing fields with None;
+            # rows with extra columns store extras under raw_row[None] as a list.
+            vals = [v if isinstance(v, str) else "" for v in raw_row.values()]
+            if len(vals) < 7 or not all(vals[i] for i in range(7)):
+                result.unknown_rows += 1
+                if len(result.row_errors) < 20:
+                    result.row_errors.append(
+                        f"Row {processed_rows}: insufficient or empty fields "
+                        f"(got {len(vals)}, need 7)"
+                    )
+                continue
+            dt = _parse_datetime(vals[0])
+            r = int(vals[1])
+            g = int(vals[2])
+            b = int(vals[3])
+            Y = float(vals[4])
+            x = float(vals[5])
+            y_chroma = float(vals[6])
+        except (IndexError, ValueError, TypeError, AttributeError) as exc:
             result.unknown_rows += 1
+            if len(result.row_errors) < 20:
+                result.row_errors.append(
+                    f"Row {processed_rows}: {exc}"
+                )
             continue
 
         row = _Row(dt=dt, r=r, g=g, b=b, Y=Y, x=x, y=y_chroma)
@@ -438,8 +454,13 @@ def parse_zro_csv(source: str | bytes | io.IOBase) -> ZROImportResult:
         result.session_breaks.append(g_rows[0].dt.isoformat())
 
     # ── classify each session group ──────────────────────────────────────────
-    grayscale_group_index = 0  # track which grayscale pass we are on
+    # We need to know the total number of grayscale passes before processing
+    # so we can distinguish pre, mid, and post.
+    grayscale_groups = [g for g in groups if _session_type(g) != "colour"]
+    n_grayscale = len(grayscale_groups)
+    result.grayscale_sessions = n_grayscale
 
+    grayscale_group_index = 0
     for group in groups:
         stype = _session_type(group)
 
@@ -448,8 +469,8 @@ def parse_zro_csv(source: str | bytes | io.IOBase) -> ZROImportResult:
             _process_colour_group(group, result)
 
         else:  # grayscale (or mixed — treat as grayscale)
-            result.grayscale_sessions += 1
-            _process_grayscale_group(group, result, grayscale_group_index)
+            is_last = (grayscale_group_index == n_grayscale - 1)
+            _process_grayscale_group(group, result, grayscale_group_index, is_last)
             grayscale_group_index += 1
             # The cumulative log may have colour (CMS) rows mixed into a group
             # that is dominated by grayscale rows from previous steps.  Always
@@ -514,12 +535,14 @@ def _process_grayscale_group(
     group: List[_Row],
     result: ZROImportResult,
     pass_index: int,
+    is_last: bool,
 ) -> None:
     """
     Classify grayscale ramp rows, run ABL detection, and populate buckets.
 
     pass_index == 0 → pre_measurements   (pre-calibration)
-    pass_index >= 1 → post_measurements  (post-calibration)
+    is_last        → post_measurements  (post-calibration)
+    Others         → mid_measurements   (diagnostic/mid-cal)
     Also extracts wb_measurements and gamma_measurements from the same rows.
     """
     gray_rows: List[_Row] = []
@@ -535,9 +558,12 @@ def _process_grayscale_group(
     result.abl_warnings.extend(pass_warnings)
 
     # Populate the primary grayscale bucket
-    target_list = (
-        result.pre_measurements if pass_index == 0 else result.post_measurements
-    )
+    if pass_index == 0:
+        target_list = result.pre_measurements
+    elif is_last and pass_index > 0:
+        target_list = result.post_measurements
+    else:
+        target_list = result.mid_measurements
     pass_measurements: List[dict] = []
 
     for row in gray_rows:
@@ -569,9 +595,8 @@ def _process_grayscale_group(
                 _to_measurement(row, f"Gamma {target_pct:.0f}%")
             )
 
-    if pass_measurements:
-        result.grayscale_passes.append(pass_measurements)
-        result.grayscale_pass_warnings.append(pass_warnings)
+    result.grayscale_passes.append(pass_measurements)
+    result.grayscale_pass_warnings.append(pass_warnings)
 
 
 def _grayscale_label(stim_pct: float) -> str:
@@ -615,6 +640,7 @@ def merge_into_session(session: dict, result: ZROImportResult) -> dict:
     bucket_map = {
         "cms_measurements": result.cms_measurements,
         "pre_measurements": result.pre_measurements,
+        "mid_measurements": result.mid_measurements,
         "post_measurements": result.post_measurements,
         "lum_measurements": result.lum_measurements,
         "wb_measurements": result.wb_measurements,
@@ -622,6 +648,13 @@ def merge_into_session(session: dict, result: ZROImportResult) -> dict:
     }
 
     duplicates_detected = 0
+
+    # Seed existing_keys with keys from the session's *current* measurements
+    # so that re-imports detect duplicates against what's already stored.
+    for key, measurements in bucket_map.items():
+        existing = session.get(key, [])
+        for m in existing:
+            existing_keys.add(_measurement_key(m))
 
     for key, measurements in bucket_map.items():
         if measurements:
@@ -645,5 +678,11 @@ def merge_into_session(session: dict, result: ZROImportResult) -> dict:
         "duplicates_skipped": duplicates_detected,
         "buckets_populated": {k: len(v) for k, v in bucket_map.items() if v},
     }
+
+    # Surface mid-calibration ramps in metadata for diagnostic access.
+    if result.grayscale_sessions > 2:
+        import_meta["mid_passes"] = result.grayscale_passes[1:-1]
+    else:
+        import_meta["mid_passes"] = []
     session.setdefault("zro_imports", []).append(import_meta)
     return session

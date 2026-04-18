@@ -29,7 +29,13 @@ def xyz_to_lab(
 
 def xyY_to_xyz(x: float, y: float, Y: float) -> Tuple[float, float, float]:
     if y <= 0:
-        return (0.0, 0.0, 0.0)
+        if Y == 0:
+            return (0.0, 0.0, 0.0)
+        # y=0 is outside the chromaticity diagram; fall back to D65 chromaticity
+        x_proj, y_proj = D65_xy
+        X = (x_proj * Y) / y_proj
+        Z = ((1 - x_proj - y_proj) * Y) / y_proj
+        return (X, Y, Z)
     X = (x * Y) / y
     Z = ((1 - x - y) * Y) / y
     return (X, Y, Z)

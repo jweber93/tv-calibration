@@ -97,6 +97,7 @@ except ModuleNotFoundError:
 
         def _poll_loop(self) -> None:
             global _watcher_error
+
             assert self._handler is not None
             assert self._path is not None
 

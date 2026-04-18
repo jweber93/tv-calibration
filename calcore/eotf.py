@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import warnings
+
 
 def clamp(v: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, v))
@@ -25,8 +27,17 @@ def bt1886_eotf(v: float, lw: float, lb: float, gamma: float = 2.4) -> float:
     v = clamp(v, 0.0, 1.0)
     lw = max(lw, 1e-6)
     lb = max(lb, 0.0)
+    if lb >= lw:
+        # Degenerate panel (no dynamic range); fall back to pure gamma.
+        warnings.warn(
+            "bt1886_eotf: black floor (lb={lb:.4f}) >= white level (lw={lw:.4f}); "
+            "falling back to pure gamma.".format(lb=lb, lw=lw),
+            RuntimeWarning,
+        )
+        return lw * (v ** gamma)
     a = lw ** (1 / gamma) - lb ** (1 / gamma)
-    return (a * v + lb ** (1 / gamma)) ** gamma
+    base = a * v + lb ** (1 / gamma)
+    return max(base, 0.0) ** gamma
 
 
 def gamma_eotf(v: float, gamma: float = 2.2) -> float:
