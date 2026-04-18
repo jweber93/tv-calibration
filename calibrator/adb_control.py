@@ -16,9 +16,11 @@ Channel and range constants match HisVideoApi.java from TvSettingsPlus.apk:
   Hue/Saturation/Brightness range: -10 to +10
 """
 
+import re
 import subprocess
 from pathlib import Path
 from typing import Optional
+
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -101,6 +103,9 @@ def _adb(*args: str, device: Optional[str] = None) -> subprocess.CompletedProces
 
 def _cms_tool(*args: str, device: Optional[str] = None) -> subprocess.CompletedProcess:
     """Run CmsTool via app_process in shell (u:r:shell:s0) context."""
+    for a in args:
+        if not re.fullmatch(r"[A-Za-z0-9_\-]+", a):
+            raise ValueError(f"Refusing to pass unsafe arg to adb shell: {a!r}")
     shell_cmd = (
         f"CLASSPATH={_CLASSPATH} "
         f"app_process / CmsTool {' '.join(args)}"
