@@ -122,6 +122,15 @@ export const api = {
   getLlmStatus:  (sid)        => api.get(`/api/session/${sid}/llm/status`),
   saveTvSettings: (sid, body) => api.post(`/api/session/${sid}/tv-settings`, body),
 
+  // Suggested patches
+  getSuggestedPatches: (sid, budget) => {
+    const url = new URL(`/api/session/${sid}/suggested-patches`, window.location.origin);
+    if (budget) url.searchParams.set('budget', budget);
+    return api.get(url.toString());
+  },
+  runSuggestedPatches: (sid, patches) =>
+    api.post(`/api/session/${sid}/suggested-patches/run`, { patches }),
+
   // Report
   getReport:     (sid)        => api.get(`/api/session/${sid}/report`),
   downloadPdf:   async (sid, tv) => {

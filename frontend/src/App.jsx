@@ -38,7 +38,8 @@ import { WhiteBalance }  from './pages/WhiteBalance';
 import { Gamma }         from './pages/Gamma';
 import { ColorTuner }    from './pages/ColorTuner';
 import { PostGrayscale } from './pages/PostGrayscale';
-import { Report }        from './pages/Report';
+import { SuggestedPatches } from './pages/SuggestedPatches';
+import { Report } from './pages/Report';
 import { ConfirmModal }  from './components/ConfirmModal';
 import { LlmInsightCard } from './components/LlmInsightCard';
 import { TvSettingsInput } from './components/TvSettingsInput';
@@ -95,7 +96,7 @@ function scrollToCard(id) {
 export default function App() {
   const sess = useSession();
   const { session, profiles, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, dogegenStatus, adbStatus, loading,
-          llmInsight, llmStreaming, llmError, dismissLlmInsight, saveTvSettings } = sess;
+          llmInsight, llmStreaming, llmError, dismissLlmInsight, saveTvSettings, getSuggestedPatches, runSuggestedPatches } = sess;
   const [showStartOver, setShowStartOver] = useState(false);
 
   function handleStartOver() {
@@ -143,6 +144,7 @@ export default function App() {
       case 'gamma':          return <Gamma         {...stepProps} onSetGammaWorkflow={sess.setGammaWorkflow} />;
       case 'color_tuner':    return <ColorTuner    {...stepProps} adbStatus={adbStatus} onAdbApply={sess.adbApply} onAdbReset={sess.adbReset} onAdbDeploy={sess.adbDeploy} onRefreshAdb={sess.refreshAdbStatus} />;
       case 'post_grayscale': return <PostGrayscale {...stepProps} />;
+      case 'suggested_patches': return <SuggestedPatches {...stepProps} getSuggestedPatches={getSuggestedPatches} runSuggestedPatches={runSuggestedPatches} />;
       case 'report':         return <Report        session={session} onPrev={sess.prevStep} />;
       default:               return <Setup         profiles={profiles} onCreateSession={sess.createSession} />;
     }
