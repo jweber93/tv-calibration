@@ -263,7 +263,7 @@ jobs:
             -e DOGEGEN_PATH= \
             tv-calibration/calcore-server:ci-${{ github.run_id }}
           # Wait for the server to become healthy
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if curl -sf http://localhost:8000/api/profiles > /dev/null 2>&1; then
               echo "Server is healthy"
               exit 0
