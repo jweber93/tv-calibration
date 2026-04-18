@@ -40,6 +40,7 @@ import { ColorTuner }    from './pages/ColorTuner';
 import { PostGrayscale } from './pages/PostGrayscale';
 import { SuggestedPatches } from './pages/SuggestedPatches';
 import { Report } from './pages/Report';
+import { ComparisonPage } from './pages/ComparisonPage';
 import { ConfirmModal }  from './components/ConfirmModal';
 import { LlmInsightCard } from './components/LlmInsightCard';
 import { TvSettingsInput } from './components/TvSettingsInput';
@@ -98,6 +99,7 @@ export default function App() {
   const { session, profiles, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, dogegenStatus, adbStatus, loading,
           llmInsight, llmStreaming, llmError, dismissLlmInsight, saveTvSettings, getSuggestedPatches, runSuggestedPatches } = sess;
   const [showStartOver, setShowStartOver] = useState(false);
+  const [showComparison, setShowComparison] = useState(false);
 
   function handleStartOver() {
     setShowStartOver(true);
@@ -148,6 +150,10 @@ export default function App() {
       case 'report':         return <Report        session={session} onPrev={sess.prevStep} />;
       default:               return <Setup         profiles={profiles} onCreateSession={sess.createSession} />;
     }
+  }
+
+  function handleToggleComparison() {
+    setShowComparison(prev => !prev);
   }
 
   const bridgeOk = bridgeStatus?.ok;
@@ -202,6 +208,12 @@ export default function App() {
               Dogegen
             </button>
           )}
+          <button
+            onClick={handleToggleComparison}
+            style={{ fontSize: '0.72rem', padding: '3px 10px', background: showComparison ? 'var(--accent-dim)' : 'transparent', border: `1px solid ${showComparison ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 4, color: showComparison ? 'var(--accent)' : 'var(--muted)', cursor: 'pointer' }}
+          >
+            {showComparison ? '↑ Comparison' : 'Compare'}
+          </button>
         </div>
       </header>
 
@@ -210,18 +222,24 @@ export default function App() {
 
       {/* Main content */}
       <main className="main">
-        {session && saveTvSettings && (
-          <TvSettingsInput onSave={saveTvSettings} />
+        {showComparison ? (
+          <ComparisonPage profiles={profiles} />
+        ) : (
+          <>
+            {session && saveTvSettings && (
+              <TvSettingsInput onSave={saveTvSettings} />
+            )}
+            <LlmInsightCard
+              insight={llmInsight}
+              streaming={llmStreaming}
+              error={llmError}
+              onDismiss={dismissLlmInsight}
+            />
+            <StepErrorBoundary onStartOver={handleConfirmStartOver}>
+              {renderStep()}
+            </StepErrorBoundary>
+          </>
         )}
-        <LlmInsightCard
-          insight={llmInsight}
-          streaming={llmStreaming}
-          error={llmError}
-          onDismiss={dismissLlmInsight}
-        />
-        <StepErrorBoundary onStartOver={handleConfirmStartOver}>
-          {renderStep()}
-        </StepErrorBoundary>
       </main>
       <LogsPanel />
     </div>
