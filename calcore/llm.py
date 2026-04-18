@@ -2,14 +2,46 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional
 
-from .models import AnalysisConfig, LLMConfig, Summary, TVSettings
+_FENCE_RE = re.compile(r"```\s*(?:json\s*)?(.*?)\s*```", re.IGNORECASE | re.DOTALL)
 
-logger = logging.getLogger(__name__)
+
+def _extract_json(text: str) -> str:
+    """Extract JSON from a string that may be wrapped in markdown code fences.
+
+    Handles:
+      - ```json ... ``` (lowercase)
+      - ```JSON ... ``` (uppercase)
+      - ``` ... ``` (no language tag)
+      - Prose prefix before the fence
+      - Newline between fence and language tag
+      - Raw JSON with no fences (passes through)
+
+    If no fence is found, falls back to brace-balancing: finds the first '{'
+    and returns the matching balanced substring.
+    """
+    text = text.strip()
+    m = _FENCE_RE.search(text)
+    if m:
+        return m.group(1).strip()
+    # Fallback: find the first '{' and attempt to balance to the matching '}'
+    start = text.find("{")
+    if start == -1:
+        return text
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return text[start:]
 
 
 def _top_offenders(summary: Summary) -> Dict[str, Any]:
@@ -81,13 +113,7 @@ def parse_adjustment_plan(text: str) -> Optional[AdjustmentPlan]:
     query_next_patch_strategy).  Returns None if the text cannot be parsed or
     required fields are missing.
     """
-    content = text.strip()
-    if content.startswith("```"):
-        parts = content.split("```")
-        content = parts[1] if len(parts) > 1 else content
-        if content.startswith("json"):
-            content = content[4:]
-        content = content.strip()
+    content = _extract_json(text)
     try:
         obj = json.loads(content)
     except (json.JSONDecodeError, ValueError):
@@ -286,7 +312,12 @@ def call_llm(
     except Exception as exc:
         raise RuntimeError(f"LLM request failed: {exc}") from exc
 
-    parsed = json.loads(raw)
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise RuntimeError(
+            f"LLM returned non-JSON body: {raw[:500]}"
+        ) from exc
     choices = parsed.get("choices") or []
     if not choices:
         raise RuntimeError(f"LLM returned empty choices array: {raw[:500]}")
@@ -484,11 +515,7 @@ def query_next_patch_strategy(
         if not choices:
             raise ValueError(f"LLM returned empty choices array: {raw[:300]}")
         content = choices[0]["message"]["content"].strip()
-        # Strip markdown code fences if present
-        if content.startswith("```"):
-            content = content.split("```")[1]
-            if content.startswith("json"):
-                content = content[4:]
+        content = _extract_json(content)
         obj = json.loads(content)
         return PatchStrategy(
             focus=str(obj.get("focus", "confirm_only")),
@@ -584,10 +611,7 @@ def query_remediation(
         if not choices:
             raise ValueError(f"LLM returned empty choices array: {raw[:300]}")
         content = choices[0]["message"]["content"].strip()
-        if content.startswith("```"):
-            content = content.split("```")[1]
-            if content.startswith("json"):
-                content = content[4:]
+        content = _extract_json(content)
         obj = json.loads(content)
         return {
             "steps": list(obj.get("steps") or []),
