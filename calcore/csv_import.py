@@ -4,7 +4,7 @@ import csv
 import io
 import os
 import re
-from typing import List
+from typing import List, Literal
 
 from .colour import xyY_to_xyz
 from .models import Patch
@@ -26,7 +26,38 @@ def is_number(s: str) -> bool:
         return False
 
 
-def parse_measurement_csv(source: str | bytes | io.IOBase) -> List[Patch]:
+def _classify_headerless_row(
+    v4: float, v5: float, v6: float, explicit_format: Literal["xyY", "XYZ"] | None,
+) -> tuple[tuple[float, float, float], tuple[float, float, float] | None]:
+    """Return (meas_xyz, meas_yxy) for a headerless row.
+
+    When *explicit_format* is given, use it directly.
+    Otherwise apply the tightened heuristic:
+      - Treat as xyY only when x + y < 1.0 (valid chromaticity triangle boundary).
+      - Otherwise treat as XYZ.
+    """
+    if explicit_format == "XYZ":
+        return (v4, v5, v6), None
+
+    if explicit_format == "xyY":
+        Y, x, y = v4, v5, v6
+        return xyY_to_xyz(x, y, Y), (Y, x, y)
+
+    # Auto-detect: xyY is valid only when x + y < 1.0 (chromaticity inside triangle).
+    # This prevents low-luminance XYZ values (e.g. black: X=0.3, Y=0.5, Z=0.4)
+    # from being misclassified as xyY.
+    x, y, Y = v5, v6, v4
+    if 0 <= x <= 1.0 and 0 <= y <= 1.0 and Y >= 0 and (x + y) < 1.0:
+        return xyY_to_xyz(x, y, Y), (Y, x, y)
+
+    return (v4, v5, v6), None
+
+
+def parse_measurement_csv(
+    source: str | bytes | io.IOBase,
+    *,
+    format: Literal["xyY", "XYZ", None] = None,
+) -> List[Patch]:
     patches: List[Patch] = []
     # Normalize input to raw string lines
     if isinstance(source, bytes):
@@ -121,14 +152,7 @@ def parse_measurement_csv(source: str | bytes | io.IOBase) -> List[Patch]:
         v5 = parse_float(parts[5])
         v6 = parse_float(parts[6])
 
-        # Heuristic: if columns 5-7 look like Y, x, y, use xyY.
-        if 0 <= v5 <= 1.0 and 0 <= v6 <= 1.0 and v4 >= 0:
-            Y, x, y = v4, v5, v6
-            meas_xyz = xyY_to_xyz(x, y, Y)
-            meas_yxy = (Y, x, y)
-        else:
-            meas_xyz = (v4, v5, v6)
-            meas_yxy = None
+        meas_xyz, meas_yxy = _classify_headerless_row(v4, v5, v6, format)
 
         patches.append(
             Patch(
