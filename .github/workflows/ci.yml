@@ -34,13 +34,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: astral-sh/ruff-action@v3
-        with:
-          args: "check --output-format=github ."
+      - name: Install ruff
+        run: pip install ruff
 
-      - uses: astral-sh/ruff-action@v3
-        with:
-          args: "format --check ."
+      - name: Run ruff check
+        run: ruff check --output-format=github .
+
+      - name: Run ruff format check
+        run: ruff format --check .
 
   lint-shell:
     name: Lint / shellcheck + actionlint
@@ -123,7 +124,7 @@ jobs:
           python-version: ${{ env.PYTHON_DEFAULT }}
 
       - name: Run golden regression tests
-        run: pytest tests/golden/ -v --tb=short -m "not hardware"
+        run: pytest tests/golden/ -v --tb=short -m "not hardware" --no-cov
 
       - name: Upload golden diff artifacts
         if: failure()
@@ -238,7 +239,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run Trivy (filesystem, requirements.txt)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.30.0
         with:
           scan-type: fs
           scan-ref: .
