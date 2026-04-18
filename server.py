@@ -404,6 +404,20 @@ class LlmConfigureReq(BaseModel):
     timeout: Optional[float] = None
 
 
+class SuggestedPatchBody(BaseModel):
+    nits: float
+    r: int
+    g: int
+    b: int
+    priority: str
+    label: str = ""
+    rationale: str = ""
+
+
+class RunPatchesReq(BaseModel):
+    patches: List[SuggestedPatchBody]
+
+
 def _find_dogegen_executable() -> Optional[str]:
     configured = (_dogegen_config.get("path") or "").strip()
     candidates = []
@@ -1473,7 +1487,7 @@ def get_suggested_patches(sid: str, budget: int = 30):
 
 
 @app.post("/api/session/{sid}/suggested-patches/run")
-def run_suggested_patches(sid: str, body: dict):
+def run_suggested_patches(sid: str, body: RunPatchesReq):
     """Forward a patch sequence to the ZRO bridge for measurement.
 
     Body: {"patches": [{nits, r, g, b, priority, label}, ...]}
@@ -1486,16 +1500,14 @@ def run_suggested_patches(sid: str, body: dict):
             400,
             'ZRO Bridge URL not configured. Set ZRO_BRIDGE_URL env var or POST /api/zro/bridge/config.',
         )
-    patches = body.get("patches")
-    if not patches or not isinstance(patches, list):
-        raise HTTPException(400, "Body must include a non-empty 'patches' list.")
-    if len(patches) > 200:
+    if len(body.patches) > 200:
         raise HTTPException(400, "Patch sequence too long (max 200).")
 
+    patches_dict = [p.model_dump() for p in body.patches]
     try:
         resp = httpx.post(
             f"{_zro_bridge_url}/measure/sequence",
-            json={"patches": patches},
+            json={"patches": patches_dict},
             timeout=30.0,
         )
         resp.raise_for_status()

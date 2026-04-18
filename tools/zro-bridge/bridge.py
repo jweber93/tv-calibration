@@ -170,6 +170,75 @@ def trigger_measure():
         raise HTTPException(400, f"Unknown backend: {backend!r}")
 
 
+@app.post("/measure/sequence")
+def trigger_measure_sequence(body: dict):
+    """
+    Trigger a sequence of arbitrary patch measurements in ZRO.
+
+    Body: {"patches": [{nits, r, g, b, priority, label, rationale}, ...]}
+
+    Sends each patch RGB stimulus to ZRO sequentially, triggering a measurement
+    after each one. This supports the LLM-optimized patch density feature where
+    patches are not from a fixed grid.
+
+    Returns: {"accepted": int, "results": [...]}
+    """
+    patches = body.get("patches", [])
+    if not patches or not isinstance(patches, list):
+        raise HTTPException(400, "Body must include a non-empty 'patches' list.")
+    if len(patches) > 200:
+        raise HTTPException(400, "Patch sequence too long (max 200).")
+
+    backend = _config.get("backend", "pyautogui")
+    logger.info(
+        "Measurement sequence requested: %d patches (backend=%s)",
+        len(patches),
+        backend,
+    )
+
+    results = []
+    for i, patch in enumerate(patches):
+        r = int(patch.get("r", 0))
+        g = int(patch.get("g", 0))
+        b = int(patch.get("b", 0))
+        label = patch.get("label", f"RGB({r},{g},{b})")
+
+        if backend == "pyautogui":
+            from backends.pyautogui_backend import trigger_measurement
+            result = trigger_measurement(
+                window_title=_config["zro_window_title"],
+                action=_config["measure_action"],
+                key=_config.get("measure_key", "space"),
+                coords=_config.get("measure_coords"),
+                pre_delay_ms=_config.get("pre_trigger_delay_ms", 250),
+            )
+        elif backend == "remote_control":
+            from backends.remote_control_backend import trigger_measurement
+            result = trigger_measurement(
+                host=_config["remote_control_host"],
+                port=_config["remote_control_port"],
+            )
+        else:
+            result = {"ok": False, "error": f"Unknown backend: {backend!r}"}
+
+        results.append({
+            "index": i,
+            "label": label,
+            "rgb": [r, g, b],
+            "ok": result.get("ok", False),
+            "error": result.get("error"),
+        })
+
+        if not result.get("ok"):
+            logger.warning("Patch %d (%s) failed: %s", i, label, result.get("error"))
+
+    return {
+        "accepted": len(patches),
+        "results": results,
+        "succeeded": sum(1 for r in results if r["ok"]),
+    }
+
+
 # ── Entry point ─────────────────────────────────────────────────────────────────
 
 def main():

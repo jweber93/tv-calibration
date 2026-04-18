@@ -127,6 +127,7 @@ STEPS_ORDER = [
     "gamma",
     "color_tuner",
     "post_grayscale",
+    "suggested_patches",
     "report",
 ]
 
@@ -139,6 +140,7 @@ STEP_LABELS = {
     "gamma": "Gamma",
     "color_tuner": "Color Tuner",
     "post_grayscale": "Post-Cal Grayscale",
+    "suggested_patches": "Patch Optimizer",
     "report": "Report",
 }
 
