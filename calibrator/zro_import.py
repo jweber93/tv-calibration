@@ -115,6 +115,7 @@ class ZROImportResult:
     # ABL / anomaly warnings
     abl_warnings: List[str] = field(default_factory=list)
     unknown_rows: int = 0  # rows that could not be classified
+    row_errors: List[str] = field(default_factory=list)  # per-row diagnostic (capped at 20)
 
 
 # ---------------------------------------------------------------------------
@@ -390,16 +391,30 @@ def parse_zro_csv(source: str | bytes | io.IOBase) -> ZROImportResult:
     for raw_row in reader:
         processed_rows += 1
         try:
-            vals = list(raw_row.values())
-            dt = _parse_datetime(vals[0].strip())
-            r = int(vals[1].strip())
-            g = int(vals[2].strip())
-            b = int(vals[3].strip())
-            Y = float(vals[4].strip())
-            x = float(vals[5].strip())
-            y_chroma = float(vals[6].strip())
-        except (IndexError, ValueError):
+            # Normalize: csv.DictReader fills missing trailing fields with None;
+            # rows with extra columns store extras under raw_row[None] as a list.
+            vals = [v if isinstance(v, str) else "" for v in raw_row.values()]
+            if len(vals) < 7 or not all(vals[i] for i in range(7)):
+                result.unknown_rows += 1
+                if len(result.row_errors) < 20:
+                    result.row_errors.append(
+                        f"Row {processed_rows}: insufficient or empty fields "
+                        f"(got {len(vals)}, need 7)"
+                    )
+                continue
+            dt = _parse_datetime(vals[0])
+            r = int(vals[1])
+            g = int(vals[2])
+            b = int(vals[3])
+            Y = float(vals[4])
+            x = float(vals[5])
+            y_chroma = float(vals[6])
+        except (IndexError, ValueError, TypeError, AttributeError) as exc:
             result.unknown_rows += 1
+            if len(result.row_errors) < 20:
+                result.row_errors.append(
+                    f"Row {processed_rows}: {exc}"
+                )
             continue
 
         row = _Row(dt=dt, r=r, g=g, b=b, Y=Y, x=x, y=y_chroma)
@@ -633,6 +648,13 @@ def merge_into_session(session: dict, result: ZROImportResult) -> dict:
     }
 
     duplicates_detected = 0
+
+    # Seed existing_keys with keys from the session's *current* measurements
+    # so that re-imports detect duplicates against what's already stored.
+    for key, measurements in bucket_map.items():
+        existing = session.get(key, [])
+        for m in existing:
+            existing_keys.add(_measurement_key(m))
 
     for key, measurements in bucket_map.items():
         if measurements:
