@@ -96,6 +96,8 @@ except ModuleNotFoundError:
             return self._thread is not None and self._thread.is_alive()
 
         def _poll_loop(self) -> None:
+            global _watcher_error
+
             assert self._handler is not None
             assert self._path is not None
 
@@ -117,12 +119,15 @@ except ModuleNotFoundError:
                             self._handler.on_modified(event)
                     self._known_mtimes = current
                 except FileNotFoundError:
-                    msg = f"Watched directory no longer exists: {self._path}"
-                    logger.error(msg)
+                    msg = f"Watched directory temporarily unavailable: {self._path}"
+                    logger.warning(msg)
                     with _lock:
-                        global _watcher_error
                         _watcher_error = msg
-                    break
+                    continue
+                except OSError:
+                    with _lock:
+                        _watcher_error = None
+                    pass
 
 
 from .zro_import import ZROImportResult, parse_zro_csv

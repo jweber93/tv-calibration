@@ -136,7 +136,72 @@ class TestLifecycle:
             with patch("calibrator.file_watcher.os.scandir", side_effect=FileNotFoundError):
                 observer._poll_loop()
 
-        assert fw._watcher_error == "Watched directory no longer exists: /tmp/missing-watch-dir"
+        assert "temporarily unavailable" in (fw._watcher_error or "").lower()
+        assert "/tmp/missing-watch-dir" in fw._watcher_error
+
+    @pytest.mark.skipif(fw._WATCHDOG_AVAILABLE, reason="polling fallback not used when watchdog is installed")
+    def test_polling_survives_transient_missing_dir(self):
+        """Watcher survives directory removal, recreation, and resumes importing."""
+        import shutil
+
+        tmp_dir = None
+        try:
+            tmp_dir = pytest.importorskip("tempfile").mkdtemp()
+            session = _make_session()
+            fw.start_watching(tmp_dir, lambda: session, lambda: None)
+            handler = fw._handler
+            assert handler is not None
+
+            # Write a CSV so the watcher picks it up first.
+            csv_file = os.path.join(tmp_dir, "pre.csv")
+            csv_file_content = (
+                "Date and time\t R\t G\t B\t Y\t x\t y\t msec\n"
+                "15/03/2026 10:48:14\t16\t16\t16\t0.31\t0.309\t0.318\t 862ms\n"
+            )
+            with open(csv_file, "w") as f:
+                f.write(csv_file_content)
+
+            # Wait for first import.
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline:
+                if session.get("pre_measurements"):
+                    break
+                time.sleep(0.1)
+            assert len(session["pre_measurements"]) > 0, "Initial import should succeed"
+
+            # Remove the directory — this triggers the transient error.
+            shutil.rmtree(tmp_dir)
+
+            # Give the poll loop time to record the error.
+            time.sleep(0.3)
+            assert "temporarily unavailable" in (fw._watcher_error or "").lower()
+
+            # Recreate the directory and drop a new CSV.
+            os.makedirs(tmp_dir)
+            csv_file2 = os.path.join(tmp_dir, "post.csv")
+            csv_file_content2 = (
+                "Date and time\t R\t G\t B\t Y\t x\t y\t msec\n"
+                "15/03/2026 11:00:00\t235\t235\t235\t85.09\t0.307\t0.327\t 363ms\n"
+            )
+            with open(csv_file2, "w") as f:
+                f.write(csv_file_content2)
+
+            # Wait for the watcher to resume and import the new file.
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline:
+                if len(session.get("pre_measurements", [])) > 1:
+                    break
+                time.sleep(0.1)
+
+            assert len(session["pre_measurements"]) > 1, (
+                "Watcher should resume and import after directory is recreated"
+            )
+            assert fw._watcher_error is None, (
+                "Error should be cleared once directory reappears"
+            )
+        finally:
+            if tmp_dir and os.path.exists(tmp_dir):
+                shutil.rmtree(tmp_dir)
 
 
 class TestImport:
