@@ -1,0 +1,305 @@
+name: CI
+
+# Replaces tests.yml once proven stable.
+# Stages: Lint → Test → Scan → (Build on main/tags)
+
+on:
+  push:
+    branches: [main, "codex/**", "phase-*", "fix/**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+  security-events: write
+
+# Cancel in-flight runs for the same ref when a new push arrives.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_DEFAULT: "3.12"
+  NODE_DEFAULT: "22"
+
+# ── Stage 1: Lint ─────────────────────────────────────────────────────────────
+jobs:
+  lint-python:
+    name: Lint / ruff
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/ruff-action@v3
+        with:
+          args: "check --output-format=github ."
+
+      - uses: astral-sh/ruff-action@v3
+        with:
+          args: "format --check ."
+
+  lint-shell:
+    name: Lint / shellcheck + actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck (scripts/)
+        if: ${{ hashFiles('scripts/**/*.sh') != '' }}
+        uses: ludeeus/action-shellcheck@2.0.0
+        with:
+          scandir: "./scripts"
+          severity: warning
+
+      - name: actionlint (workflow files)
+        uses: rhysd/actionlint@v1.7.7
+
+# ── Stage 2: Test ─────────────────────────────────────────────────────────────
+  backend-tests:
+    name: Backend / Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [lint-python]
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    env:
+      # Empty values → all hardware calls are mocked in the test suite.
+      DOGEGEN_PATH: ""
+      ZRO_BRIDGE_URL: ""
+      # Disable LLM calls during CI; tests that need LLM use monkeypatching.
+      LLM_ENDPOINT: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-python-env
+        with:
+          python-version: ${{ matrix.python-version }}
+          extra-packages: ruff
+
+      - name: Compile Python sources
+        run: python -m compileall calcore calibrator server.py cli.py
+
+      - name: Run test suite (hardware marker excluded)
+        run: pytest -m "not hardware"
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          flags: backend-py${{ matrix.python-version }}
+          fail_ci_if_error: false
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results-py${{ matrix.python-version }}
+          path: |
+            test-results.xml
+            coverage.xml
+            coverage.lcov
+          retention-days: 14
+
+  golden-regression:
+    name: Golden Dataset Regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [lint-python]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-python-env
+        with:
+          python-version: ${{ env.PYTHON_DEFAULT }}
+
+      - name: Run golden regression tests
+        run: pytest tests/golden/ -v --tb=short -m "not hardware"
+
+      - name: Upload golden diff artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-regression-failures
+          path: tests/golden/diffs/
+          retention-days: 7
+
+  frontend-checks:
+    name: Frontend / Node ${{ matrix.node-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [lint-python]
+    defaults:
+      run:
+        working-directory: frontend
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["20", "22"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-node-env
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+  playwright-e2e:
+    name: Playwright E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [frontend-checks]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-node-env
+        with:
+          node-version: ${{ env.NODE_DEFAULT }}
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Run E2E tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright report on failure
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 14
+
+# ── Stage 3: Security Scan ────────────────────────────────────────────────────
+  security-bandit:
+    name: Security / bandit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [backend-tests]
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-python-env
+
+      - name: Run bandit (HIGH severity, fail on findings)
+        run: |
+          bandit -r calcore calibrator server.py cli.py \
+            -c pyproject.toml \
+            --severity-level high \
+            --format json \
+            --output bandit-report.json || true
+          bandit -r calcore calibrator server.py cli.py \
+            -c pyproject.toml \
+            --severity-level high
+
+      - name: Upload bandit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-report
+          path: bandit-report.json
+          retention-days: 14
+
+  security-trivy:
+    name: Security / trivy (dependency scan)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Run on main and version tags; skip on PRs to save minutes.
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Trivy (filesystem, requirements.txt)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-fs
+
+# ── Stage 4: Versioning ───────────────────────────────────────────────────────
+  version:
+    name: Compute version
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    needs: [backend-tests, frontend-checks]
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+      sha_short: ${{ steps.ver.outputs.sha_short }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # needed for git describe
+
+      - id: ver
+        name: Derive version tag
+        run: |
+          SHA_SHORT="${GITHUB_SHA::8}"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="$(git describe --tags --always --dirty 2>/dev/null || echo "0.0.0-${SHA_SHORT}")"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "sha_short=${SHA_SHORT}" >> "$GITHUB_OUTPUT"
+          echo "Computed version: ${TAG}"
+
+# ── Merge Gate ────────────────────────────────────────────────────────────────
+  merge-gate:
+    name: All checks passed
+    needs:
+      - lint-python
+      - lint-shell
+      - backend-tests
+      - golden-regression
+      - frontend-checks
+      - playwright-e2e
+      - security-bandit
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check all required jobs passed
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "One or more required jobs failed or were cancelled"
+            exit 1
+          fi
+          echo "All checks passed."

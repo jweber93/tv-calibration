@@ -614,11 +614,20 @@ def _grayscale_label(stim_pct: float) -> str:
 
 
 def _measurement_key(m: Dict[str, Any]) -> str:
-    """Generate a unique key for a measurement to detect duplicates."""
-    ts = m.get("timestamp", "")
-    r = m.get("r", m.get("stimulus_rgb", (0, 0, 0))[0])
-    g = m.get("g", m.get("stimulus_rgb", (0, 0, 0))[1])
-    b = m.get("b", m.get("stimulus_rgb", (0, 0, 0))[2])
+    """Generate a unique key for a measurement to detect duplicates.
+
+    Handles both plain dicts (as stored in sessions) and
+    :class:`calcore.models.Measurement` dataclass instances.
+    """
+    if isinstance(m, dict):
+        ts = m.get("timestamp", "")
+        stimulus_rgb = m.get("stimulus_rgb", (0, 0, 0))
+    else:
+        ts = getattr(m, "timestamp", "")
+        stimulus_rgb = getattr(m, "stimulus_rgb", (0, 0, 0))
+    r = stimulus_rgb[0] if stimulus_rgb else 0
+    g = stimulus_rgb[1] if stimulus_rgb else 0
+    b = stimulus_rgb[2] if stimulus_rgb else 0
     return f"{ts}:{r}:{g}:{b}"
 
 

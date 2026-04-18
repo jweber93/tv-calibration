@@ -29,6 +29,20 @@ exclude_lines = [
     "raise NotImplementedError",
 ]
 
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# E/F/W: pycodestyle + pyflakes, I: isort, UP: pyupgrade, B: bugbear, C4: comprehension, SIM: simplify
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+# E501 handled by the formatter (line-length above), not the linter
+ignore = ["E501", "B008"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
 [tool.bandit]
 # B101: assert statements are fine outside tests
 # B607: partial executable path — adb/uvicorn must be on PATH, full path is impractical
