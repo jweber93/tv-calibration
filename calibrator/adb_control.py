@@ -88,7 +88,15 @@ def _adb(*args: str, device: Optional[str] = None) -> subprocess.CompletedProces
     if device:
         cmd += ["-s", device]
     cmd += list(args)
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=ADB_TIMEOUT)
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=ADB_TIMEOUT)
+    except subprocess.TimeoutExpired as exc:
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=124,
+            stdout=exc.stdout.decode() if exc.stdout else "",
+            stderr=f"adb timed out after {ADB_TIMEOUT}s: {' '.join(cmd)}",
+        )
 
 
 def _cms_tool(*args: str, device: Optional[str] = None) -> subprocess.CompletedProcess:
@@ -131,7 +139,14 @@ def push_cms_tool(device: Optional[str] = None) -> dict:
     if device:
         cmd += ["-s", device]
     cmd += ["push", str(_LOCAL_DEX), CMS_TOOL_DEVICE_PATH]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "ok": False,
+            "stdout": exc.stdout.decode() if exc.stdout else "",
+            "stderr": f"adb timed out after 30s: {' '.join(cmd)}",
+        }
     return {"ok": result.returncode == 0, "stdout": result.stdout, "stderr": result.stderr}
 
 
@@ -232,15 +247,31 @@ def reset_cms(device: Optional[str] = None) -> dict:
     """
     Reset all CMS channels to 0 by setting each control to 0 explicitly.
 
+    On the first timeout (returncode 124) the loop stops immediately and
+    returns partial progress so the caller can retry just the failed slots.
+
     Returns:
         {"ok": bool, "stdout": str, "stderr": str}
+        On partial timeout: adds "partial" (bool), "completed" (list[str]),
+        and "failed_at" (str | None).
     """
+    completed: list[str] = []
     errors = []
     for channel, channel_id in CMS_CHANNELS.items():
         for action in ("set_hue", "set_saturation", "set_brightness"):
             result = _cms_tool(action, str(channel_id), "0", device=device)
+            if result.returncode == 124:
+                return {
+                    "ok": False,
+                    "partial": True,
+                    "completed": completed,
+                    "failed_at": f"{channel}/{action}",
+                    "stdout": "",
+                    "stderr": result.stderr,
+                }
             if not (result.returncode == 0 and result.stdout.startswith("OK")):
                 errors.append(f"{channel}/{action}: {result.stderr or result.stdout}")
+            completed.append(f"{channel}/{action}")
     ok = len(errors) == 0
     return {"ok": ok, "stdout": "" if ok else "\n".join(errors), "stderr": ""}
 
