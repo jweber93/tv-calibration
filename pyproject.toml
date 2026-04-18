@@ -34,9 +34,13 @@ line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
-# E/F/W: pycodestyle + pyflakes, I: isort, UP: pyupgrade, B: bugbear, C4: comprehension, SIM: simplify
-select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
-# E501 handled by the formatter (line-length above), not the linter
+# Bug-catching rules only for the initial ruff adoption.
+# I (isort) and UP (pyupgrade) are deferred: they require a mechanical
+# modernisation pass across the pre-existing codebase (typing.List → list,
+# Optional[X] → X | None, import sorting) that belongs in a dedicated PR.
+select = ["E", "F", "W", "B", "C4", "SIM"]
+# E501: line length enforced by the formatter, not the linter
+# B008: function-call default arg (FastAPI Depends pattern)
 ignore = ["E501", "B008"]
 
 [tool.ruff.format]
