@@ -157,4 +157,4 @@ def delta_e_cie76(
 ) -> float:
     lab1 = xyY_to_lab(x1, y1, Y1)
     lab2 = xyY_to_lab(x2, y2, Y2)
-    return math.sqrt(sum((a - b) ** 2 for a, b in zip(lab1, lab2)))
+    return math.sqrt(sum((a - b) ** 2 for a, b in zip(lab1, lab2, strict=False)))

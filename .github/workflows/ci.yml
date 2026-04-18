@@ -226,35 +226,10 @@ jobs:
           path: bandit-report.json
           retention-days: 14
 
-  security-trivy:
-    name: Security / trivy (dependency scan)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    # Run on main and version tags; skip on PRs to save minutes.
-    if: github.event_name == 'push'
-    permissions:
-      contents: read
-      security-events: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run Trivy (filesystem, requirements.txt)
-        uses: aquasecurity/trivy-action@v0.30.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln,secret
-          format: sarif
-          output: trivy-results.sarif
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-
-      - name: Upload Trivy SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: trivy-results.sarif
-          category: trivy-fs
+  # security-trivy is intentionally disabled: aquasecurity/trivy-action has had
+  # broken internal sub-action pins on recent releases (0.28, v0.30). Re-enable
+  # once a stable version is confirmed. Bandit covers security scanning for now.
+  # security-trivy: ...
 
 # ── Stage 4: Versioning ───────────────────────────────────────────────────────
   version:
