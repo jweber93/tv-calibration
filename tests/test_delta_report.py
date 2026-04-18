@@ -37,6 +37,7 @@ def _reset_globals():
         },
     }
     server_module._llm_queues.clear()
+    server_module._zro_bridge_url = ""
 
 
 @pytest.fixture(autouse=True)
@@ -252,12 +253,12 @@ class TestSuggestedPatches:
         assert resp.status_code == 400
 
     def test_suggested_patches_run_bridge_unreachable_returns_502(self, client):
+        server_module._zro_bridge_url = "http://localhost:19999"  # nothing listening here
         sid = _make_session_with_measurements(client)
         resp = client.post(
             f"/api/session/{sid}/suggested-patches/run",
             json={"patches": [{"nits": 100.0, "r": 200, "g": 200, "b": 200, "priority": "high", "label": "Test"}]},
         )
-        # Bridge URL is set by default (http://localhost:7070) but nothing is running
         assert resp.status_code == 502
 
 
