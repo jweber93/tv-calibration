@@ -191,6 +191,130 @@ uvicorn server:app --port 8000
 
 ---
 
+## Docker
+
+The repository ships with a `Dockerfile` and `docker-compose.yml` that run the FastAPI backend, LiteLLM proxy, and a Samba share (for ZRO CSV auto-import from Windows) as a single composed stack.
+
+### Docker Compose (recommended)
+
+```bash
+git clone https://github.com/jweber93/tv-calibration.git
+cd tv-calibration
+
+# Optional: supply your OpenRouter key to enable cloud LLM routing
+export OPENROUTER_API_KEY=sk-or-...
+
+docker compose up -d
+```
+
+Open **[http://localhost:8000](http://localhost:8000)** in your browser.
+
+**Services:**
+
+| Service | Port(s) | Description |
+|---|---|---|
+| `calcore-server` | 8000 | FastAPI backend + web UI |
+| `litellm` | 4000 | LiteLLM routing proxy (AI assistant) |
+| `samba` | 139, 445 | Network share exposing the ZRO drop folder to Windows |
+
+**Persistent volumes:**
+
+| Volume | Container path | Contents |
+|---|---|---|
+| `calcore-data` | `/app/data` | Sessions, calibration history, preferences |
+| `calcore-zro` | `/data/zro-drops` | ZRO CSV auto-import drop folder |
+
+**Connecting ColourSpace ZRO (Windows):**
+
+Map a network drive to `\\<host-ip>\zro-drops` (user: `zro`, password: `zro`). In ColourSpace ZRO, set the export folder to that drive. On the app's Prepare page, set the Watch Folder to `/app/data/zro-drops` — new CSVs will be picked up automatically the moment ZRO writes them.
+
+**AI assistant:**
+
+If you have an OpenRouter API key, set it before running `docker compose up`:
+
+```bash
+export OPENROUTER_API_KEY=sk-or-...
+docker compose up -d
+```
+
+Then in the AI Assistant section on the Prepare page, set the endpoint to `http://localhost:4000` and model to `tvcal-analyst`. The LiteLLM proxy routes to Claude Sonnet via OpenRouter and falls back to a local Ollama instance if the cloud is unavailable.
+
+### Standalone container (no LiteLLM or Samba)
+
+```bash
+docker build -t tv-calibration/calcore-server:latest .
+
+docker run -d --name tv-cal \
+  -p 8000:8000 \
+  -v calcore-data:/app/data \
+  -e LITELLM_ENDPOINT= \
+  -e LITELLM_MODEL= \
+  tv-calibration/calcore-server:latest
+```
+
+AI features require a separately-reachable LLM endpoint; set `LITELLM_ENDPOINT` and `LITELLM_MODEL` when you have one.
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `LITELLM_ENDPOINT` | *(empty)* | URL of the LiteLLM proxy or any OpenAI-compatible endpoint |
+| `LITELLM_MODEL` | *(empty)* | Model name to send in chat completion requests |
+| `ZRO_BRIDGE_URL` | *(empty)* | URL of the ZRO Bridge for triggered measurements |
+| `DOGEGEN_PATH` | *(empty)* | Path to the Dogegen executable inside the container |
+| `OPENROUTER_API_KEY` | *(empty)* | OpenRouter API key (read by the LiteLLM service) |
+| `TZ` | `UTC` | Timezone for the Samba sidecar |
+
+---
+
+## Unraid
+
+An Unraid container template (`unraid-template.xml`) is included in the repository. It is also registered at the template URL below, which means it can be found in **Community Applications** once the image is published to a registry.
+
+> **Note:** The image is not yet published to Docker Hub or GHCR. Until it is, follow the manual install steps below to build it locally on your Unraid server.
+
+### Manual install on Unraid
+
+1. SSH into your Unraid server and clone the repo:
+
+   ```bash
+   cd /tmp
+   git clone https://github.com/jweber93/tv-calibration.git
+   cd tv-calibration
+   docker build -t tv-calibration/calcore-server:latest .
+   ```
+
+2. In the Unraid web UI go to **Docker → Add Container** and fill in:
+
+   | Field | Value |
+   |---|---|
+   | **Name** | `tv-calibration` |
+   | **Repository** | `tv-calibration/calcore-server:latest` |
+   | **Network type** | Bridge |
+   | **Port** | `8000 → 8000 (TCP)` |
+
+3. Add the following path mappings:
+
+   | Container path | Host path | Required |
+   |---|---|---|
+   | `/data/zro-drops` | e.g. `/mnt/user/downloads/zro-drops` | Yes — ZRO CSV drop folder |
+   | `/app/.sessions` | `/mnt/user/appdata/tv-calibration/.sessions` | Recommended |
+   | `/app/.calibration-history` | `/mnt/user/appdata/tv-calibration/.calibration-history` | Recommended |
+   | `/app/.prefs.json` | `/mnt/user/appdata/tv-calibration/.prefs.json` | Recommended |
+   | `/app/tools/dogegen` | path to Dogegen on host | Optional |
+
+4. Click **Apply**. Open `http://<UNRAID_IP>:8000` in your browser.
+
+**ZRO watch folder on Unraid:**
+
+Expose the `/mnt/user/downloads/zro-drops` directory as an Unraid SMB share (User Shares → Add Share, or enable an existing share). On your Windows machine, map that share as a network drive and point ColourSpace ZRO's export folder to it. The app's Watch Folder on the Prepare page should match the container path (`/data/zro-drops`).
+
+**AI assistant on Unraid:**
+
+Run the LiteLLM proxy as a separate Unraid container (`ghcr.io/anthropic/litellm:latest`) with the `litellm_config.yaml` from the repo mounted at `/app/litellm_config.yaml`. Set the `LITELLM_ENDPOINT` variable in the tv-calibration container to `http://<UNRAID_IP>:4000`.
+
+---
+
 ## Quick Start
 
 1. **Start the server** and open [http://localhost:8000](http://localhost:8000)
@@ -481,7 +605,11 @@ calcore/
 server.py             FastAPI application (REST + SSE)
 cli.py                Command-line batch analysis entry point
 litellm_config.yaml   LiteLLM proxy config (model routing, caching, offline fallback)
+Dockerfile            Container image for calcore-server (Python 3.12 + WeasyPrint)
+docker-compose.yml    Composed stack: calcore-server + LiteLLM proxy + Samba share
+unraid-template.xml   Unraid Community Applications container template
 frontend/             React + Vite source (built output in static/)
+static/               Pre-built frontend assets served by FastAPI
 tests/                API, unit, and integration tests
 tools/                Reference CSV sequences for ZRO workflows
 
