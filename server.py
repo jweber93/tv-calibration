@@ -9,6 +9,7 @@ Run with:
 
 from __future__ import annotations
 
+import asyncio
 import collections
 import json
 import logging
@@ -17,12 +18,12 @@ import queue
 import shutil
 import subprocess
 import threading
+from contextlib import asynccontextmanager, suppress as context_suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import httpx
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -202,7 +203,23 @@ async def lifespan(app: FastAPI):
         )
     else:
         logger.info("Server started with all validations passing")
+    cleanup_task = asyncio.create_task(_session_cleanup_loop())
     yield
+    cleanup_task.cancel()
+    with context_suppress(asyncio.CancelledError):
+        await cleanup_task
+
+
+async def _session_cleanup_loop() -> None:
+    """Periodically evict sessions that have exceeded SESSION_TTL."""
+    while True:
+        await asyncio.sleep(3600)
+        try:
+            expired = store.evict_expired_sessions()
+            if expired:
+                logger.info("Evicted %d expired session(s)", len(expired))
+        except Exception:
+            logger.exception("Error during session cleanup")
 
 
 app = FastAPI(title="ZRO Calibration Helper", lifespan=lifespan)
@@ -294,8 +311,10 @@ def _save_prefs() -> None:
         tmp = _PREFS_PATH.with_suffix(".tmp")
         tmp.write_text(json.dumps(_prefs, indent=2), encoding="utf-8")
         tmp.replace(_PREFS_PATH)
-    except Exception:
-        pass  # best-effort — never crash on a prefs write failure
+    except OSError as exc:
+        logger.warning("Could not save preferences to %s: %s", _PREFS_PATH, exc)
+    except Exception as exc:
+        logger.error("Unexpected error saving preferences: %s", exc)
 
 
 _save_session = store.save_session
