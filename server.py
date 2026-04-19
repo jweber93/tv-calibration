@@ -1396,6 +1396,50 @@ def get_report_compare(a: str, b: str, format: str = "json"):
     return comparison
 
 
+@app.get("/api/report/history/{tv_key}")
+def get_report_history(tv_key: str, limit: int = 20):
+    """Return past calibration sessions for a TV as lightweight summaries.
+
+    Used by the frontend comparison page to let users pick two sessions to compare.
+    Full report data is fetched via GET /api/report/compare?a=...&b=...
+    Returns the baseline (if any) followed by sessions from most-recent to oldest.
+    """
+    if limit < 1 or limit > 100:
+        raise HTTPException(400, "limit must be between 1 and 100")
+
+    history = _load_history(tv_key, limit=limit)
+    baseline = _load_baseline(tv_key)
+
+    sessions = []
+    if baseline:
+        sessions.append({
+            "session_id": baseline.get("session_id"),
+            "date": baseline.get("date"),
+            "mode": baseline.get("mode"),
+            "is_baseline": True,
+            "avg_de": baseline.get("post_grayscale_avg_de"),
+            "peak_luminance": baseline.get("peak_luminance"),
+            "gamma_avg": baseline.get("gamma_avg"),
+            "wb_avg_de": baseline.get("wb_avg_de"),
+            "cms_avg_de": baseline.get("cms_avg_de"),
+        })
+
+    for entry in history:
+        sessions.append({
+            "session_id": entry.get("session_id"),
+            "date": entry.get("date"),
+            "mode": entry.get("mode"),
+            "is_baseline": False,
+            "avg_de": entry.get("post_grayscale_avg_de"),
+            "peak_luminance": entry.get("peak_luminance"),
+            "gamma_avg": entry.get("gamma_avg"),
+            "wb_avg_de": entry.get("wb_avg_de"),
+            "cms_avg_de": entry.get("cms_avg_de"),
+        })
+
+    return {"tv_key": tv_key, "sessions": sessions}
+
+
 @app.post("/api/report/compare/delta_summary")
 def post_delta_summary(a: str, b: str):
     """Generate an LLM-authored plain-language delta summary for two sessions.
