@@ -9,6 +9,7 @@ Run with:
 
 from __future__ import annotations
 
+import asyncio
 import collections
 import json
 import logging
@@ -17,12 +18,12 @@ import queue
 import shutil
 import subprocess
 import threading
+from contextlib import asynccontextmanager, suppress as context_suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import httpx
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -202,17 +203,36 @@ async def lifespan(app: FastAPI):
         )
     else:
         logger.info("Server started with all validations passing")
+    cleanup_task = asyncio.create_task(_session_cleanup_loop())
     yield
+    cleanup_task.cancel()
+    with context_suppress(asyncio.CancelledError):
+        await cleanup_task
+
+
+async def _session_cleanup_loop() -> None:
+    """Periodically evict sessions that have exceeded SESSION_TTL."""
+    while True:
+        await asyncio.sleep(3600)
+        try:
+            expired = store.evict_expired_sessions()
+            if expired:
+                logger.info("Evicted %d expired session(s)", len(expired))
+        except Exception:
+            logger.exception("Error during session cleanup")
 
 
 app = FastAPI(title="ZRO Calibration Helper", lifespan=lifespan)
 
+_cors_origins_raw = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:5173,http://localhost:8000").strip()
+_cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()] if _cors_origins_raw else ["http://localhost:5173", "http://localhost:8000"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 
@@ -291,8 +311,10 @@ def _save_prefs() -> None:
         tmp = _PREFS_PATH.with_suffix(".tmp")
         tmp.write_text(json.dumps(_prefs, indent=2), encoding="utf-8")
         tmp.replace(_PREFS_PATH)
-    except Exception:
-        pass  # best-effort — never crash on a prefs write failure
+    except OSError as exc:
+        logger.warning("Could not save preferences to %s: %s", _PREFS_PATH, exc)
+    except Exception as exc:
+        logger.error("Unexpected error saving preferences: %s", exc)
 
 
 _save_session = store.save_session
@@ -1942,16 +1964,21 @@ def watch_stop():
     return watch_config_delete()
 
 
+_WATCH_ROOT = Path(os.getenv("WATCH_ROOT", Path.home().resolve())).resolve()
+
+
 @app.post("/api/watch/config")
 def watch_config(body: _WatchConfigBody):
     global _watched_session_id
     sid = body.sid
     session = store.get(sid)
-    abs_path = os.path.abspath(body.path)
-    csv_parent_exists = abs_path.lower().endswith(".csv") and os.path.isdir(
-        os.path.dirname(abs_path) or "."
+    abs_path = Path(body.path).resolve()
+    if not str(abs_path).startswith(str(_WATCH_ROOT)):
+        raise HTTPException(400, "Watch path must be within allowed directory")
+    csv_parent_exists = str(abs_path).lower().endswith(".csv") and os.path.isdir(
+        os.path.dirname(str(abs_path)) or "."
     )
-    if not (os.path.isdir(abs_path) or csv_parent_exists):
+    if not (os.path.isdir(str(abs_path)) or csv_parent_exists):
         raise HTTPException(400, f"Watch path does not exist: {body.path!r}")
     try:
         _fw_start(
