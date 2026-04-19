@@ -79,6 +79,8 @@ def test_full_workflow_from_watch_import_to_report(client, tmp_path):
     assert prepared.status_code == 200
     assert prepared.json()["step"] == "pre_grayscale"
 
+    import server as server_module
+    server_module._WATCH_ROOT = tmp_path.resolve()
     watch = client.post("/api/watch/config", json={"path": str(tmp_path), "sid": sid})
     assert watch.status_code == 200
     assert watch.json()["watching"] is True

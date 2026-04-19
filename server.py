@@ -1942,16 +1942,21 @@ def watch_stop():
     return watch_config_delete()
 
 
+_WATCH_ROOT = Path(os.getenv("WATCH_ROOT", Path.home().resolve())).resolve()
+
+
 @app.post("/api/watch/config")
 def watch_config(body: _WatchConfigBody):
     global _watched_session_id
     sid = body.sid
     session = store.get(sid)
-    abs_path = os.path.abspath(body.path)
-    csv_parent_exists = abs_path.lower().endswith(".csv") and os.path.isdir(
-        os.path.dirname(abs_path) or "."
+    abs_path = Path(body.path).resolve()
+    if not str(abs_path).startswith(str(_WATCH_ROOT)):
+        raise HTTPException(400, "Watch path must be within allowed directory")
+    csv_parent_exists = str(abs_path).lower().endswith(".csv") and os.path.isdir(
+        os.path.dirname(str(abs_path)) or "."
     )
-    if not (os.path.isdir(abs_path) or csv_parent_exists):
+    if not (os.path.isdir(str(abs_path)) or csv_parent_exists):
         raise HTTPException(400, f"Watch path does not exist: {body.path!r}")
     try:
         _fw_start(

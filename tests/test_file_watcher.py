@@ -631,7 +631,9 @@ class TestWatchEndpoints:
         )
         assert resp.status_code == 404
 
-    def test_post_config_starts_watcher(self, client, tmp_path, live_session):
+    def test_post_config_starts_watcher(self, client, tmp_path, live_session, monkeypatch):
+        import server as server_module
+        monkeypatch.setattr(server_module, "_WATCH_ROOT", tmp_path.resolve())
         resp = client.post(
             "/api/watch/config",
             json={"path": str(tmp_path), "sid": live_session},
@@ -641,7 +643,9 @@ class TestWatchEndpoints:
         assert data["watching"] is True
         assert data["path"] == str(tmp_path)
 
-    def test_post_config_accepts_csv_file_path(self, client, tmp_path, live_session):
+    def test_post_config_accepts_csv_file_path(self, client, tmp_path, live_session, monkeypatch):
+        import server as server_module
+        monkeypatch.setattr(server_module, "_WATCH_ROOT", tmp_path.resolve())
         csv_file = tmp_path / "watch-me.csv"
         csv_file.write_text(MINIMAL_ZRO_CSV)
         resp = client.post(
@@ -653,7 +657,9 @@ class TestWatchEndpoints:
         assert data["watching"] is True
         assert data["path"] == str(csv_file)
 
-    def test_delete_config_stops_watcher(self, client, tmp_path, live_session):
+    def test_delete_config_stops_watcher(self, client, tmp_path, live_session, monkeypatch):
+        import server as server_module
+        monkeypatch.setattr(server_module, "_WATCH_ROOT", tmp_path.resolve())
         client.post(
             "/api/watch/config",
             json={"path": str(tmp_path), "sid": live_session},
