@@ -10,7 +10,6 @@ export function OverlayGammaChart({ measurementsA, measurementsB }) {
 
   if (!ptsA.length && !ptsB.length) return null;
 
-  const labelsA = ptsA.map(m => m.stimulus_pct + '%');
   const labelsB = ptsB.map(m => m.stimulus_pct + '%');
 
   const datasets = [
