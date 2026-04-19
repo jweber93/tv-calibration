@@ -160,9 +160,18 @@ export const api = {
     if (format) url.searchParams.set('format', format);
     return api.get(url.toString());
   },
-  getCompareDeltaSummary: (a, b) => api.post(`/api/report/compare/delta_summary?a=${a}&b=${b}`),
+  getCompareDeltaSummary: (a, b) => {
+    const url = new URL('/api/report/compare/delta_summary', window.location.origin);
+    url.searchParams.set('a', a);
+    url.searchParams.set('b', b);
+    return api.post(url.toString());
+  },
   downloadComparePdf:    async (a, b) => {
-    const r = await fetch(`/api/report/compare?a=${a}&b=${b}&format=pdf`);
+    const url = new URL('/api/report/compare', window.location.origin);
+    url.searchParams.set('a', a);
+    url.searchParams.set('b', b);
+    url.searchParams.set('format', 'pdf');
+    const r = await fetch(url.toString());
     if (!r.ok) {
       const err = await r.json().catch(() => ({ detail: r.statusText }));
       throw new Error(err.detail || r.statusText);
