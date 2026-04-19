@@ -63,14 +63,15 @@ When I say **"cleanup"** or **"branch was merged"** or **"PR [number] merged"**,
 ## Non-negotiables
 - Tests must pass. Never leave broken tests.
 - No mocking things that don't need mocking.
-- If blocked or ambiguous, stop and report — do not work around it.
+- If blocked on **missing information** (credentials, hardware specs, unclear requirement), stop and report. Minor implementation ambiguity → make a reasonable choice and document it in the commit message. Do not work around genuine blockers.
 - No TODOs or placeholders. Production quality only.
 - **Every task that touches code ends with a pushed branch, an open draft PR, and `Closes #[issue-number]` in the PR body.** No exceptions.
+- **Complete the full task autonomously end-to-end.** Do not pause between steps to ask for confirmation. A paused agent is a broken agent. Keep going until the PR is open.
 
 ## Memory Protocol
 
 **At the start of every session:**
-- Call `opencode_mem_search_memory` with the current task description
+- Call `opencode_mem_search_memory` with the current task description (skip silently if unavailable)
 - Review results and use them to inform your approach
 
 **During the session, save to memory when you:**
