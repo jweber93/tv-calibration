@@ -195,6 +195,13 @@ uvicorn server:app --port 8000
 
 The repository ships with a `Dockerfile` and `docker-compose.yml` that run the FastAPI backend, LiteLLM proxy, and a Samba share (for ZRO CSV auto-import from Windows) as a single composed stack.
 
+A pre-built image is published to GitHub Container Registry on every push to `main` and every version tag:
+
+```
+ghcr.io/jweber93/tv-calibration:latest
+ghcr.io/jweber93/tv-calibration:v1.2.3   # tagged releases
+```
+
 ### Docker Compose (recommended)
 
 ```bash
@@ -241,14 +248,24 @@ Then in the AI Assistant section on the Prepare page, set the endpoint to `http:
 
 ### Standalone container (no LiteLLM or Samba)
 
+Pull the published image or build locally:
+
 ```bash
-docker build -t tv-calibration/calcore-server:latest .
+# Pull from GHCR (no build required)
+docker pull ghcr.io/jweber93/tv-calibration:latest
 
 docker run -d --name tv-cal \
   -p 8000:8000 \
   -v calcore-data:/app/data \
   -e LITELLM_ENDPOINT= \
   -e LITELLM_MODEL= \
+  ghcr.io/jweber93/tv-calibration:latest
+
+# Or build locally from source
+docker build -t tv-calibration/calcore-server:latest .
+docker run -d --name tv-cal \
+  -p 8000:8000 \
+  -v calcore-data:/app/data \
   tv-calibration/calcore-server:latest
 ```
 
@@ -269,27 +286,22 @@ AI features require a separately-reachable LLM endpoint; set `LITELLM_ENDPOINT` 
 
 ## Unraid
 
-An Unraid container template (`unraid-template.xml`) is included in the repository. It is also registered at the template URL below, which means it can be found in **Community Applications** once the image is published to a registry.
+An Unraid container template (`unraid-template.xml`) is included in the repository and registered at its `<TemplateURL>`, so it will appear in **Community Applications** automatically.
 
-> **Note:** The image is not yet published to Docker Hub or GHCR. Until it is, follow the manual install steps below to build it locally on your Unraid server.
+The image is published to `ghcr.io/jweber93/tv-calibration:latest` — no local build required.
+
+### Install on Unraid via Community Applications
+
+Search for **tv-calibration** in the Community Applications plugin and click Install. The template pre-fills all paths; you only need to set the **ZRO Drops Share** path to match your ColourSpace export directory.
 
 ### Manual install on Unraid
 
-1. SSH into your Unraid server and clone the repo:
-
-   ```bash
-   cd /tmp
-   git clone https://github.com/jweber93/tv-calibration.git
-   cd tv-calibration
-   docker build -t tv-calibration/calcore-server:latest .
-   ```
-
-2. In the Unraid web UI go to **Docker → Add Container** and fill in:
+1. In the Unraid web UI go to **Docker → Add Container** and fill in:
 
    | Field | Value |
    |---|---|
    | **Name** | `tv-calibration` |
-   | **Repository** | `tv-calibration/calcore-server:latest` |
+   | **Repository** | `ghcr.io/jweber93/tv-calibration:latest` |
    | **Network type** | Bridge |
    | **Port** | `8000 → 8000 (TCP)` |
 
