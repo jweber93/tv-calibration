@@ -177,9 +177,9 @@ export const api = {
       throw new Error(err.detail || r.statusText);
     }
     const blob = await r.blob();
-    const url  = URL.createObjectURL(blob);
+    const blobUrl  = URL.createObjectURL(blob);
     const aEl  = document.createElement('a');
-    aEl.href = url; aEl.download = `comparison_${a.slice(0,8)}_vs_${b.slice(0,8)}.pdf`; aEl.click();
-    URL.revokeObjectURL(url);
+    aEl.href = blobUrl; aEl.download = `comparison_${a.slice(0,8)}_vs_${b.slice(0,8)}.pdf`; aEl.click();
+    URL.revokeObjectURL(blobUrl);
   },
 };
