@@ -231,7 +231,56 @@ jobs:
   # once a stable version is confirmed. Bandit covers security scanning for now.
   # security-trivy: ...
 
-# ── Stage 4: Versioning ───────────────────────────────────────────────────────
+# ── Stage 4: Docker Build Smoke Test ──────────────────────────────────────────
+  docker-build:
+    name: Docker / build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [lint-python]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build calcore-server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: tv-calibration/calcore-server:ci-${{ github.run_id }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify image runs and responds
+        run: |
+          docker run --rm -d --name calcore-test \
+            -p 8000:8000 \
+            -e LITELLM_ENDPOINT= \
+            -e LITELLM_MODEL= \
+            -e ZRO_BRIDGE_URL= \
+            -e DOGEGEN_PATH= \
+            tv-calibration/calcore-server:ci-${{ github.run_id }}
+          # Wait for the server to become healthy
+          for _ in $(seq 1 30); do
+            if curl -sf http://localhost:8000/api/profiles > /dev/null 2>&1; then
+              echo "Server is healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Server failed to start within 60s"
+          docker logs calcore-test
+          exit 1
+
+      - name: Stop and inspect container
+        if: always()
+        run: |
+          docker stop calcore-test || true
+          docker rm calcore-test || true
+
+# ── Stage 5: Versioning ───────────────────────────────────────────────────────
   version:
     name: Compute version
     runs-on: ubuntu-latest
@@ -269,6 +318,7 @@ jobs:
       - frontend-checks
       - playwright-e2e
       - security-bandit
+      - docker-build
     runs-on: ubuntu-latest
     if: always()
     steps:

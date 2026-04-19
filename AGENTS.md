@@ -48,3 +48,22 @@ When I say **"audit QE"**, execute the QE Audit Protocol:
 - No mocking things that don't need mocking.
 - If blocked or ambiguous, stop and report — do not work around it.
 - No TODOs or placeholders. Production quality only.
+
+## Memory Protocol
+
+**At the start of every session:**
+- Call `opencode_mem_search_memory` with the current task description
+- Review results and use them to inform your approach
+
+**During the session, save to memory when you:**
+- Make an architectural or design decision
+- Discover a non-obvious bug or root cause
+- Establish a pattern or convention for this codebase
+- Complete a significant piece of work
+
+**At the end of every session:**
+- Save a summary of what was done and any decisions made
+- Save any context the next session will need
+
+**Memory entries should be concise and specific** — not "worked on calibration" 
+but "decided to use CV 738 as clip point because U8G clips around CV 840-895".

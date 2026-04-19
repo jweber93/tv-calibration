@@ -1,0 +1,82 @@
+# Docker Compose stack for tv-calibration
+#
+# Services:
+#   calcore-server  — FastAPI backend (port 8000)
+#   litellm         — LiteLLM proxy for model routing (port 4000)
+#   samba           — Samba sidecar exposing zro-drops/ to the LAN (ports 139, 445)
+#
+# Usage:
+#   docker compose up -d
+#   # ZRO on Windows maps //<host-ip>/zro-drops to the watch folder
+#   # App UI: http://localhost:8000
+#   # LiteLLM endpoint for app config: http://localhost:4000
+#
+# Unraid: use unraid-template.xml instead of this file.
+
+services:
+  calcore-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - calcore-data:/app/data
+    environment:
+      - LITELLM_ENDPOINT=http://litellm:4000
+      - LITELLM_MODEL=tvcal-analyst
+      - ZRO_BRIDGE_URL=
+      - DOGEGEN_PATH=
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      litellm:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/profiles"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  litellm:
+    image: ghcr.io/anthropic/litellm:latest
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm_config.yaml:/app/litellm_config.yaml:ro
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-}
+    command: ["--config", "/app/litellm_config.yaml", "--port", "4000"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/living"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  samba:
+    image: dperson/samba:latest
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "139:139"
+      - "445:445"
+    environment:
+      - TZ=${TZ:-UTC}
+    command:
+      - "-u"
+      - "zro;;zro"
+      - "-s"
+      - "zro-drops;/data/zro-drops;yes;no;no"
+    volumes:
+      - calcore-zro:/data/zro-drops
+    restart: unless-stopped
+
+volumes:
+  calcore-data:
+    driver: local
+  calcore-zro:
+    driver: local

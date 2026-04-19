@@ -431,6 +431,16 @@ export function useSession() {
     return api.saveTvSettings(session.id, payload);
   }
 
+  async function getSuggestedPatches(budget) {
+    if (!session?.id) return null;
+    return api.getSuggestedPatches(session.id, budget);
+  }
+
+  async function runSuggestedPatches(patches) {
+    if (!session?.id) return null;
+    return api.runSuggestedPatches(session.id, patches);
+  }
+
   function dismissLlmInsight() {
     setLlmInsight(null);
     setLlmError(null);
@@ -445,6 +455,7 @@ export function useSession() {
     adbDeploy, adbApply, adbReset, adbSetPicture, adbGetPicture, refreshAdbStatus,
     configureLlm, getLlmStatus, saveTvSettings,
     llmInsight, llmStreaming, llmError, dismissLlmInsight,
+    getSuggestedPatches, runSuggestedPatches,
     reload,
   };
 }

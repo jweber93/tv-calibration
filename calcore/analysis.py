@@ -166,5 +166,5 @@ def analyze(patches: List[Patch], cfg: AnalysisConfig) -> Summary:
             "code_max": cfg.code_max,
             "peak_fallback_used": measured_peak_y is None,
         },
-        measured_patch_count=len(grayscale),
+        measured_patch_count=len(patches),
     )

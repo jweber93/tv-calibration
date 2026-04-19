@@ -56,7 +56,7 @@ export const api = {
   getSession:    ()           => api.get('/api/session'),
   deleteSession: (sid)        => api.delete(`/api/session/${sid}`),
   createSession: (tv, mode, sdrPeakNits) =>
-    api.post('/api/session', { tv, mode, sdr_peak_nits: sdrPeakNits }),
+    api.post('/api/session', { tv_key: tv, sdr_peak_nits: sdrPeakNits }),
   nextStep:      (sid)        => api.post(`/api/session/${sid}/next`),
   prevStep:      (sid)        => api.post(`/api/session/${sid}/prev`),
   jumpToStep:    (sid, step_index) => api.post(`/api/session/${sid}/jump`, { step_index }),
@@ -122,6 +122,15 @@ export const api = {
   getLlmStatus:  (sid)        => api.get(`/api/session/${sid}/llm/status`),
   saveTvSettings: (sid, body) => api.post(`/api/session/${sid}/tv-settings`, body),
 
+  // Suggested patches
+  getSuggestedPatches: (sid, budget) => {
+    const url = new URL(`/api/session/${sid}/suggested-patches`, window.location.origin);
+    if (budget) url.searchParams.set('budget', budget);
+    return api.get(url.toString());
+  },
+  runSuggestedPatches: (sid, patches) =>
+    api.post(`/api/session/${sid}/suggested-patches/run`, { patches }),
+
   // Report
   getReport:     (sid)        => api.get(`/api/session/${sid}/report`),
   downloadPdf:   async (sid, tv) => {
@@ -135,6 +144,33 @@ export const api = {
     const a    = document.createElement('a');
     const slug = (tv || 'calibration').replace(/[^a-z0-9]/gi, '_');
     a.href = url; a.download = `${slug}_${sid.slice(0, 8)}.pdf`; a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  // Comparison (#168)
+  getReportHistory:  (tvKey, limit) => {
+    const url = new URL(`/api/report/history/${tvKey}`, window.location.origin);
+    if (limit) url.searchParams.set('limit', limit);
+    return api.get(url.toString());
+  },
+  getCompare:        (a, b, format) => {
+    const url = new URL(`/api/report/compare`, window.location.origin);
+    url.searchParams.set('a', a);
+    url.searchParams.set('b', b);
+    if (format) url.searchParams.set('format', format);
+    return api.get(url.toString());
+  },
+  getCompareDeltaSummary: (a, b) => api.post(`/api/report/compare/delta_summary?a=${a}&b=${b}`),
+  downloadComparePdf:    async (a, b) => {
+    const r = await fetch(`/api/report/compare?a=${a}&b=${b}&format=pdf`);
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || r.statusText);
+    }
+    const blob = await r.blob();
+    const url  = URL.createObjectURL(blob);
+    const aEl  = document.createElement('a');
+    aEl.href = url; aEl.download = `comparison_${a.slice(0,8)}_vs_${b.slice(0,8)}.pdf`; aEl.click();
     URL.revokeObjectURL(url);
   },
 };

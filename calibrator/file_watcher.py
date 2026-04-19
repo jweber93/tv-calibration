@@ -385,6 +385,9 @@ class _ZROHandler(FileSystemEventHandler):
                         "detail": "File mtime is unchanged; duplicate import suppressed.",
                     }
                 return
+            # Claim this mtime immediately so a concurrent timer for the same
+            # file sees it as already handled and exits early.
+            self._imported[src_path] = mtime
 
         with _lock:
             _last_attempt = {
@@ -412,6 +415,9 @@ class _ZROHandler(FileSystemEventHandler):
                     "status": "locked",
                     "detail": str(exc),
                 }
+            # Release the optimistic claim so the retry timer can proceed.
+            with self._timer_lock:
+                self._imported.pop(src_path, None)
             self._schedule_timer(src_path, LOCKED_FILE_RETRY_SECONDS)
             return
         except Exception as exc:

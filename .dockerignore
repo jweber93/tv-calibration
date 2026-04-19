@@ -1,0 +1,59 @@
+# Files to exclude from Docker build context
+
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.eggs
+.pytest_cache
+.coverage
+htmlcov
+*.egg
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs
+*.md
+LICENSE
+
+# Docker
+docker-compose*.yml
+unraid-template.xml
+Dockerfile.*
+
+# CI/CD
+.github
+.gitlab-ci.yml
+
+# Frontend source and build tooling (pre-built assets in static/ are included)
+frontend
+node_modules
+
+# Scripts (not needed at runtime)
+scripts/
+
+# Test data
+tests/
+tools/
+
+# Local state
+.prefs.json
+.sessions/
+.calibration-history/
+test-results.xml
+coverage.xml
+coverage.lcov
+coverage.lcov.info

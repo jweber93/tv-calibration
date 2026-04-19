@@ -48,6 +48,7 @@ from calcore.llm import (
     query_next_patch_strategy as _query_next_patch_strategy,
     query_patch_optimization as _query_patch_optimization,
     query_remediation as _query_remediation,
+    query_pass_decision as _query_pass_decision,
 )
 from calcore.models import AnalysisConfig, LLMConfig, Patch, TVSettings
 from calcore.phase import determine_phase as _determine_phase
@@ -84,6 +85,7 @@ from calibrator.reports import (
 )
 from calibrator.session import (
     CMS_PATCHES,
+    cv as _cv,
     MODE_OPTIONS,
     PATTERN_GENERATOR_OPTIONS,
     SDR_AMBIENT_GUIDE,
@@ -404,6 +406,20 @@ class LlmConfigureReq(BaseModel):
     timeout: Optional[float] = None
 
 
+class SuggestedPatchBody(BaseModel):
+    nits: float
+    r: int
+    g: int
+    b: int
+    priority: str
+    label: str = ""
+    rationale: str = ""
+
+
+class RunPatchesReq(BaseModel):
+    patches: List[SuggestedPatchBody]
+
+
 def _find_dogegen_executable() -> Optional[str]:
     configured = (_dogegen_config.get("path") or "").strip()
     candidates = []
@@ -564,13 +580,13 @@ def _stop_dogegen() -> Dict[str, Any]:
         if not _managed_dogegen_is_running():
             return {"ok": True, "already_stopped": True, **_dogegen_status_payload()}
         try:
-            assert _dogegen_proc is not None
-            _dogegen_proc.terminate()
-            _dogegen_proc.wait(timeout=3)
+            if _dogegen_proc is not None:
+                _dogegen_proc.terminate()
+                _dogegen_proc.wait(timeout=3)
         except Exception:
             try:
-                assert _dogegen_proc is not None
-                _dogegen_proc.kill()
+                if _dogegen_proc is not None:
+                    _dogegen_proc.kill()
             except Exception:
                 pass
         finally:
@@ -589,7 +605,7 @@ def _watch_status_payload() -> Dict[str, Any]:
 
 
 def _llm_subscribe(sid: str) -> "queue.Queue[Dict[str, Any]]":
-    q: queue.Queue = queue.Queue()
+    q: queue.Queue = queue.Queue(maxsize=100)
     with _llm_queues_lock:
         _llm_queues.setdefault(sid, []).append(q)
     return q
@@ -608,7 +624,10 @@ def _llm_broadcast(sid: str, payload: Dict[str, Any]) -> None:
     with _llm_queues_lock:
         listeners = list(_llm_queues.get(sid, []))
     for q in listeners:
-        q.put(payload)
+        try:
+            q.put_nowait(payload)
+        except queue.Full:
+            logger.warning("LLM event queue full for session %s; dropping event", sid)
 
 
 def _measurement_to_patch(m: Any) -> Patch:
@@ -1382,6 +1401,50 @@ def get_report_compare(a: str, b: str, format: str = "json"):
     return comparison
 
 
+@app.get("/api/report/history/{tv_key}")
+def get_report_history(tv_key: str, limit: int = 20):
+    """Return past calibration sessions for a TV as lightweight summaries.
+
+    Used by the frontend comparison page to let users pick two sessions to compare.
+    Full report data is fetched via GET /api/report/compare?a=...&b=...
+    Returns the baseline (if any) followed by sessions from most-recent to oldest.
+    """
+    if limit < 1 or limit > 100:
+        raise HTTPException(400, "limit must be between 1 and 100")
+
+    history = _load_history(tv_key, limit=limit)
+    baseline = _load_baseline(tv_key)
+
+    sessions = []
+    if baseline:
+        sessions.append({
+            "session_id": baseline.get("session_id"),
+            "date": baseline.get("date"),
+            "mode": baseline.get("mode"),
+            "is_baseline": True,
+            "avg_de": baseline.get("post_grayscale_avg_de"),
+            "peak_luminance": baseline.get("peak_luminance"),
+            "gamma_avg": baseline.get("gamma_avg"),
+            "wb_avg_de": baseline.get("wb_avg_de"),
+            "cms_avg_de": baseline.get("cms_avg_de"),
+        })
+
+    for entry in history:
+        sessions.append({
+            "session_id": entry.get("session_id"),
+            "date": entry.get("date"),
+            "mode": entry.get("mode"),
+            "is_baseline": False,
+            "avg_de": entry.get("post_grayscale_avg_de"),
+            "peak_luminance": entry.get("peak_luminance"),
+            "gamma_avg": entry.get("gamma_avg"),
+            "wb_avg_de": entry.get("wb_avg_de"),
+            "cms_avg_de": entry.get("cms_avg_de"),
+        })
+
+    return {"tv_key": tv_key, "sessions": sessions}
+
+
 @app.post("/api/report/compare/delta_summary")
 def post_delta_summary(a: str, b: str):
     """Generate an LLM-authored plain-language delta summary for two sessions.
@@ -1473,7 +1536,7 @@ def get_suggested_patches(sid: str, budget: int = 30):
 
 
 @app.post("/api/session/{sid}/suggested-patches/run")
-def run_suggested_patches(sid: str, body: dict):
+def run_suggested_patches(sid: str, body: RunPatchesReq):
     """Forward a patch sequence to the ZRO bridge for measurement.
 
     Body: {"patches": [{nits, r, g, b, priority, label}, ...]}
@@ -1486,16 +1549,14 @@ def run_suggested_patches(sid: str, body: dict):
             400,
             'ZRO Bridge URL not configured. Set ZRO_BRIDGE_URL env var or POST /api/zro/bridge/config.',
         )
-    patches = body.get("patches")
-    if not patches or not isinstance(patches, list):
-        raise HTTPException(400, "Body must include a non-empty 'patches' list.")
-    if len(patches) > 200:
+    if len(body.patches) > 200:
         raise HTTPException(400, "Patch sequence too long (max 200).")
 
+    patches_dict = [p.model_dump() for p in body.patches]
     try:
         resp = httpx.post(
             f"{_zro_bridge_url}/measure/sequence",
-            json={"patches": patches},
+            json={"patches": patches_dict},
             timeout=30.0,
         )
         resp.raise_for_status()
@@ -1509,6 +1570,158 @@ def run_suggested_patches(sid: str, body: dict):
         raise HTTPException(502, f"ZRO Bridge error: {exc.response.text}")
     except Exception as exc:
         raise HTTPException(500, f"ZRO Bridge proxy error: {exc}")
+
+
+# ── Adaptive repass endpoint (#166) ────────────────────────────────────────────
+
+class _RepassReq(BaseModel):
+    """LLM pass-decision result to drive the repass state transition."""
+    action: str
+    patches: List[str] = []
+    reason: str = ""
+    ceiling_reason: Optional[str] = None
+
+
+def _label_to_rgb(label: str, signal_range: str, code_scale: str = "8bit") -> List[int]:
+    """Convert a patch label to RGB code values for ZRO bridge dispatch."""
+    import re
+    label_lower = label.lower().strip()
+
+    cms_map = CMS_PATCHES
+    if signal_range == "full" and code_scale == "10bit":
+        cms_map = {
+            "red": (1023, 0, 0), "green": (0, 1023, 0), "blue": (0, 0, 1023),
+            "cyan": (0, 1023, 1023), "magenta": (1023, 0, 1023), "yellow": (1023, 1023, 0),
+        }
+    elif signal_range == "full":
+        cms_map = {
+            "red": (255, 0, 0), "green": (0, 255, 0), "blue": (0, 0, 255),
+            "cyan": (0, 255, 255), "magenta": (255, 0, 255), "yellow": (255, 255, 0),
+        }
+    for name, rgb in cms_map.items():
+        if name.lower() == label_lower:
+            return list(rgb)
+
+    if label_lower.startswith("rgb(") and ")" in label_lower:
+        inner = label_lower[4:label_lower.index(")")]
+        parts = [p.strip() for p in inner.split(",")]
+        if len(parts) == 3:
+            try:
+                return [int(p) for p in parts]
+            except ValueError:
+                pass
+
+    pct_match = re.search(r"(\d+(?:\.\d+)?)\s*%", label_lower)
+    if pct_match:
+        pct = float(pct_match.group(1))
+        cv_val = _cv(pct, signal_range, code_scale)
+        return [cv_val, cv_val, cv_val]
+
+    if code_scale == "10bit":
+        return [1023, 1023, 1023]
+    return [235, 235, 235]
+
+
+@app.post("/api/session/{sid}/repass")
+def post_repass(sid: str, req: _RepassReq):
+    """Apply an LLM pass-decision to the session state machine."""
+    session = store.get(sid)
+    signal_range = session.get("signal_range", "full")
+    code_scale = session.get("code_scale", "8bit")
+
+    session = store.repass(
+        sid=sid, action=req.action, patches=req.patches,
+        reason=req.reason, ceiling_reason=req.ceiling_reason,
+    )
+
+    dogegen_dispatched = False
+    if req.action == "repatch" and req.patches:
+        patches_for_bridge = []
+        for label in req.patches:
+            rgb = _label_to_rgb(label, signal_range, code_scale)
+            patches_for_bridge.append({
+                "r": rgb[0], "g": rgb[1], "b": rgb[2],
+                "label": label, "nits": 100.0,
+            })
+        if patches_for_bridge and _zro_bridge_url:
+            try:
+                resp = httpx.post(
+                    f"{_zro_bridge_url}/measure/sequence",
+                    json={"patches": patches_for_bridge},
+                    timeout=30.0,
+                )
+                resp.raise_for_status()
+                dogegen_dispatched = True
+            except Exception as exc:
+                logger.warning("Failed to dispatch repatch patches to ZRO Bridge: %s", exc)
+
+    return {
+        "session": _session_view(session),
+        "decision": {
+            "action": req.action, "patches": req.patches,
+            "reason": req.reason, "ceiling_reason": req.ceiling_reason,
+            "repass_count": session.get("repass_count", 0),
+            "dogegen_dispatched": dogegen_dispatched,
+        },
+    }
+
+
+# ── Adaptive pass-decision endpoint (#166) ─────────────────────────────────────
+
+class _PassDecisionReq(BaseModel):
+    measurements: List[Dict[str, Any]]
+    repass_count: int = 0
+
+
+@app.post("/api/session/{sid}/pass-decision")
+def post_pass_decision(sid: str, req: _PassDecisionReq):
+    """Evaluate measurement residuals and decide: accept, repatch, or ceiling.
+
+    Returns {"action": "accept"|"repatch"|"ceiling", "patches": [...], "reason": "...", "confidence": 0.0, "repass_count": N}.
+    """
+    session = store.get(sid)
+    llm_cfg_dict = session.get("llm_config", {})
+    if not (llm_cfg_dict.get("endpoint") and llm_cfg_dict.get("model")):
+        return {"action": "accept", "reason": "LLM not configured", "confidence": 1.0, "repass_count": req.repass_count}
+
+    llm_cfg = LLMConfig(
+        endpoint=llm_cfg_dict.get("endpoint", ""),
+        model=llm_cfg_dict.get("model", ""),
+        api_key=llm_cfg_dict.get("api_key", ""),
+        temperature=0.0,
+        timeout=float(llm_cfg_dict.get("timeout", 45.0)),
+    )
+
+    target = session.get("target")
+    target_gamma = target.gamma if target else 2.2
+    target_peak = target.peak_luminance_nits if target else 120.0
+    target_wp = list(target.white_point_xy) if target else [0.3127, 0.3290]
+    target_gamut = target.gamut if target else "bt709"
+
+    decision = _query_pass_decision(
+        measurements=req.measurements,
+        phase=session.get("step", "baseline"),
+        signal_range=session.get("signal_range", "full"),
+        code_scale=session.get("code_scale", "8bit"),
+        target_gamma=target_gamma,
+        target_peak_nits=target_peak,
+        target_white_point=target_wp,
+        target_gamut=target_gamut,
+        llm=llm_cfg,
+        repass_count=req.repass_count,
+    )
+
+    if decision is None:
+        return {"action": "accept", "reason": "LLM unavailable", "confidence": 1.0, "repass_count": req.repass_count}
+
+    return {
+        "action": decision.action,
+        "patches": decision.patches,
+        "reason": decision.reason,
+        "confidence": decision.confidence,
+        "repass_count": decision.repass_count,
+        "ceiling_reason": decision.ceiling_reason,
+    }
 
 
 @app.get("/api/adb/status")
