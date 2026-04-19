@@ -57,9 +57,7 @@ def _bucket_for_grayscale(stim_pct: float, session_step: Optional[str]) -> List[
         buckets.append("lum_measurements")
 
     # White balance: 80% gain, 30% offset
-    if _nearest_target_pct(stim_pct, (WB_GAIN_TARGET_PCT,)) is not None:
-        buckets.append("wb_measurements")
-    elif _nearest_target_pct(stim_pct, (WB_OFFSET_TARGET_PCT,)) is not None:
+    if _nearest_target_pct(stim_pct, (WB_GAIN_TARGET_PCT, WB_OFFSET_TARGET_PCT)) is not None:
         buckets.append("wb_measurements")
 
     # Gamma tracking: snap to nearest 5% step
