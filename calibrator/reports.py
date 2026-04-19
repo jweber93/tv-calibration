@@ -373,9 +373,12 @@ def render_report_html(report: Dict[str, Any]) -> str:
       .hero{{border-radius:8px;}}
       .card{{border-radius:8px;}}
       table{{border-radius:8px;}}
-      .section{{page-break-inside:avoid;}}
-      .two-col > div{{page-break-inside:avoid;}}
+      .grid{{display:block;}}
+      .card{{break-inside:avoid;page-break-inside:avoid;margin-bottom:12px;}}
+      .two-col{{display:block;}}
+      .two-col > div{{margin-bottom:16px;}}
       h2{{page-break-after:avoid;}}
+      table{{break-inside:auto;page-break-inside:auto;}}
     }}
   </style>
 </head>

@@ -57,6 +57,52 @@ jobs:
             coverage.lcov
           retention-days: 14
 
+  report-layout-regression:
+    name: Report Layout Regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PDF rendering libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libpango-1.0-0 \
+            libpangocairo-1.0-0 \
+            libgdk-pixbuf-2.0-0 \
+            libcairo2 \
+            fonts-liberation
+
+      - uses: ./.github/actions/setup-python-env
+
+      - uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "22"
+
+      - name: Generate sample calibration report artifacts
+        run: python3 scripts/generate_sample_report_artifacts.py
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install chromium --with-deps
+
+      - name: Diff report layout against committed baseline
+        working-directory: frontend
+        run: npm run test:report-visual
+
+      - name: Upload report regression artifacts
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-layout-regression
+          path: |
+            test-artifacts/report-layout/
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 14
+
   # ── Frontend lint + build ─────────────────────────────────────────────────
   frontend-checks:
     name: Frontend / Node ${{ matrix.node-version }}
@@ -144,7 +190,7 @@ jobs:
   # ── Merge gate ────────────────────────────────────────────────────────────
   merge-gate:
     name: All checks passed
-    needs: [backend-tests, frontend-checks, playwright-e2e, security]
+    needs: [backend-tests, report-layout-regression, frontend-checks, playwright-e2e, security]
     runs-on: ubuntu-latest
     if: always()
     steps:
