@@ -1696,6 +1696,7 @@ class SessionStore:
         return session
 
     def latest_session(self) -> Optional[Dict[str, Any]]:
+        self.evict_expired_sessions()
         if not self.sessions:
             return None
         return max(

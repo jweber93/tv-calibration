@@ -211,6 +211,61 @@ class TestSessionCreation:
         assert not (tmp_path / "expired1.json").exists()
         assert (tmp_path / "watched1.json").exists()
 
+    def test_latest_session_evicts_expired_sessions(self, client, monkeypatch, tmp_path):
+        """#206: GET /api/session should evict expired sessions before returning latest."""
+        monkeypatch.setattr(server_module, "SESSION_STORE_DIR", tmp_path)
+        monkeypatch.setattr(server_module, "SESSION_TTL", timedelta(days=7))
+        stale_time = (datetime.now() - timedelta(days=8)).isoformat()
+        fresh_time = datetime.now().isoformat()
+        # Inject a stale session and a fresh session
+        _sessions["stale_latest"] = {
+            "id": "stale_latest",
+            "tv_key": "u8g",
+            "tv_name": "Hisense U8G",
+            "step": "select_mode",
+            "mode": None,
+            "gamma_workflow": "quick",
+            "target": None,
+            "sdr_peak_nits": None,
+            "pre_measurements": [],
+            "post_measurements": [],
+            "wb_measurements": [],
+            "lum_measurements": [],
+            "gamma_measurements": [],
+            "cms_measurements": [],
+            "peak_luminance": 0.0,
+            "created_at": stale_time,
+            "last_accessed_at": stale_time,
+            "zro_imports": [],
+        }
+        _sessions["fresh_1234"] = {
+            "id": "fresh_1234",
+            "tv_key": "u8g",
+            "tv_name": "Hisense U8G",
+            "step": "select_mode",
+            "mode": None,
+            "gamma_workflow": "quick",
+            "target": None,
+            "sdr_peak_nits": None,
+            "pre_measurements": [],
+            "post_measurements": [],
+            "wb_measurements": [],
+            "lum_measurements": [],
+            "gamma_measurements": [],
+            "cms_measurements": [],
+            "peak_luminance": 0.0,
+            "created_at": fresh_time,
+            "last_accessed_at": fresh_time,
+            "zro_imports": [],
+        }
+
+        resp = client.get("/api/session")
+        assert resp.status_code == 200
+        data = resp.json()
+        # Stale session should be evicted, fresh one returned
+        assert data["id"] == "fresh_1234"
+        assert "stale_latest" not in _sessions
+
 
 # ── Mode selection ────────────────────────────────────────────────────────────
 
@@ -340,6 +395,53 @@ class TestPrepareStep:
         details = " ".join(step["detail"] for step in resp.json()["prepare_data"]["zro_setup_steps"])
         assert "HDR10" in details or "HDR" in details
         assert "Dogegen" in details
+
+
+
+# ── Session deletion with watcher cleanup ─────────────────────────────────────
+
+class TestDeleteSessionWatcherCleanup:
+    def test_delete_watched_session_stops_watcher(self, client, monkeypatch):
+        """#205: Deleting the watched session should stop the file watcher."""
+        # Set up a watched session
+        resp = client.post("/api/session", json={"tv_key": "u8g"})
+        sid = resp.json()["id"]
+        server_module._watched_session_id = sid
+
+        # Mock _fw_stop to track calls
+        stopped = []
+        original_fw_stop = server_module._fw_stop
+        def mock_fw_stop():
+            stopped.append(True)
+        server_module._fw_stop = mock_fw_stop
+
+        try:
+            resp = client.delete(f"/api/session/{sid}")
+            assert resp.status_code == 200
+            assert stopped == [True]
+            assert server_module._watched_session_id is None
+        finally:
+            server_module._fw_stop = original_fw_stop
+
+    def test_delete_non_watched_session_does_not_stop_watcher(self, client):
+        """Deleting a non-watched session should not stop the watcher."""
+        resp = client.post("/api/session", json={"tv_key": "u8g"})
+        sid = resp.json()["id"]
+        server_module._watched_session_id = "other_session"
+
+        stopped = []
+        original_fw_stop = server_module._fw_stop
+        def mock_fw_stop():
+            stopped.append(True)
+        server_module._fw_stop = mock_fw_stop
+
+        try:
+            resp = client.delete(f"/api/session/{sid}")
+            assert resp.status_code == 200
+            assert stopped == []
+            assert server_module._watched_session_id == "other_session"
+        finally:
+            server_module._fw_stop = original_fw_stop
 
 
 # ── Dogegen companion automation ─────────────────────────────────────────────
@@ -1272,15 +1374,16 @@ class TestWatchConfig:
         assert resp.json()["session_exists"] is True
         client.delete("/api/watch/config")
 
-    def test_watch_status_marks_missing_session_binding(self, client, session_id, tmp_path, monkeypatch):
+    def test_delete_watched_session_stops_watcher(self, client, session_id, tmp_path, monkeypatch):
+        """#205: Deleting the watched session stops the file watcher."""
         monkeypatch.setattr(server_module, "_WATCH_ROOT", tmp_path.resolve())
         client.post("/api/watch/config", json={"path": str(tmp_path), "sid": session_id})
         client.delete(f"/api/session/{session_id}")
         resp = client.get("/api/watch/status")
         assert resp.status_code == 200
-        assert resp.json()["watching"] is True
-        assert resp.json()["session_id"] == session_id
-        assert resp.json()["session_exists"] is False
+        assert resp.json()["watching"] is False
+        assert resp.json().get("session_id") is None
+        assert resp.json().get("session_exists") is False
 
     def test_stop_watch(self, client, session_id, tmp_path, monkeypatch):
         monkeypatch.setattr(server_module, "_WATCH_ROOT", tmp_path.resolve())
