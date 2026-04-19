@@ -1,25 +1,90 @@
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 
 from calcore.models import Measurement, Patch
 from calibrator.session import ZROImportResult, CalibrationTarget
+from calibrator.utils import stimulus_pct_from_code_value
 
 logger = logging.getLogger(__name__)
 
+# Grayscale stimulus levels used by the calibration workflow (% of signal range)
+WB_GAIN_TARGET_PCT = 80.0
+WB_OFFSET_TARGET_PCT = 30.0
+GAMMA_TARGET_PCTS = tuple(float(pct) for pct in range(5, 100, 5))
+PCT_SNAP_TOLERANCE = 7.0
+
+# Session steps that should route grayscale to pre/post buckets
+_PRE_STEPS = {"pre_grayscale", "prepare", "select_mode"}
+_POST_STEPS = {"post_grayscale", "suggested_patches", "report"}
+
+
+def _nearest_target_pct(stim: float, targets: tuple) -> Optional[float]:
+    matches = [t for t in targets if abs(stim - t) <= PCT_SNAP_TOLERANCE]
+    if not matches:
+        return None
+    return min(matches, key=lambda t: abs(stim - t))
+
+
+def _stimulus_pct_from_patch(patch: Patch) -> float:
+    """Derive stimulus percentage from a grayscale patch's RGB target values."""
+    if not patch.is_grayscale:
+        return 0.0
+    val = patch.r_target  # r == g == b for grayscale
+    return stimulus_pct_from_code_value(val)
+
+
+def _bucket_for_grayscale(stim_pct: float, session_step: Optional[str]) -> List[str]:
+    """
+    Return the list of bucket names a grayscale patch belongs to.
+
+    A single patch can populate multiple buckets (e.g. 80% gray goes to both
+    wb_measurements and gamma_measurements), plus the primary grayscale bucket.
+    """
+    buckets: List[str] = []
+
+    # Primary grayscale bucket based on session step
+    if session_step in _PRE_STEPS:
+        buckets.append("pre_measurements")
+    elif session_step in _POST_STEPS:
+        buckets.append("post_measurements")
+    else:
+        # No session step or mid-workflow: fall back to lum_measurements
+        buckets.append("lum_measurements")
+
+    # Luminance reference: 100% white
+    if stim_pct >= 99.0:
+        buckets.append("lum_measurements")
+
+    # White balance: 80% gain, 30% offset
+    if _nearest_target_pct(stim_pct, (WB_GAIN_TARGET_PCT, WB_OFFSET_TARGET_PCT)) is not None:
+        buckets.append("wb_measurements")
+
+    # Gamma tracking: snap to nearest 5% step
+    if _nearest_target_pct(stim_pct, GAMMA_TARGET_PCTS) is not None:
+        buckets.append("gamma_measurements")
+
+    # Deduplicate while preserving order (e.g. lum_measurements may be added twice)
+    return list(dict.fromkeys(buckets))
+
 
 def patches_to_session_buckets(
-    patches: List[Patch], target: CalibrationTarget
+    patches: List[Patch],
+    target: CalibrationTarget,
+    session_step: Optional[str] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
     Convert a list of generic measurement patches into the session bucket structure.
 
     Mapping logic:
-    - Grayscale patches (r=g=b) go to lum_measurements.
     - Color patches go to cms_measurements.
-
-    This is a simple heuristic; a more sophisticated approach could consider the
-    session step and target configuration.
+    - Grayscale patches are routed by stimulus level:
+        * 100% white (>=99%) -> lum_measurements
+        * ~80% gray -> wb_measurements (Gain)
+        * ~30% gray -> wb_measurements (Offset)
+        * 5-95% in 5% steps -> gamma_measurements
+      Additionally, the session step determines whether grayscale patches land
+      in pre_measurements (pre-calibration) or post_measurements (post-calibration).
     """
     buckets: Dict[str, List[Dict[str, Any]]] = {
         "pre_measurements": [],
@@ -33,42 +98,16 @@ def patches_to_session_buckets(
     now_iso = datetime.now(timezone.utc).isoformat()
 
     for patch in patches:
-        # Determine which bucket to use
-        if patch.is_grayscale:
-            bucket = "lum_measurements"
+        if not patch.is_grayscale:
+            buckets["cms_measurements"].append(
+                _build_measurement_dict(patch, now_iso)
+            )
         else:
-            bucket = "cms_measurements"
-
-        # Convert meas_xyz and meas_yxy to Measurement fields
-        # Patch.meas_xyz is (X, Y, Z)
-        # Patch.meas_yxy is (Y, x, y) if available
-        X, Y, Z = patch.meas_xyz
-        if patch.meas_yxy is not None:
-            Y_yxy, x, y = patch.meas_yxy
-            # Y may differ; use Y from meas_yxy? We'll keep Y from meas_yxy for consistency
-            Y = Y_yxy
-        else:
-            # Compute x, y from X, Y, Z
-            sum_xyz = X + Y + Z
-            if sum_xyz > 0:
-                x = X / sum_xyz
-                y = Y / sum_xyz
-            else:
-                x = y = 0.0
-
-        # Build dict matching Measurement fields
-        meas_dict = {
-            "X": X,
-            "Y": Y,
-            "Z": Z,
-            "x": x,
-            "y": y,
-            "timestamp": now_iso,
-            "label": patch.label,
-            "stimulus_rgb": [patch.r_target, patch.g_target, patch.b_target],
-        }
-
-        buckets[bucket].append(meas_dict)
+            stim_pct = _stimulus_pct_from_patch(patch)
+            patch_buckets = _bucket_for_grayscale(stim_pct, session_step)
+            meas_dict = _build_measurement_dict(patch, now_iso)
+            for bucket in patch_buckets:
+                buckets[bucket].append(meas_dict)
 
     # Log for debugging
     for bucket, items in buckets.items():
@@ -78,3 +117,29 @@ def patches_to_session_buckets(
             )
 
     return buckets
+
+
+def _build_measurement_dict(patch: Patch, now_iso: str) -> Dict[str, Any]:
+    """Build a measurement dict from a Patch object."""
+    X, Y, Z = patch.meas_xyz
+    if patch.meas_yxy is not None:
+        Y_yxy, x, y = patch.meas_yxy
+        Y = Y_yxy
+    else:
+        sum_xyz = X + Y + Z
+        if sum_xyz > 0:
+            x = X / sum_xyz
+            y = Y / sum_xyz
+        else:
+            x = y = 0.0
+
+    return {
+        "X": X,
+        "Y": Y,
+        "Z": Z,
+        "x": x,
+        "y": y,
+        "timestamp": now_iso,
+        "label": patch.label,
+        "stimulus_rgb": [patch.r_target, patch.g_target, patch.b_target],
+    }

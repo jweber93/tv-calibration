@@ -2095,7 +2095,7 @@ class SessionStore:
             patches = parse_measurement_csv(contents)
         except Exception as exc:
             raise HTTPException(400, f"Generic CSV parse error: {exc}") from exc
-        bucket_map = patches_to_session_buckets(patches, session["target"])
+        bucket_map = patches_to_session_buckets(patches, session["target"], session.get("step"))
         step_warnings = []
         counts: Dict[str, int] = {}
         for key, meas_dicts in bucket_map.items():
