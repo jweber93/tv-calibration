@@ -938,6 +938,10 @@ def get_session(sid: str):
 
 @app.delete("/api/session/{sid}")
 def delete_session(sid: str):
+    global _watched_session_id
+    if sid == _watched_session_id:
+        _fw_stop()
+        _watched_session_id = None
     store.delete(sid)
     return {"ok": True}
 
