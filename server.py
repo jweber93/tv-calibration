@@ -580,13 +580,13 @@ def _stop_dogegen() -> Dict[str, Any]:
         if not _managed_dogegen_is_running():
             return {"ok": True, "already_stopped": True, **_dogegen_status_payload()}
         try:
-            assert _dogegen_proc is not None
-            _dogegen_proc.terminate()
-            _dogegen_proc.wait(timeout=3)
+            if _dogegen_proc is not None:
+                _dogegen_proc.terminate()
+                _dogegen_proc.wait(timeout=3)
         except Exception:
             try:
-                assert _dogegen_proc is not None
-                _dogegen_proc.kill()
+                if _dogegen_proc is not None:
+                    _dogegen_proc.kill()
             except Exception:
                 pass
         finally:
@@ -605,7 +605,7 @@ def _watch_status_payload() -> Dict[str, Any]:
 
 
 def _llm_subscribe(sid: str) -> "queue.Queue[Dict[str, Any]]":
-    q: queue.Queue = queue.Queue()
+    q: queue.Queue = queue.Queue(maxsize=100)
     with _llm_queues_lock:
         _llm_queues.setdefault(sid, []).append(q)
     return q
@@ -624,7 +624,10 @@ def _llm_broadcast(sid: str, payload: Dict[str, Any]) -> None:
     with _llm_queues_lock:
         listeners = list(_llm_queues.get(sid, []))
     for q in listeners:
-        q.put(payload)
+        try:
+            q.put_nowait(payload)
+        except queue.Full:
+            logger.warning("LLM event queue full for session %s; dropping event", sid)
 
 
 def _measurement_to_patch(m: Any) -> Patch:
@@ -1569,6 +1572,7 @@ def run_suggested_patches(sid: str, body: RunPatchesReq):
         raise HTTPException(500, f"ZRO Bridge proxy error: {exc}")
 
 
+# ── Adaptive repass endpoint (#166) ────────────────────────────────────────────
 
 class _RepassReq(BaseModel):
     """LLM pass-decision result to drive the repass state transition."""

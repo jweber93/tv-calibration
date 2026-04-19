@@ -41,6 +41,7 @@ COPY calcore/ calcore/
 COPY calibrator/ calibrator/
 COPY litellm_config.yaml ./
 COPY server.py cli.py ./
+COPY static/ static/
 
 # Create runtime directories
 RUN mkdir -p /app/data/zro-drops /app/.sessions /app/.calibration-history
