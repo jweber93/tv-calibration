@@ -131,6 +131,9 @@ STEPS_ORDER = [
     "report",
 ]
 
+# Repatch is a transient meta-state that can occur during any measurement step
+REPATCH_MAX_PASSES = 3
+
 STEP_LABELS = {
     "select_mode": "Mode",
     "prepare": "Prepare TV",
@@ -714,6 +717,7 @@ def serialize_session(s: Dict[str, Any]) -> Dict[str, Any]:
             "temperature": llm_cfg.get("temperature", 0.2),
             "timeout": llm_cfg.get("timeout", 30.0),
         },
+        "repass_count": s.get("repass_count", 0),
     }
 
 
@@ -780,6 +784,7 @@ def deserialize_session(data: Dict[str, Any]) -> Dict[str, Any]:
             "temperature": data.get("llm_config", {}).get("temperature", 0.2),
             "timeout": data.get("llm_config", {}).get("timeout", 30.0),
         },
+        "repass_count": data.get("repass_count", 0),
     }
 
 
@@ -1283,6 +1288,7 @@ def session_view(s: Dict[str, Any]) -> Dict[str, Any]:
         "pattern_generator": s.get("pattern_generator", "lightspace_connect"),
         "grayscale_ramp_steps": s.get("grayscale_ramp_steps", 11),
         "quality_gates": step_quality(s, tv),
+        "repass_count": s.get("repass_count", 0),
         "llm_config": {
             "endpoint": s.get("llm_config", {}).get("endpoint", ""),
             "model": s.get("llm_config", {}).get("model", ""),
@@ -1710,6 +1716,7 @@ class SessionStore:
                 "temperature": 0.2,
                 "timeout": 30.0,
             },
+            "repass_count": 0,
         }
         return self.sessions[sid]
 

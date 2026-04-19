@@ -54,6 +54,9 @@ class TVProfile:
     CMS_NOTES: List[str] = field(default_factory=list)
     supported_gamuts: List[str] = field(default_factory=lambda: ["bt709"])
 
+    # Quality gate thresholds for adaptive multi-pass loop (#166)
+    quality_gate_thresholds: Dict[str, Any] = field(default_factory=dict)
+
     # Settings to reset to factory defaults before calibrating.
     # These are separate from DISABLE_BEFORE_CAL because the goal here is not
     # just to turn things off but to return controls to a known neutral value so
@@ -179,6 +182,12 @@ def _build_u8g_profile() -> TVProfile:
             ),
         ],
         supported_gamuts=["bt709", "p3d65", "bt2020"],
+        quality_gate_thresholds={
+            "grayscale": {"avg_de": 2.0, "max_de": 3.0},
+            "white_balance": {"avg_de": 1.5, "max_de": 2.5},
+            "color_tuner": {"avg_de": 3.0, "max_de": 4.0},
+            "gamma": {"max_deviation": 0.05},
+        },
         llm_schema={
             "model": "Hisense U8G",
             "variants": ["55U8G", "65U8G", "75U8G"],

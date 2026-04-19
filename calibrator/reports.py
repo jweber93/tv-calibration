@@ -62,6 +62,7 @@ def report_payload(session: Dict[str, Any]) -> Dict[str, Any]:
         "color_tuner": {"avg_de": cms["avg_de"], "max_de": cms["max_de"]},
         "gamma": gamma,
         "improvement_pct": improvement,
+        "repass_count": session.get("repass_count", 0),
         "wb_measurements": wb["measurements"],
         "cms_measurements": cms["measurements"],
         "gamma_measurements": gamma["measurements"],
