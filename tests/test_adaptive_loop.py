@@ -132,8 +132,8 @@ class TestQueryPassDecision:
 
             result = query_pass_decision(
                 measurements=[
-                    {"label": "White 50%", "delta_e": 1.2, "stimulus_pct": 50, "label": "White 50%"},
-                    {"label": "White 80%", "delta_e": 1.5, "stimulus_pct": 80, "label": "White 80%"},
+                    {"label": "White 50%", "delta_e": 1.2, "stimulus_pct": 50},
+                    {"label": "White 80%", "delta_e": 1.5, "stimulus_pct": 80},
                 ],
                 phase="pre_grayscale",
                 signal_range="full",
@@ -182,8 +182,8 @@ class TestQueryPassDecision:
 
             result = query_pass_decision(
                 measurements=[
-                    {"label": "White 10%", "delta_e": 4.5, "stimulus_pct": 10, "label": "White 10%"},
-                    {"label": "Cyan 75%", "delta_e": 5.0, "stimulus_pct": 75, "label": "Cyan 75%"},
+                    {"label": "White 10%", "delta_e": 4.5, "stimulus_pct": 10},
+                    {"label": "Cyan 75%", "delta_e": 5.0, "stimulus_pct": 75},
                 ],
                 phase="color_tuner",
                 signal_range="full",
@@ -230,7 +230,7 @@ class TestQueryPassDecision:
             mock_urlopen.return_value.__exit__ = lambda s, *a: None
 
             result = query_pass_decision(
-                measurements=[{"label": "White 50%", "delta_e": 1.0, "stimulus_pct": 50, "label": "White 50%"}],
+                measurements=[{"label": "White 50%", "delta_e": 1.0, "stimulus_pct": 50}],
                 phase="pre_grayscale",
                 signal_range="full",
                 code_scale="8bit",
