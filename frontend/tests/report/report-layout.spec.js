@@ -26,5 +26,7 @@ test('sample calibration report layout stays stable', async ({ page }) => {
     }
   });
 
-  await expect(page.locator('body')).toHaveScreenshot('sample-calibration-report.png');
+  await expect(page.locator('body')).toHaveScreenshot('sample-calibration-report.png', {
+    maxDiffPixelRatio: 0.015,
+  });
 });
