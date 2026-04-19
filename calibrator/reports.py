@@ -63,6 +63,8 @@ def report_payload(session: Dict[str, Any]) -> Dict[str, Any]:
         "gamma": gamma,
         "improvement_pct": improvement,
         "repass_count": session.get("repass_count", 0),
+        "repass_reason": session.get("repass_decision", {}).get("reason", ""),
+        "repass_action": session.get("repass_decision", {}).get("action", ""),
         "wb_measurements": wb["measurements"],
         "cms_measurements": cms["measurements"],
         "gamma_measurements": gamma["measurements"],
