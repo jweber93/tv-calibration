@@ -14,8 +14,11 @@ When I say **"resolve issue [URL]"**, **"fix bug"**, **"debug"**, **"work on"**,
 - Flag scope creep before proceeding
 - Write unit + integration tests, all must pass
 - Atomic commits, imperative mood, <72 chars, no "fix"/"update"/"misc"
+- At least one commit message must reference the issue: `(#[issue-number])`
 - Branch: `fix/[short-slug]`
 - Push and **open a draft PR** — always, without being asked
+- PR body **must** include `Closes #[issue-number]` so GitHub auto-closes the issue on merge
+- If the issue URL was given, extract the number from it; if only a description was given, search for the matching open issue first
 
 When I say **"implement feature"**, execute the Feature Implementation Protocol:
 - Read AGENTS.md and CONTRIBUTING.md first
@@ -24,6 +27,7 @@ When I say **"implement feature"**, execute the Feature Implementation Protocol:
 - Production quality, full test coverage, docs updated
 - Follow commit/branch/PR conventions above
 - Push and **open a draft PR** — always, without being asked
+- If this work originated from an issue, include `Closes #[issue-number]` in the PR body
 
 When I say **"audit codebase"**, execute the Codebase Audit Protocol:
 - Act as Principal Engineer + Color Scientist
