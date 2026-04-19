@@ -38,10 +38,9 @@ Dockerfile.*
 .github
 .gitlab-ci.yml
 
-# Frontend
+# Frontend source and build tooling (pre-built assets in static/ are included)
 frontend
 node_modules
-static
 
 # Scripts (not needed at runtime)
 scripts/
