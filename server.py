@@ -604,7 +604,7 @@ def _watch_status_payload() -> Dict[str, Any]:
 
 
 def _llm_subscribe(sid: str) -> "queue.Queue[Dict[str, Any]]":
-    q: queue.Queue = queue.Queue()
+    q: queue.Queue = queue.Queue(maxsize=100)
     with _llm_queues_lock:
         _llm_queues.setdefault(sid, []).append(q)
     return q
@@ -623,7 +623,10 @@ def _llm_broadcast(sid: str, payload: Dict[str, Any]) -> None:
     with _llm_queues_lock:
         listeners = list(_llm_queues.get(sid, []))
     for q in listeners:
-        q.put(payload)
+        try:
+            q.put_nowait(payload)
+        except queue.Full:
+            logger.warning("LLM event queue full for session %s; dropping event", sid)
 
 
 def _measurement_to_patch(m: Any) -> Patch:
