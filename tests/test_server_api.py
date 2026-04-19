@@ -1495,3 +1495,52 @@ class TestLLMIntegration:
         payload = q.get(timeout=2.0)
         assert payload["event"] in ("llm_insight", "llm_error")
         server_module._llm_unsubscribe(session_id, q)
+
+
+# ── CORS tests ────────────────────────────────────────────────────────────────
+
+
+def test_cors_allows_known_origin(client):
+    resp = client.get(
+        "/api/profiles",
+        headers={"Origin": "http://localhost:5173"},
+    )
+    assert resp.status_code == 200
+    assert resp.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+def test_cors_allows_server_origin(client):
+    resp = client.get(
+        "/api/profiles",
+        headers={"Origin": "http://localhost:8000"},
+    )
+    assert resp.status_code == 200
+    assert resp.headers["access-control-allow-origin"] == "http://localhost:8000"
+
+
+def test_cors_blocks_unknown_origin(client):
+    resp = client.get(
+        "/api/profiles",
+        headers={"Origin": "http://evil.example.com"},
+    )
+    assert resp.status_code == 200
+    assert "access-control-allow-origin" not in resp.headers
+
+
+def test_cors_credentials_reflect_origin(client):
+    resp = client.get(
+        "/api/profiles",
+        headers={"Origin": "http://localhost:5173", "Cookie": "test=1"},
+    )
+    assert resp.status_code == 200
+    assert resp.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert resp.headers["access-control-allow-credentials"] == "true"
+
+
+def test_cors_blocks_credentials_on_unknown_origin(client):
+    resp = client.get(
+        "/api/profiles",
+        headers={"Origin": "http://evil.example.com", "Cookie": "test=1"},
+    )
+    assert resp.status_code == 200
+    assert resp.headers.get("access-control-allow-origin") != "http://evil.example.com"
