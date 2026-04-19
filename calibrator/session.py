@@ -21,6 +21,7 @@ from calcore.models import (
     Measurement,
     SDR_TARGET,
 )
+from calcore.eotf import pq_eotf
 from .profiles import TV_PROFILES, TVProfile
 from .guidance import (
     FINE_GAMMA_TRACKING_LEVELS,
@@ -967,6 +968,11 @@ def m_to_dict(
     elif is_grayscale_patch and target.gamma > 0 and target.peak_luminance_nits > 0:
         ref_xy = target.white_point_xy
         ref_Y = target.peak_luminance_nits * (stim_pct / 100.0) ** target.gamma
+    elif is_grayscale_patch and target.eotf.lower().startswith("pq") and target.peak_luminance_nits > 0:
+        ref_xy = target.white_point_xy
+        n = stim_pct / 100.0
+        rel = pq_eotf(n) / 10000.0
+        ref_Y = target.peak_luminance_nits * rel
     else:
         ref_xy = target.white_point_xy
         ref_Y = m.Y

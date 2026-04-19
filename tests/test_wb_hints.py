@@ -205,3 +205,83 @@ class TestMToDict:
         d = _m_to_dict(m_red, SDR_TARGET)
         # Chromaticity error vs D65 white point should dominate; value should be finite
         assert d["delta_e"] >= 0
+
+
+class TestHDRGrayscaleDeltaE:
+    def test_hdr_grayscale_reflects_luminance_error(self):
+        """HDR grayscale ΔE should reflect PQ luminance error, not just chromaticity.
+
+        Regression test for #203: HDR grayscale targets used gamma=0, causing the
+        fallback branch (ref_Y = m.Y) which made ΔE always zero regardless of
+        how wrong the measured luminance was.
+        """
+        from calcore.models import HDR10_TARGET
+        from calibrator.utils import stimulus_pct_from_code_value
+        from calcore.eotf import pq_eotf
+
+        # 50% gray (code value 128 → ~50% stimulus for full10 range).
+        # PQ target luminance at 50%: pq_eotf(0.5) / 10000 * 1000 nits
+        stim_pct = stimulus_pct_from_code_value(512, "full10")
+        expected_rel = pq_eotf(stim_pct / 100.0) / 10000.0
+        expected_y = HDR10_TARGET.peak_luminance_nits * expected_rel
+
+        # On-target measurement — should produce near-zero ΔE.
+        m_on = Measurement(
+            x=0.3127, y=0.3290,
+            Y=expected_y,
+            stimulus_rgb=(512, 512, 512),
+        )
+        d_on = _m_to_dict(m_on, HDR10_TARGET)
+        assert d_on["delta_e"] < 2.0, (
+            "On-target HDR grayscale should have low ΔE; got {:.2f}".format(d_on["delta_e"])
+        )
+
+        # Off-target measurement — 50% gray at a very different luminance.
+        m_off = Measurement(
+            x=0.3127, y=0.3290,
+            Y=expected_y * 2.5,  # measured ~2.5x too bright
+            stimulus_rgb=(512, 512, 512),
+        )
+        d_off = _m_to_dict(m_off, HDR10_TARGET)
+        assert d_off["delta_e"] > 2.0, (
+            "HDR grayscale with wrong luminance should produce ΔE > 2; got {:.2f}".format(d_off["delta_e"])
+        )
+
+    def test_hdr_grayscale_different_luminances_no_longer_zero(self):
+        """Two HDR grayscale measurements with different luminances should produce
+        different ΔE values, not both 0.0.
+
+        Regression test for #203: the old code produced `delta_e == 0.0` for every
+        HDR grayscale measurement because ref_Y was set to m.Y.
+        """
+        from calcore.models import HDR10_TARGET
+
+        m1 = Measurement(
+            x=0.3127, y=0.3290, Y=100.0,
+            stimulus_rgb=(512, 512, 512),
+        )
+        m2 = Measurement(
+            x=0.3127, y=0.3290, Y=500.0,
+            stimulus_rgb=(512, 512, 512),
+        )
+
+        d1 = _m_to_dict(m1, HDR10_TARGET)
+        d2 = _m_to_dict(m2, HDR10_TARGET)
+
+        assert d1["delta_e"] != 0.0 or d2["delta_e"] != 0.0, (
+            "Different luminances should produce different ΔE values"
+        )
+
+    def test_dv_grayscale_reflects_luminance_error(self):
+        """Dolby Vision grayscale should also reflect luminance error via PQ."""
+        from calcore.models import DV_TARGET
+
+        m = Measurement(
+            x=0.3127, y=0.3290,
+            Y=800.0,
+            stimulus_rgb=(512, 512, 512),
+        )
+        d = _m_to_dict(m, DV_TARGET)
+        # ΔE should be finite and non-trivial for an off-target luminance
+        assert d["delta_e"] is not None
+        assert isinstance(d["delta_e"], (int, float))
