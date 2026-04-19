@@ -48,6 +48,7 @@ from calcore.llm import (
     query_next_patch_strategy as _query_next_patch_strategy,
     query_patch_optimization as _query_patch_optimization,
     query_remediation as _query_remediation,
+    query_pass_decision as _query_pass_decision,
 )
 from calcore.models import AnalysisConfig, LLMConfig, Patch, TVSettings
 from calcore.phase import determine_phase as _determine_phase
@@ -1565,6 +1566,64 @@ def run_suggested_patches(sid: str, body: RunPatchesReq):
         raise HTTPException(502, f"ZRO Bridge error: {exc.response.text}")
     except Exception as exc:
         raise HTTPException(500, f"ZRO Bridge proxy error: {exc}")
+
+
+# ── Adaptive pass-decision endpoint (#166) ─────────────────────────────────────
+
+class _PassDecisionReq(BaseModel):
+    measurements: List[Dict[str, Any]]
+    repass_count: int = 0
+
+
+@app.post("/api/session/{sid}/pass-decision")
+def post_pass_decision(sid: str, req: _PassDecisionReq):
+    """Evaluate measurement residuals and decide: accept, repatch, or ceiling.
+
+    Returns {"action": "accept"|"repatch"|"ceiling", "patches": [...], "reason": "...", "confidence": 0.0, "repass_count": N}.
+    """
+    session = store.get(sid)
+    llm_cfg_dict = session.get("llm_config", {})
+    if not (llm_cfg_dict.get("endpoint") and llm_cfg_dict.get("model")):
+        return {"action": "accept", "reason": "LLM not configured", "confidence": 1.0, "repass_count": req.repass_count}
+
+    llm_cfg = LLMConfig(
+        endpoint=llm_cfg_dict.get("endpoint", ""),
+        model=llm_cfg_dict.get("model", ""),
+        api_key=llm_cfg_dict.get("api_key", ""),
+        temperature=0.0,
+        timeout=float(llm_cfg_dict.get("timeout", 45.0)),
+    )
+
+    target = session.get("target")
+    target_gamma = target.gamma if target else 2.2
+    target_peak = target.peak_luminance_nits if target else 120.0
+    target_wp = list(target.white_point_xy) if target else [0.3127, 0.3290]
+    target_gamut = target.gamut if target else "bt709"
+
+    decision = _query_pass_decision(
+        measurements=req.measurements,
+        phase=session.get("step", "baseline"),
+        signal_range=session.get("signal_range", "full"),
+        code_scale=session.get("code_scale", "8bit"),
+        target_gamma=target_gamma,
+        target_peak_nits=target_peak,
+        target_white_point=target_wp,
+        target_gamut=target_gamut,
+        llm=llm_cfg,
+        repass_count=req.repass_count,
+    )
+
+    if decision is None:
+        return {"action": "accept", "reason": "LLM unavailable", "confidence": 1.0, "repass_count": req.repass_count}
+
+    return {
+        "action": decision.action,
+        "patches": decision.patches,
+        "reason": decision.reason,
+        "confidence": decision.confidence,
+        "repass_count": decision.repass_count,
+        "ceiling_reason": decision.ceiling_reason,
+    }
 
 
 @app.get("/api/adb/status")

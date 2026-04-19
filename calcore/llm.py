@@ -11,6 +11,9 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 if TYPE_CHECKING:
     from .models import AnalysisConfig, LLMConfig, Summary, TVSettings
 
+# Max repasses before flagging hardware ceiling
+_REPATCH_MAX_PASSES = 3
+
 logger = logging.getLogger(__name__)
 
 _FENCE_RE = re.compile(r"```\s*(?:json\s*)?(.*?)\s*```", re.IGNORECASE | re.DOTALL)
@@ -831,6 +834,209 @@ def query_delta_summary(
         return None
     except Exception as e:
         logger.error("Unexpected error in query_delta_summary: %s: %s", type(e).__name__, e)
+        return None
+
+
+@dataclass
+class PassDecision:
+    """LLM-recommended pass decision: accept, repatch, or flag hardware ceiling."""
+
+    action: str  # "accept" | "repatch" | "ceiling"
+    patches: List[str]  # patch labels to re-measure (only for "repatch")
+    reason: str  # plain-English explanation
+    confidence: float  # 0–1
+    repass_count: int  # how many repasses already done this phase
+    ceiling_reason: Optional[str] = None  # why hardware ceiling was flagged
+
+
+def query_pass_decision(
+    measurements: List[Dict[str, Any]],
+    phase: str,
+    signal_range: str,
+    code_scale: str,
+    target_gamma: float,
+    target_peak_nits: float,
+    target_white_point: List[float],
+    target_gamut: str,
+    llm: LLMConfig,
+    repass_count: int = 0,
+) -> Optional[PassDecision]:
+    """Ask the LLM to evaluate measurement residuals and decide: accept, repatch, or ceiling.
+
+    Returns a PassDecision dataclass, or None if LLM is not configured or
+    the response cannot be parsed.
+    """
+    if not llm.endpoint or not llm.model:
+        return None
+
+    if not measurements:
+        return None
+
+    # Compute per-region residual summaries
+    grayscale: List[Dict[str, Any]] = []
+    colors: Dict[str, List[Dict[str, Any]]] = {}
+    for m in measurements:
+        label = (m.get("label") or "").strip()
+        de = m.get("delta_e")
+        if de is None:
+            continue
+        stim_pct = m.get("stimulus_pct", 0)
+        is_color = any(label.startswith(c) for c in ("Red", "Green", "Blue", "Cyan", "Magenta", "Yellow"))
+        if is_color:
+            color_name = label.split(" 100%")[0].split(" 100% gray")[0]
+            colors.setdefault(color_name, []).append({
+                "label": label,
+                "dE": round(de, 2),
+                "stimulus_pct": stim_pct,
+                "x": m.get("x"),
+                "y": m.get("y"),
+                "Y": m.get("Y"),
+            })
+        else:
+            grayscale.append({
+                "label": label,
+                "dE": round(de, 2),
+                "stimulus_pct": stim_pct,
+                "effective_gamma": m.get("effective_gamma"),
+                "x": m.get("x"),
+                "y": m.get("y"),
+                "Y": m.get("Y"),
+                "cct": m.get("cct"),
+            })
+
+    # Compute per-region stats
+    def _region_stats(items: List[Dict]) -> Optional[Dict]:
+        if not items:
+            return None
+        des = [i["dE"] for i in items]
+        worst = max(items, key=lambda i: i["dE"])
+        return {
+            "count": len(items),
+            "avg_de": round(sum(des) / len(des), 2),
+            "max_de": round(max(des), 2),
+            "worst_label": worst["label"],
+            "worst_de": round(worst["dE"], 2),
+        }
+
+    grayscale_stats = _region_stats(grayscale)
+    color_stats = {}
+    for name, items in colors.items():
+        color_stats[name] = _region_stats(items)
+
+    # Gamma deviation stats
+    gamma_entries = [g for g in grayscale if g.get("effective_gamma") is not None]
+    gamma_deviations = []
+    for g in gamma_entries:
+        dev = abs(g["effective_gamma"] - target_gamma)
+        gamma_deviations.append({
+            "label": g["label"],
+            "stimulus_pct": g["stimulus_pct"],
+            "measured_gamma": round(g["effective_gamma"], 3),
+            "target_gamma": target_gamma,
+            "deviation": round(dev, 3),
+        })
+
+    # CCT deviation stats
+    cct_entries = [g for g in grayscale if g.get("cct") is not None]
+    cct_devs = []
+    for c in cct_entries:
+        ref_cct = 6504  # D65
+        cct_devs.append({
+            "label": c["label"],
+            "stimulus_pct": c["stimulus_pct"],
+            "measured_cct": round(c["cct"]),
+            "deviation_k": round(abs(c["cct"] - ref_cct), 0),
+        })
+
+    payload = {
+        "phase": phase,
+        "repass_count": repass_count,
+        "max_repasses": _REPATCH_MAX_PASSES,
+        "grayscale": grayscale_stats,
+        "colors": color_stats,
+        "gamma_deviations": gamma_deviations[:10],  # top 10 gamma entries
+        "cct_deviations": cct_devs[:10],
+        "target": {
+            "gamma": target_gamma,
+            "peak_nits": target_peak_nits,
+            "white_point": target_white_point,
+            "gamut": target_gamut,
+        },
+    }
+
+    prompt = (
+        "You are a TV calibration measurement quality gate. "
+        "Evaluate the measurement residuals for the current phase and decide whether to: "
+        "(a) accept and advance, (b) trigger targeted re-measurement of the worst patches, "
+        "or (c) flag a hardware ceiling (TV cannot achieve target regardless of adjustments).\n\n"
+        "Decision rules:\n"
+        "- ACCEPT if: grayscale avg ΔE ≤ 2.0 AND max ΔE ≤ 3.0 AND no single color ΔE > 4.0\n"
+        "- REPATCH if: avg ΔE > 2.0 OR max ΔE > 3.0 AND repass_count < 3 — list the worst 3-5 patches to re-measure\n"
+        "- CEILING if: repass_count ≥ 3 AND worst color ΔE > 5.0, OR grayscale max ΔE > 6.0 AND no improvement trend\n\n"
+        "Respond with ONLY a JSON object in this exact schema (no markdown, no extra text):\n"
+        "{\n"
+        '  "action": "accept" | "repatch" | "ceiling",\n'
+        '  "patches": ["<worst patch labels>"],\n'
+        '  "reason": "<1-2 sentences explaining the decision>",\n'
+        '  "confidence": <0.0-1.0>,\n'
+        '  "repass_count": <current repass count>,\n'
+        '  "ceiling_reason": "<only if action=ceiling, otherwise null>"\n'
+        "}\n\n"
+        f"MEASUREMENT DATA:\n{json.dumps(payload, indent=2, default=str)}"
+    )
+
+    url = resolve_endpoint(llm.endpoint)
+    body = {
+        "model": llm.model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a strict JSON-only responder. Output only valid JSON.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.0,
+    }
+
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
+    )
+    if llm.api_key:
+        req.add_header("Authorization", f"Bearer {llm.api_key}")
+
+    try:
+        with urllib.request.urlopen(req, timeout=min(llm.timeout, 45.0)) as resp:
+            raw = resp.read().decode("utf-8")
+        parsed = json.loads(raw)
+        choices = parsed.get("choices") or []
+        if not choices:
+            raise ValueError(f"LLM returned empty choices: {raw[:300]}")
+        content = _extract_json(choices[0]["message"]["content"].strip())
+        obj = json.loads(content)
+
+        action = str(obj.get("action", "accept"))
+        if action not in ("accept", "repatch", "ceiling"):
+            action = "accept"
+
+        return PassDecision(
+            action=action,
+            patches=list(obj.get("patches") or []),
+            reason=str(obj.get("reason", "")),
+            confidence=float(obj.get("confidence", 0.5)),
+            repass_count=int(obj.get("repass_count", repass_count)),
+            ceiling_reason=obj.get("ceiling_reason"),
+        )
+    except urllib.error.HTTPError as e:
+        logger.error("LLM HTTP error in query_pass_decision: %s - %s", e.code, e.reason)
+        return None
+    except json.JSONDecodeError as e:
+        logger.error("LLM response parsing failed in query_pass_decision: %s", e)
+        return None
+    except Exception as e:
+        logger.error(
+            "Unexpected error in query_pass_decision: %s: %s", type(e).__name__, e
+        )
         return None
 
 
