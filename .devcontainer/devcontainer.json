@@ -1,0 +1,16 @@
+{
+  "name": "tv-calibration-dev",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "workspaceFolder": "/workspace",
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"
+  ],
+  "postCreateCommand": "pip install --no-cache-dir -r requirements.txt",
+  "containerEnv": {
+    "PYTHONPATH": "/workspace",
+    "PYTHONUNBUFFERED": "1"
+  }
+}
