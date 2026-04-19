@@ -1469,3 +1469,158 @@ class TestLLMIntegration:
         payload = q.get(timeout=2.0)
         assert payload["event"] in ("llm_insight", "llm_error")
         server_module._llm_unsubscribe(session_id, q)
+
+
+# ── Issue #188: Periodic session TTL eviction ──────────────────────────────────
+
+class TestSessionTTLCleanup:
+    def test_evict_expired_sessions_removes_from_memory_and_disk(self, monkeypatch, tmp_path):
+        """evict_expired_sessions removes expired sessions from memory and deletes their files."""
+        monkeypatch.setattr(server_module, "SESSION_STORE_DIR", tmp_path)
+        monkeypatch.setattr(server_module, "SESSION_TTL", timedelta(days=7))
+        stale_time = (datetime.now() - timedelta(days=8)).isoformat()
+        server_module._sessions["evict1"] = {
+            "id": "evict1",
+            "tv_key": "u8g",
+            "tv_name": "Hisense U8G",
+            "step": "select_mode",
+            "mode": None,
+            "gamma_workflow": "quick",
+            "target": None,
+            "sdr_peak_nits": None,
+            "pre_measurements": [],
+            "post_measurements": [],
+            "wb_measurements": [],
+            "lum_measurements": [],
+            "gamma_measurements": [],
+            "cms_measurements": [],
+            "peak_luminance": 0.0,
+            "created_at": stale_time,
+            "last_accessed_at": stale_time,
+            "zro_imports": [],
+        }
+        (tmp_path / "evict1.json").write_text("{}")
+
+        expired = server_module.store.evict_expired_sessions()
+
+        assert "evict1" in expired
+        assert "evict1" not in server_module._sessions
+        assert not (tmp_path / "evict1.json").exists()
+
+    def test_evict_expired_sessions_keeps_watched_session(self, monkeypatch, tmp_path):
+        """Watched session is never evicted even if expired."""
+        monkeypatch.setattr(server_module, "SESSION_STORE_DIR", tmp_path)
+        monkeypatch.setattr(server_module, "SESSION_TTL", timedelta(days=7))
+        stale_time = (datetime.now() - timedelta(days=8)).isoformat()
+        server_module._sessions["watched_evict"] = {
+            "id": "watched_evict",
+            "tv_key": "u8g",
+            "tv_name": "Hisense U8G",
+            "step": "select_mode",
+            "mode": None,
+            "gamma_workflow": "quick",
+            "target": None,
+            "sdr_peak_nits": None,
+            "pre_measurements": [],
+            "post_measurements": [],
+            "wb_measurements": [],
+            "lum_measurements": [],
+            "gamma_measurements": [],
+            "cms_measurements": [],
+            "peak_luminance": 0.0,
+            "created_at": stale_time,
+            "last_accessed_at": stale_time,
+            "zro_imports": [],
+        }
+        server_module._watched_session_id = "watched_evict"
+        (tmp_path / "watched_evict.json").write_text("{}")
+
+        expired = server_module.store.evict_expired_sessions()
+
+        assert "watched_evict" not in expired
+        assert "watched_evict" in server_module._sessions
+        assert (tmp_path / "watched_evict.json").exists()
+
+    def test_evict_expired_sessions_returns_empty_when_none_expired(self, monkeypatch, tmp_path):
+        """evict_expired_sessions returns empty list when no sessions are expired."""
+        monkeypatch.setattr(server_module, "SESSION_STORE_DIR", tmp_path)
+        monkeypatch.setattr(server_module, "SESSION_TTL", timedelta(days=7))
+        fresh_time = datetime.now().isoformat()
+        server_module._sessions["fresh1"] = {
+            "id": "fresh1",
+            "tv_key": "u8g",
+            "tv_name": "Hisense U8G",
+            "step": "select_mode",
+            "mode": None,
+            "gamma_workflow": "quick",
+            "target": None,
+            "sdr_peak_nits": None,
+            "pre_measurements": [],
+            "post_measurements": [],
+            "wb_measurements": [],
+            "lum_measurements": [],
+            "gamma_measurements": [],
+            "cms_measurements": [],
+            "peak_luminance": 0.0,
+            "created_at": fresh_time,
+            "last_accessed_at": fresh_time,
+            "zro_imports": [],
+        }
+
+        expired = server_module.store.evict_expired_sessions()
+
+        assert expired == []
+        assert "fresh1" in server_module._sessions
+
+    def test_session_cleanup_loop_function_exists(self):
+        """_session_cleanup_loop is defined and is an async function."""
+        import inspect
+        assert hasattr(server_module, "_session_cleanup_loop")
+        assert inspect.iscoroutinefunction(server_module._session_cleanup_loop)
+
+
+# ── Issue #187: _save_prefs logs on failure ───────────────────────────────────
+
+class TestSavePrefsLogging:
+    def test_save_prefs_logs_warning_on_oserror(self, monkeypatch):
+        """_save_prefs logs a warning when OSError occurs during write."""
+        from unittest.mock import patch
+        import logging
+
+        with patch("server._PREFS_PATH") as mock_path:
+            mock_path.with_suffix.return_value.write_text.side_effect = OSError("disk full")
+
+            with patch.object(server_module.logger, "warning") as mock_warn:
+                server_module._save_prefs()
+
+                mock_warn.assert_called_once()
+                call_args = mock_warn.call_args
+                assert "Could not save preferences" in call_args[0][0]
+
+    def test_save_prefs_logs_error_on_generic_exception(self, monkeypatch):
+        """_save_prefs logs an error for unexpected exceptions."""
+        from unittest.mock import patch
+
+        with patch("server._PREFS_PATH") as mock_path:
+            mock_path.with_suffix.return_value.write_text.side_effect = RuntimeError("unexpected")
+
+            with patch.object(server_module.logger, "error") as mock_error:
+                server_module._save_prefs()
+
+                mock_error.assert_called_once()
+                call_args = mock_error.call_args
+                assert "Unexpected error saving preferences" in call_args[0][0]
+
+    def test_save_prefs_succeeds_normally(self, tmp_path):
+        """_save_prefs writes successfully when no exception occurs."""
+        from unittest.mock import patch
+        prefs_path = tmp_path / ".prefs.json"
+
+        with patch("server._PREFS_PATH", prefs_path):
+            server_module._save_prefs()
+
+        assert prefs_path.exists()
+        import json
+        data = json.loads(prefs_path.read_text())
+        assert "dogegen" in data
+        assert "bridge_url" in data
