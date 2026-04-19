@@ -7,7 +7,6 @@ import { OverlayGammaChart } from '../charts/OverlayGammaChart';
 import { OverlayDeChart } from '../charts/OverlayDeChart';
 import { OverlayCIEScatter } from '../charts/OverlayCIEScatter';
 import { api } from '../api/client';
-import { fmtNits } from '../utils/fmt';
 
 export function ComparisonPage({ profiles }) {
   const [tvKey, setTvKey] = useState('');
@@ -99,11 +98,6 @@ export function ComparisonPage({ profiles }) {
   function deltaColor(val) {
     if (val == null) return null;
     return val < 0 ? 'var(--green)' : val > 0 ? 'var(--red)' : 'var(--muted)';
-  }
-
-  function deltaSign(val) {
-    if (val == null) return '—';
-    return val > 0 ? `+${val.toFixed(digits)}` : val.toFixed(digits);
   }
 
   return (

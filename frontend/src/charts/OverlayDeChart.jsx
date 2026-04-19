@@ -7,10 +7,15 @@ const GRID = { color: '#2e2f33' };
 export function OverlayDeChart({ measurementsA, measurementsB }) {
   if (!measurementsA?.length && !measurementsB?.length) return null;
 
-  const allLabels = [...new Set([
+  const allLabels = Array.from(new Set([
     ...measurementsA.map(m => m.label || m.stimulus_pct + '%'),
     ...measurementsB.map(m => m.label || m.stimulus_pct + '%'),
-  ])];
+  ])).sort((a, b) => {
+    const pa = parseInt(a, 10);
+    const pb = parseInt(b, 10);
+    if (!isNaN(pa) && !isNaN(pb)) return pa - pb;
+    return a.localeCompare(b);
+  });
 
   function getDelta(measurements, label) {
     const match = measurements.find(m => (m.label || m.stimulus_pct + '%') === label);
