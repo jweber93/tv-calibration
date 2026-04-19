@@ -1,6 +1,7 @@
 """Tests for server.py API endpoints — ZRO helper workflow."""
 import io
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -1261,7 +1262,8 @@ class TestWatchConfig:
                            json={"path": str(tmp_path), "sid": "nope"})
         assert resp.status_code == 404
 
-    def test_watch_valid(self, client, session_id, tmp_path):
+    def test_watch_valid(self, client, session_id, tmp_path, monkeypatch):
+        monkeypatch.setattr(server_module, "_WATCH_ROOT", tmp_path.resolve())
         resp = client.post("/api/watch/config",
                            json={"path": str(tmp_path), "sid": session_id})
         assert resp.status_code == 200
@@ -1270,7 +1272,8 @@ class TestWatchConfig:
         assert resp.json()["session_exists"] is True
         client.delete("/api/watch/config")
 
-    def test_watch_status_marks_missing_session_binding(self, client, session_id, tmp_path):
+    def test_watch_status_marks_missing_session_binding(self, client, session_id, tmp_path, monkeypatch):
+        monkeypatch.setattr(server_module, "_WATCH_ROOT", tmp_path.resolve())
         client.post("/api/watch/config", json={"path": str(tmp_path), "sid": session_id})
         client.delete(f"/api/session/{session_id}")
         resp = client.get("/api/watch/status")
@@ -1279,7 +1282,8 @@ class TestWatchConfig:
         assert resp.json()["session_id"] == session_id
         assert resp.json()["session_exists"] is False
 
-    def test_stop_watch(self, client, session_id, tmp_path):
+    def test_stop_watch(self, client, session_id, tmp_path, monkeypatch):
+        monkeypatch.setattr(server_module, "_WATCH_ROOT", tmp_path.resolve())
         client.post("/api/watch/config",
                     json={"path": str(tmp_path), "sid": session_id})
         resp = client.delete("/api/watch/config")
@@ -1293,6 +1297,28 @@ class TestWatchConfig:
         assert resp.media_type == "text/event-stream"
         assert resp.headers["cache-control"] == "no-cache"
         assert resp.headers["x-accel-buffering"] == "no"
+
+    def test_watch_rejects_path_outside_home(self, client, session_id, monkeypatch):
+        monkeypatch.setattr(server_module, "_WATCH_ROOT", Path("/tmp").resolve())
+        resp = client.post("/api/watch/config",
+                           json={"path": str(Path.home()), "sid": session_id})
+        assert resp.status_code == 400
+        assert "allowed directory" in resp.json()["detail"].lower()
+
+    def test_watch_accepts_path_inside_watch_root(self, client, session_id, tmp_path, monkeypatch):
+        monkeypatch.setattr(server_module, "_WATCH_ROOT", tmp_path.resolve())
+        resp = client.post("/api/watch/config",
+                           json={"path": str(tmp_path), "sid": session_id})
+        assert resp.status_code == 200
+        assert resp.json()["watching"] is True
+        client.delete("/api/watch/config")
+
+    def test_watch_rejects_symlink_escape(self, client, session_id, tmp_path, monkeypatch):
+        monkeypatch.setattr(server_module, "_WATCH_ROOT", tmp_path.resolve())
+        outside = tmp_path / ".." / "tmp"
+        resp = client.post("/api/watch/config",
+                           json={"path": str(outside), "sid": session_id})
+        assert resp.status_code == 400
 
 
 class TestLLMIntegration:
@@ -1624,3 +1650,50 @@ class TestSavePrefsLogging:
         data = json.loads(prefs_path.read_text())
         assert "dogegen" in data
         assert "bridge_url" in data
+# ── CORS tests ────────────────────────────────────────────────────────────────
+
+
+def test_cors_allows_known_origin(client):
+    resp = client.get(
+        "/api/profiles",
+        headers={"Origin": "http://localhost:5173"},
+    )
+    assert resp.status_code == 200
+    assert resp.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+def test_cors_allows_server_origin(client):
+    resp = client.get(
+        "/api/profiles",
+        headers={"Origin": "http://localhost:8000"},
+    )
+    assert resp.status_code == 200
+    assert resp.headers["access-control-allow-origin"] == "http://localhost:8000"
+
+
+def test_cors_blocks_unknown_origin(client):
+    resp = client.get(
+        "/api/profiles",
+        headers={"Origin": "http://evil.example.com"},
+    )
+    assert resp.status_code == 200
+    assert "access-control-allow-origin" not in resp.headers
+
+
+def test_cors_credentials_reflect_origin(client):
+    resp = client.get(
+        "/api/profiles",
+        headers={"Origin": "http://localhost:5173", "Cookie": "test=1"},
+    )
+    assert resp.status_code == 200
+    assert resp.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert resp.headers["access-control-allow-credentials"] == "true"
+
+
+def test_cors_blocks_credentials_on_unknown_origin(client):
+    resp = client.get(
+        "/api/profiles",
+        headers={"Origin": "http://evil.example.com", "Cookie": "test=1"},
+    )
+    assert resp.status_code == 200
+    assert resp.headers.get("access-control-allow-origin") != "http://evil.example.com"

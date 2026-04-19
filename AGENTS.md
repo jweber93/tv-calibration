@@ -7,15 +7,18 @@
 
 ## Standard Commands
 
-When I say **"resolve issue [URL]"**, execute the Issue Resolution Protocol:
+When I say **"resolve issue [URL]"**, **"fix bug"**, **"debug"**, **"work on"**, or describe any bug/defect, execute the Bug Resolution Protocol:
 - Read full relevant codebase context before writing any code
 - Identify root cause, not symptom
 - Reuse existing patterns and abstractions
 - Flag scope creep before proceeding
 - Write unit + integration tests, all must pass
 - Atomic commits, imperative mood, <72 chars, no "fix"/"update"/"misc"
-- Branch: [feat|fix|chore]/[short-slug]
-- Push and create PR when done
+- At least one commit message must reference the issue: `(#[issue-number])`
+- Branch: `fix/[short-slug]`
+- Push and **open a draft PR** — always, without being asked
+- PR body **must** include `Closes #[issue-number]` so GitHub auto-closes the issue on merge
+- If the issue URL was given, extract the number from it; if only a description was given, search for the matching open issue first
 
 When I say **"implement feature"**, execute the Feature Implementation Protocol:
 - Read AGENTS.md and CONTRIBUTING.md first
@@ -23,6 +26,8 @@ When I say **"implement feature"**, execute the Feature Implementation Protocol:
 - Flag hidden complexity before proceeding
 - Production quality, full test coverage, docs updated
 - Follow commit/branch/PR conventions above
+- Push and **open a draft PR** — always, without being asked
+- If this work originated from an issue, include `Closes #[issue-number]` in the PR body
 
 When I say **"audit codebase"**, execute the Codebase Audit Protocol:
 - Act as Principal Engineer + Color Scientist
@@ -41,13 +46,25 @@ When I say **"audit QE"**, execute the QE Audit Protocol:
 1. `git checkout -b [feat|fix|chore]/[short-slug]`
 2. Atomic commits, imperative mood, <72 chars, no "fix"/"update"/"misc"
 3. `git push -u origin HEAD`
-4. Open PR
+4. **Open a draft PR immediately after first push** — do not wait to be asked
+
+## Post-Merge Cleanup
+
+When I say **"cleanup"** or **"branch was merged"** or **"PR [number] merged"**, execute the Cleanup Protocol:
+- `git fetch -p` to prune remote tracking refs
+- `git checkout main && git pull origin main`
+- `git branch -d [merged-branch]` (local cleanup)
+- Check for any stale fix/* or feat/* branches older than 7 days and list them
+- Report what was cleaned
+
+> Note: Auto-delete on GitHub is handled by the `.github/workflows/cleanup.yml` action — you only need the local steps above.
 
 ## Non-negotiables
 - Tests must pass. Never leave broken tests.
 - No mocking things that don't need mocking.
 - If blocked or ambiguous, stop and report — do not work around it.
 - No TODOs or placeholders. Production quality only.
+- **Every task that touches code ends with a pushed branch and an open PR.** No exceptions.
 
 ## Memory Protocol
 

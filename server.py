@@ -224,12 +224,15 @@ async def _session_cleanup_loop() -> None:
 
 app = FastAPI(title="ZRO Calibration Helper", lifespan=lifespan)
 
+_cors_origins_raw = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:5173,http://localhost:8000").strip()
+_cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()] if _cors_origins_raw else ["http://localhost:5173", "http://localhost:8000"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 
@@ -1961,16 +1964,21 @@ def watch_stop():
     return watch_config_delete()
 
 
+_WATCH_ROOT = Path(os.getenv("WATCH_ROOT", Path.home().resolve())).resolve()
+
+
 @app.post("/api/watch/config")
 def watch_config(body: _WatchConfigBody):
     global _watched_session_id
     sid = body.sid
     session = store.get(sid)
-    abs_path = os.path.abspath(body.path)
-    csv_parent_exists = abs_path.lower().endswith(".csv") and os.path.isdir(
-        os.path.dirname(abs_path) or "."
+    abs_path = Path(body.path).resolve()
+    if not str(abs_path).startswith(str(_WATCH_ROOT)):
+        raise HTTPException(400, "Watch path must be within allowed directory")
+    csv_parent_exists = str(abs_path).lower().endswith(".csv") and os.path.isdir(
+        os.path.dirname(str(abs_path)) or "."
     )
-    if not (os.path.isdir(abs_path) or csv_parent_exists):
+    if not (os.path.isdir(str(abs_path)) or csv_parent_exists):
         raise HTTPException(400, f"Watch path does not exist: {body.path!r}")
     try:
         _fw_start(
