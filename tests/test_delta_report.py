@@ -151,6 +151,42 @@ class TestComparisonPayload:
         assert result["session_b"]["tv"]
 
 
+
+
+class TestReportPayloadSessionId:
+    def test_report_payload_includes_session_id(self, client):
+        from calibrator.reports import report_payload
+        sid = _make_session_with_measurements(client)
+        sess = _sessions[sid]
+        result = report_payload(sess)
+        assert "session_id" in result
+        assert result["session_id"] == sid
+
+    def test_report_payload_session_id_empty_when_missing(self, client):
+        from calibrator.reports import report_payload
+        sid = _make_session_with_measurements(client)
+        sess = _sessions[sid]
+        del sess["id"]
+        result = report_payload(sess)
+        assert result["session_id"] == ""
+
+
+class TestComparisonPayloadSessionIds:
+    def test_comparison_payload_includes_session_ids(self, client):
+        sid_a = _make_session_with_measurements(client)
+        sid_b = _make_session_with_measurements(client)
+        result = comparison_payload(_sessions[sid_a], _sessions[sid_b])
+        assert result["session_id_a"] == sid_a
+        assert result["session_id_b"] == sid_b
+
+    def test_comparison_endpoint_includes_session_ids(self, client):
+        sid_a = _make_session_with_measurements(client)
+        sid_b = _make_session_with_measurements(client)
+        resp = client.get(f"/api/report/compare?a={sid_a}&b={sid_b}")
+        data = resp.json()
+        assert data["session_id_a"] == sid_a
+        assert data["session_id_b"] == sid_b
+
 # ── GET /api/report/compare ────────────────────────────────────────────────────
 
 class TestCompareEndpoint:

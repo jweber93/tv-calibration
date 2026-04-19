@@ -46,6 +46,7 @@ def report_payload(session: Dict[str, Any]) -> Dict[str, Any]:
         improvement = round((1 - post["avg_de"] / pre["avg_de"]) * 100, 1)
 
     return {
+        "session_id": session.get("id", ""),
         "tv": session["tv_name"],
         "mode": session["mode"],
         "date": session["created_at"],
@@ -120,6 +121,8 @@ def comparison_payload(
     }
 
     return {
+        "session_id_a": session_a.get("id", ""),
+        "session_id_b": session_b.get("id", ""),
         "session_a": {
             "id": session_a.get("id", ""),
             "date": session_a.get("created_at", ""),
