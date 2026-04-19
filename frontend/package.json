@@ -9,7 +9,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test:e2e": "playwright test",
-    "test:e2e:update": "playwright test --update-snapshots"
+    "test:e2e:update": "playwright test --update-snapshots",
+    "test:report-visual": "playwright test --config=playwright.report.config.js",
+    "test:report-visual:update": "playwright test --config=playwright.report.config.js --update-snapshots"
   },
   "dependencies": {
     "chart.js": "^4.4.0",

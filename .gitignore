@@ -10,6 +10,9 @@ frontend/node_modules/
 coverage.xml
 coverage.lcov
 test-results.xml
+test-artifacts/
+frontend/playwright-report/
+frontend/test-results/
 
 # Environment and secrets
 .env

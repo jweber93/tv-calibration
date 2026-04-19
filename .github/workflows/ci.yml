@@ -119,6 +119,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install PDF rendering libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libpango-1.0-0 \
+            libpangocairo-1.0-0 \
+            libgdk-pixbuf-2.0-0 \
+            libcairo2 \
+            fonts-liberation
+
       - uses: ./.github/actions/setup-python-env
         with:
           python-version: ${{ env.PYTHON_DEFAULT }}
@@ -133,6 +143,44 @@ jobs:
           name: golden-regression-failures
           path: tests/golden/diffs/
           retention-days: 7
+
+  report-layout-regression:
+    name: Report Layout Regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [lint-python]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-python-env
+        with:
+          python-version: ${{ env.PYTHON_DEFAULT }}
+
+      - uses: ./.github/actions/setup-node-env
+        with:
+          node-version: ${{ env.NODE_DEFAULT }}
+
+      - name: Generate sample calibration report artifacts
+        run: python3 scripts/generate_sample_report_artifacts.py
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install chromium --with-deps
+
+      - name: Diff report layout against committed baseline
+        working-directory: frontend
+        run: npm run test:report-visual
+
+      - name: Upload report regression artifacts
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-layout-regression
+          path: |
+            test-artifacts/report-layout/
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 14
 
   frontend-checks:
     name: Frontend / Node ${{ matrix.node-version }}

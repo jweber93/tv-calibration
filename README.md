@@ -670,7 +670,13 @@ Targeted test runs:
 pytest -q tests/test_calcore        # Color math unit tests
 pytest -q tests/test_server_api.py  # API integration tests
 python -m compileall calcore calibrator server.py cli.py
+python3 scripts/generate_sample_report_artifacts.py
+cd frontend && npm run test:report-visual
 ```
+
+The report visual regression check generates a deterministic sample calibration
+report as HTML and PDF, then uses Playwright screenshot diffing against the
+committed baseline in `frontend/tests/snapshots/report/` to catch layout drift.
 
 ---
 
