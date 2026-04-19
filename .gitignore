@@ -26,3 +26,9 @@ frontend/test-results/
 # IDE settings
 .idea/
 .vscode/settings.json
+
+# macOS
+.DS_Store
+
+# opencode
+.prefs.json
