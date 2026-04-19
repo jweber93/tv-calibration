@@ -579,13 +579,13 @@ def _stop_dogegen() -> Dict[str, Any]:
         if not _managed_dogegen_is_running():
             return {"ok": True, "already_stopped": True, **_dogegen_status_payload()}
         try:
-            assert _dogegen_proc is not None
-            _dogegen_proc.terminate()
-            _dogegen_proc.wait(timeout=3)
+            if _dogegen_proc is not None:
+                _dogegen_proc.terminate()
+                _dogegen_proc.wait(timeout=3)
         except Exception:
             try:
-                assert _dogegen_proc is not None
-                _dogegen_proc.kill()
+                if _dogegen_proc is not None:
+                    _dogegen_proc.kill()
             except Exception:
                 pass
         finally:
