@@ -27,7 +27,7 @@ When I say **"implement feature"**, execute the Feature Implementation Protocol:
 - Production quality, full test coverage, docs updated
 - Follow commit/branch/PR conventions above
 - Push and **open a draft PR** — always, without being asked
-- If this work originated from an issue, include `Closes #[issue-number]` in the PR body
+- PR body **must** include `Closes #[issue-number]` — always, even if you have to search for the matching issue first
 
 When I say **"audit codebase"**, execute the Codebase Audit Protocol:
 - Act as Principal Engineer + Color Scientist
@@ -47,6 +47,7 @@ When I say **"audit QE"**, execute the QE Audit Protocol:
 2. Atomic commits, imperative mood, <72 chars, no "fix"/"update"/"misc"
 3. `git push -u origin HEAD`
 4. **Open a draft PR immediately after first push** — do not wait to be asked
+5. PR body **must** include `Closes #[issue-number]` to auto-close the issue on merge
 
 ## Post-Merge Cleanup
 
@@ -64,7 +65,7 @@ When I say **"cleanup"** or **"branch was merged"** or **"PR [number] merged"**,
 - No mocking things that don't need mocking.
 - If blocked or ambiguous, stop and report — do not work around it.
 - No TODOs or placeholders. Production quality only.
-- **Every task that touches code ends with a pushed branch and an open PR.** No exceptions.
+- **Every task that touches code ends with a pushed branch, an open draft PR, and `Closes #[issue-number]` in the PR body.** No exceptions.
 
 ## Memory Protocol
 
