@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock, patch
 
@@ -11,7 +12,15 @@ import pytest
 
 from calcore.llm import PassDecision, query_pass_decision
 from calibrator.profiles import TV_PROFILES
-from calibrator.session import REPATCH_MAX_PASSES
+from calibrator.session import (
+    REPATCH_MAX_PASSES,
+    session_view,
+    serialize_session,
+    deserialize_session,
+    _repass_target_step,
+    SessionStore,
+)
+from fastapi import HTTPException
 
 
 class TestRepashMaxPasses:
@@ -525,3 +534,218 @@ class TestPassDecisionMeasurementParsing:
 
         assert result is not None
         assert result.action == "accept"
+
+
+class TestRepashTargetStep:
+    """_repass_target_step helper function."""
+
+    def test_stays_in_measurement_step(self):
+        for step in ("pre_grayscale", "white_balance", "gamma", "color_tuner", "post_grayscale"):
+            assert _repass_target_step(step) == step
+
+    def test_jumps_from_report_to_post_grayscale(self):
+        assert _repass_target_step("report") == "post_grayscale"
+
+    def test_jumps_from_suggested_patches_to_post_grayscale(self):
+        assert _repass_target_step("suggested_patches") == "post_grayscale"
+
+    def test_jumps_from_prepare_to_post_grayscale(self):
+        assert _repass_target_step("prepare") == "post_grayscale"
+
+
+class TestSessionStoreRepash:
+    """SessionStore.repass() method."""
+
+    def _make_store(self, session_data: Dict[str, Any]) -> SessionStore:
+        from datetime import datetime, timezone
+        now = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+        session_data["created_at"] = now
+        session_data["last_accessed_at"] = now
+        store = SessionStore(
+            session_dir_getter=lambda: MagicMock(),
+            ttl_getter=lambda: timedelta(days=7),
+            watched_session_id_getter=lambda: None,
+        )
+        store.sessions[session_data["id"]] = session_data
+        return store
+
+    def _base_session(self, step: str = "post_grayscale") -> Dict[str, Any]:
+        return {
+            "id": "test1234",
+            "tv_key": "u8g",
+            "tv_name": "Hisense U8G",
+            "step": step,
+            "mode": "HDR10",
+            "gamma_workflow": "quick",
+            "signal_range": "full",
+            "code_scale": "8bit",
+            "lightspace_tier": "free",
+            "pattern_generator": "dogegen",
+            "grayscale_ramp_steps": 11,
+            "sdr_peak_nits": None,
+            "pre_measurements": [],
+            "post_measurements": [],
+            "wb_measurements": [],
+            "lum_measurements": [],
+            "gamma_measurements": [],
+            "cms_measurements": [],
+            "peak_luminance": 1000.0,
+            "created_at": "2025-01-01T00:00:00+00:00",
+            "last_accessed_at": "2025-01-01T00:00:00+00:00",
+            "zro_imports": [],
+            "llm_config": {"endpoint": "", "model": "", "temperature": 0.2, "timeout": 30.0},
+            "repass_count": 0,
+        }
+
+    def test_repatch_increments_count(self):
+        store = self._make_store(self._base_session())
+        session = store.repass("test1234", "repatch", patches=["Red"], reason="high dE")
+        assert session["repass_count"] == 1
+
+    def test_repatch_jumps_to_measurement_step(self):
+        store = self._make_store(self._base_session("post_grayscale"))
+        session = store.repass("test1234", "repatch", reason="re-measure")
+        assert session["step"] == "post_grayscale"
+
+    def test_repatch_preserves_current_step(self):
+        store = self._make_store(self._base_session("white_balance"))
+        session = store.repass("test1234", "repatch", reason="re-measure")
+        assert session["step"] == "white_balance"
+
+    def test_repatch_records_decision_metadata(self):
+        store = self._make_store(self._base_session())
+        session = store.repass("test1234", "repatch", patches=["Red", "Green"], reason="color error")
+        assert session["repass_decision"]["action"] == "repatch"
+        assert session["repass_decision"]["reason"] == "color error"
+        assert session["repass_decision"]["patches"] == ["Red", "Green"]
+        assert "timestamp" in session["repass_decision"]
+
+    def test_repatch_hits_max_and_flags_ceiling(self):
+        session = self._base_session()
+        session["repass_count"] = 3
+        store = self._make_store(session)
+        result = store.repass("test1234", "repatch", reason="still bad")
+        assert result["repass_decision"]["action"] == "ceiling"
+        assert "Max repass limit" in result["repass_decision"]["reason"]
+
+    def test_ceiling_action_sets_ceiling_flag(self):
+        store = self._make_store(self._base_session())
+        session = store.repass(
+            "test1234",
+            "ceiling",
+            reason="hardware limit",
+            ceiling_reason="Blue primary dE 7.2",
+        )
+        assert session["repass_decision"]["action"] == "ceiling"
+        assert session["repass_decision"]["ceiling_reason"] == "Blue primary dE 7.2"
+
+    def test_accept_action_does_not_increment(self):
+        store = self._make_store(self._base_session())
+        session = store.repass("test1234", "accept", reason="within tolerance")
+        assert session["repass_count"] == 0
+
+    def test_repass_from_report_jumps_to_post_grayscale(self):
+        store = self._make_store(self._base_session("report"))
+        session = store.repass("test1234", "repatch", reason="final check")
+        assert session["step"] == "post_grayscale"
+
+
+class TestLabelToRgb:
+    """_label_to_rgb helper function (imported from server.py)."""
+
+    def test_grayscale_white_10_percent(self):
+        from server import _label_to_rgb
+        rgb = _label_to_rgb("White 10%", "full")
+        assert len(rgb) == 3
+        assert rgb[0] == rgb[1] == rgb[2]
+
+    def test_grayscale_white_80_percent(self):
+        from server import _label_to_rgb
+        rgb = _label_to_rgb("White 80%", "full")
+        assert len(rgb) == 3
+        assert rgb[0] == rgb[1] == rgb[2]
+
+    def test_cms_red(self):
+        from server import _label_to_rgb
+        rgb = _label_to_rgb("Red", "full")
+        assert rgb == [255, 0, 0]
+
+    def test_cms_cyan(self):
+        from server import _label_to_rgb
+        rgb = _label_to_rgb("Cyan", "full")
+        assert rgb == [0, 255, 255]
+
+    def test_cms_red_full_10bit(self):
+        from server import _label_to_rgb
+        rgb = _label_to_rgb("Red", "full", "10bit")
+        assert rgb == [1023, 0, 0]
+
+    def test_cms_yellow(self):
+        from server import _label_to_rgb
+        rgb = _label_to_rgb("Yellow", "full")
+        assert rgb == [255, 255, 0]
+
+    def test_rgb_label(self):
+        from server import _label_to_rgb
+        rgb = _label_to_rgb("RGB(235,16,16)", "limited")
+        assert rgb == [235, 16, 16]
+
+    def test_fallback_white(self):
+        from server import _label_to_rgb
+        rgb = _label_to_rgb("UnknownPatch", "full")
+        assert rgb == [235, 235, 235]
+
+
+class TestReportPayloadRepashReason:
+    """repass_reason field in report payload."""
+
+    def test_report_payload_includes_repass_reason(self):
+        from calibrator.reports import report_payload
+
+        session = {
+            "id": "test",
+            "tv_key": "u8g",
+            "tv_name": "Hisense U8G",
+            "mode": "HDR10",
+            "signal_range": "full",
+            "code_scale": "8bit",
+            "target": MagicMock(gamut="bt2020", eotf="pq", peak_luminance_nits=1000.0, white_point_xy=(0.3127, 0.3290)),
+            "pre_measurements": [],
+            "post_measurements": [],
+            "wb_measurements": [],
+            "cms_measurements": [],
+            "gamma_measurements": [],
+            "peak_luminance": 1000.0,
+            "created_at": "2025-01-01T00:00:00+00:00",
+            "repass_count": 2,
+            "repass_decision": {"action": "repatch", "reason": "Grayscale avg dE 2.8"},
+        }
+
+        result = report_payload(session)
+        assert result["repass_count"] == 2
+        assert result["repass_reason"] == "Grayscale avg dE 2.8"
+        assert result["repass_action"] == "repatch"
+
+    def test_report_payload_defaults_repass_fields(self):
+        from calibrator.reports import report_payload
+
+        session = {
+            "id": "test",
+            "tv_key": "u8g",
+            "tv_name": "Hisense U8G",
+            "mode": "HDR10",
+            "signal_range": "full",
+            "code_scale": "8bit",
+            "target": MagicMock(gamut="bt2020", eotf="pq", peak_luminance_nits=1000.0, white_point_xy=(0.3127, 0.3290)),
+            "pre_measurements": [],
+            "post_measurements": [],
+            "wb_measurements": [],
+            "cms_measurements": [],
+            "gamma_measurements": [],
+            "peak_luminance": 1000.0,
+            "created_at": "2025-01-01T00:00:00+00:00",
+        }
+
+        result = report_payload(session)
+        assert result["repass_reason"] == ""
+        assert result["repass_action"] == ""

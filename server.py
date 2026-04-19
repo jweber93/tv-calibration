@@ -85,6 +85,7 @@ from calibrator.reports import (
 )
 from calibrator.session import (
     CMS_PATCHES,
+    cv as _cv,
     MODE_OPTIONS,
     PATTERN_GENERATOR_OPTIONS,
     SDR_AMBIENT_GUIDE,
@@ -1569,6 +1570,100 @@ def run_suggested_patches(sid: str, body: RunPatchesReq):
         raise HTTPException(502, f"ZRO Bridge error: {exc.response.text}")
     except Exception as exc:
         raise HTTPException(500, f"ZRO Bridge proxy error: {exc}")
+
+
+# ── Adaptive repass endpoint (#166) ────────────────────────────────────────────
+
+class _RepassReq(BaseModel):
+    """LLM pass-decision result to drive the repass state transition."""
+    action: str
+    patches: List[str] = []
+    reason: str = ""
+    ceiling_reason: Optional[str] = None
+
+
+def _label_to_rgb(label: str, signal_range: str, code_scale: str = "8bit") -> List[int]:
+    """Convert a patch label to RGB code values for ZRO bridge dispatch."""
+    import re
+    label_lower = label.lower().strip()
+
+    cms_map = CMS_PATCHES
+    if signal_range == "full" and code_scale == "10bit":
+        cms_map = {
+            "red": (1023, 0, 0), "green": (0, 1023, 0), "blue": (0, 0, 1023),
+            "cyan": (0, 1023, 1023), "magenta": (1023, 0, 1023), "yellow": (1023, 1023, 0),
+        }
+    elif signal_range == "full":
+        cms_map = {
+            "red": (255, 0, 0), "green": (0, 255, 0), "blue": (0, 0, 255),
+            "cyan": (0, 255, 255), "magenta": (255, 0, 255), "yellow": (255, 255, 0),
+        }
+    for name, rgb in cms_map.items():
+        if name.lower() == label_lower:
+            return list(rgb)
+
+    if label_lower.startswith("rgb(") and ")" in label_lower:
+        inner = label_lower[4:label_lower.index(")")]
+        parts = [p.strip() for p in inner.split(",")]
+        if len(parts) == 3:
+            try:
+                return [int(p) for p in parts]
+            except ValueError:
+                pass
+
+    pct_match = re.search(r"(\d+(?:\.\d+)?)\s*%", label_lower)
+    if pct_match:
+        pct = float(pct_match.group(1))
+        cv_val = _cv(pct, signal_range, code_scale)
+        return [cv_val, cv_val, cv_val]
+
+    if code_scale == "10bit":
+        return [1023, 1023, 1023]
+    return [235, 235, 235]
+
+
+@app.post("/api/session/{sid}/repass")
+def post_repass(sid: str, req: _RepassReq):
+    """Apply an LLM pass-decision to the session state machine."""
+    session = store.get(sid)
+    signal_range = session.get("signal_range", "full")
+    code_scale = session.get("code_scale", "8bit")
+
+    session = store.repass(
+        sid=sid, action=req.action, patches=req.patches,
+        reason=req.reason, ceiling_reason=req.ceiling_reason,
+    )
+
+    dogegen_dispatched = False
+    if req.action == "repatch" and req.patches:
+        patches_for_bridge = []
+        for label in req.patches:
+            rgb = _label_to_rgb(label, signal_range, code_scale)
+            patches_for_bridge.append({
+                "r": rgb[0], "g": rgb[1], "b": rgb[2],
+                "label": label, "nits": 100.0,
+            })
+        if patches_for_bridge and _zro_bridge_url:
+            try:
+                resp = httpx.post(
+                    f"{_zro_bridge_url}/measure/sequence",
+                    json={"patches": patches_for_bridge},
+                    timeout=30.0,
+                )
+                resp.raise_for_status()
+                dogegen_dispatched = True
+            except Exception as exc:
+                logger.warning("Failed to dispatch repatch patches to ZRO Bridge: %s", exc)
+
+    return {
+        "session": _session_view(session),
+        "decision": {
+            "action": req.action, "patches": req.patches,
+            "reason": req.reason, "ceiling_reason": req.ceiling_reason,
+            "repass_count": session.get("repass_count", 0),
+            "dogegen_dispatched": dogegen_dispatched,
+        },
+    }
 
 
 # ── Adaptive pass-decision endpoint (#166) ─────────────────────────────────────

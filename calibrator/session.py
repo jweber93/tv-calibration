@@ -1566,6 +1566,27 @@ def session_view(s: Dict[str, Any]) -> Dict[str, Any]:
     return view
 
 
+
+def _repass_target_step(current_step: str) -> str:
+    """Determine which measurement step to jump back to for a repass.
+
+    When the LLM decides to repatch, we jump to the step whose measurements
+    correspond to the current phase.  For pre/post grayscale we go back to
+    the grayscale step; for WB/gamma/color we go back to the respective step.
+    """
+    measurement_steps = {
+        "pre_grayscale", "luminance", "white_balance",
+        "gamma", "color_tuner", "post_grayscale",
+    }
+    if current_step in measurement_steps:
+        return current_step
+    if current_step == "suggested_patches":
+        return "post_grayscale"
+    if current_step == "report":
+        return "post_grayscale"
+    return "post_grayscale"
+
+
 class SessionStore:
     def __init__(
         self,
@@ -1940,6 +1961,56 @@ class SessionStore:
             session["mode"] = None
             session["target"] = None
         session["step"] = transitions[step]
+        self.save_session(sid)
+        return session
+
+
+    def repass(
+        self,
+        sid: str,
+        action: str,
+        patches: Optional[List[str]] = None,
+        reason: str = "",
+        ceiling_reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Handle an LLM pass-decision repass action.
+
+        Increments repass_count, checks against REPATCH_MAX_PASSES, and
+        jumps the session back to the relevant measurement step.
+        """
+        session = self.get(sid)
+        current_step = session["step"]
+
+        if action == "ceiling":
+            session.setdefault("repass_decision", {})
+            session["repass_decision"]["action"] = "ceiling"
+            session["repass_decision"]["reason"] = reason
+            session["repass_decision"]["ceiling_reason"] = ceiling_reason
+            session["repass_decision"]["timestamp"] = now().isoformat()
+            self.save_session(sid)
+            return session
+
+        if action == "repatch":
+            session["repass_count"] = session.get("repass_count", 0) + 1
+            if session["repass_count"] > REPATCH_MAX_PASSES:
+                session.setdefault("repass_decision", {})
+                session["repass_decision"]["action"] = "ceiling"
+                session["repass_decision"]["reason"] = (
+                    f"Max repass limit ({REPATCH_MAX_PASSES}) reached"
+                )
+                session["repass_decision"]["ceiling_reason"] = ceiling_reason or "Exceeded maximum repass count"
+                session["repass_decision"]["timestamp"] = now().isoformat()
+                self.save_session(sid)
+                return session
+
+        session.setdefault("repass_decision", {})
+        session["repass_decision"]["action"] = action
+        session["repass_decision"]["reason"] = reason
+        session["repass_decision"]["patches"] = patches or []
+        session["repass_decision"]["timestamp"] = now().isoformat()
+
+        step_to_remeasure = _repass_target_step(current_step)
+        session["step"] = step_to_remeasure
         self.save_session(sid)
         return session
 
