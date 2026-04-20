@@ -248,15 +248,23 @@ export function useSession() {
 
   async function deleteSession() {
     if (!session?.id) return;
+    stopLlmSSE();
     await api.deleteSession(session.id);
     sseRef.current?.close();
     setSession(null);
+    setLlmInsight(null);
+    setLlmError(null);
+    setLlmStreaming(false);
   }
 
   async function createSession(tv, mode, sdrPeakNits) {
+    stopLlmSSE();
     const sess = await api.createSession(tv, mode, sdrPeakNits);
     setSession(sess);
     startSSE(sess.id);
+    setLlmInsight(null);
+    setLlmError(null);
+    setLlmStreaming(false);
     return sess;
   }
 
