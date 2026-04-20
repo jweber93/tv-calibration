@@ -9,17 +9,19 @@ from mem0 import Memory
 
 mem0_config = {
     "llm": {
-        "provider": "ollama",
+        "provider": "openai",
         "config": {
             "model": "qwen/qwen3.6-35b-a3b",
-            "ollama_base_url": "http://localhost:11434",
+            "openai_base_url": "http://localhost:11434/v1",
+            "api_key": "ollama",
         }
     },
     "embedder": {
-        "provider": "ollama",
+        "provider": "openai",
         "config": {
             "model": "nomic-embed-text",
-            "ollama_base_url": "http://localhost:11434",
+            "openai_base_url": "http://localhost:11434/v1",
+            "api_key": "ollama",
         }
     },
     "vector_store": {
