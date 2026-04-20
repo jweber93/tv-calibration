@@ -9,17 +9,19 @@ from mem0 import Memory
 
 mem0_config = {
     "llm": {
-        "provider": "ollama",
+        "provider": "openai",
         "config": {
             "model": "qwen/qwen3.6-35b-a3b",
-            "ollama_base_url": "http://localhost:11434",
+            "openai_base_url": "http://localhost:11434/v1",
+            "api_key": "ollama",
         }
     },
     "embedder": {
-        "provider": "ollama",
+        "provider": "openai",
         "config": {
-            "model": "text-embedding-nomic-embed-text-v1.5",
-            "ollama_base_url": "http://localhost:11434",
+            "model": "nomic-embed-text",
+            "openai_base_url": "http://localhost:11434/v1",
+            "api_key": "ollama",
         }
     },
     "vector_store": {
@@ -40,21 +42,30 @@ def save_memory(content: str, user_id: str = "jweber") -> str:
     result = memory.add(content, user_id=user_id)
     return f"Saved: {result}"
 
+def _extract_results(results) -> list:
+    if isinstance(results, dict):
+        return results.get("results", [])
+    if isinstance(results, list):
+        return results
+    return []
+
 @mcp.tool()
 def search_memory(query: str, user_id: str = "jweber", limit: int = 5) -> str:
     """Search persistent memory for relevant context."""
     results = memory.search(query, user_id=user_id, limit=limit)
-    if not results:
+    items = _extract_results(results)
+    if not items:
         return "No relevant memories found."
-    return "\n\n".join([f"- {r['memory']}" for r in results.get("results", [])])
+    return "\n\n".join([f"- {r['memory']}" for r in items])
 
 @mcp.tool()
 def list_memories(user_id: str = "jweber") -> str:
     """List all stored memories."""
     results = memory.get_all(user_id=user_id)
-    if not results:
+    items = _extract_results(results)
+    if not items:
         return "No memories stored yet."
-    return "\n\n".join([f"- {r['memory']}" for r in results.get("results", [])])
+    return "\n\n".join([f"- {r['memory']}" for r in items])
 
 @mcp.tool()
 def delete_memory(memory_id: str) -> str:
