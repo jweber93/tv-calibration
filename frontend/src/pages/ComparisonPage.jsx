@@ -95,9 +95,11 @@ export function ComparisonPage({ profiles }) {
     return `${Number(v).toFixed(digits)}${suffix}`;
   }
 
-  function deltaColor(val) {
+  function deltaColor(val, lowerIsBetter) {
     if (val == null) return null;
-    return val < 0 ? 'var(--green)' : val > 0 ? 'var(--red)' : 'var(--muted)';
+    if (val < 0) return lowerIsBetter ? 'var(--green)' : 'var(--red)';
+    if (val > 0) return lowerIsBetter ? 'var(--red)' : 'var(--green)';
+    return 'var(--muted)';
   }
 
   return (
@@ -205,21 +207,21 @@ export function ComparisonPage({ profiles }) {
               </thead>
               <tbody>
                 {[
-                  { label: 'Pre-Cal Avg ΔE', a: repA?.pre_cal?.avg_de, b: repB?.pre_cal?.avg_de, d: deltas?.pre_cal_avg_de },
-                  { label: 'Post-Cal Avg ΔE', a: repA?.post_cal?.avg_de, b: repB?.post_cal?.avg_de, d: deltas?.post_cal_avg_de },
-                  { label: 'Pre-Cal Max ΔE', a: repA?.pre_cal?.max_de, b: repB?.pre_cal?.max_de, d: deltas?.pre_cal_max_de },
-                  { label: 'Post-Cal Max ΔE', a: repA?.post_cal?.max_de, b: repB?.post_cal?.max_de, d: deltas?.post_cal_max_de },
-                  { label: 'WB Avg ΔE', a: repA?.white_balance?.avg_de, b: repB?.white_balance?.avg_de, d: deltas?.wb_avg_de },
-                  { label: 'CMS Avg ΔE', a: repA?.color_tuner?.avg_de, b: repB?.color_tuner?.avg_de, d: deltas?.cms_avg_de },
+                  { label: 'Pre-Cal Avg ΔE', a: repA?.pre_cal?.avg_de, b: repB?.pre_cal?.avg_de, d: deltas?.pre_cal_avg_de, lowerIsBetter: true },
+                  { label: 'Post-Cal Avg ΔE', a: repA?.post_cal?.avg_de, b: repB?.post_cal?.avg_de, d: deltas?.post_cal_avg_de, lowerIsBetter: true },
+                  { label: 'Pre-Cal Max ΔE', a: repA?.pre_cal?.max_de, b: repB?.pre_cal?.max_de, d: deltas?.pre_cal_max_de, lowerIsBetter: true },
+                  { label: 'Post-Cal Max ΔE', a: repA?.post_cal?.max_de, b: repB?.post_cal?.max_de, d: deltas?.post_cal_max_de, lowerIsBetter: true },
+                  { label: 'WB Avg ΔE', a: repA?.white_balance?.avg_de, b: repB?.white_balance?.avg_de, d: deltas?.wb_avg_de, lowerIsBetter: true },
+                  { label: 'CMS Avg ΔE', a: repA?.color_tuner?.avg_de, b: repB?.color_tuner?.avg_de, d: deltas?.cms_avg_de, lowerIsBetter: true },
                   { label: 'Avg Gamma', a: repA?.gamma?.avg_gamma, b: repB?.gamma?.avg_gamma, d: deltas?.gamma_avg, digits: 3 },
-                  { label: 'Peak Luminance', a: repA?.peak_luminance, b: repB?.peak_luminance, d: deltas?.peak_luminance, digits: 1, suffix: ' nits' },
-                  { label: 'Improvement %', a: repA?.improvement_pct, b: repB?.improvement_pct, d: deltas?.improvement_pct, digits: 1, suffix: '%' },
+                  { label: 'Peak Luminance', a: repA?.peak_luminance, b: repB?.peak_luminance, d: deltas?.peak_luminance, digits: 1, suffix: ' nits', lowerIsBetter: false },
+                  { label: 'Improvement %', a: repA?.improvement_pct, b: repB?.improvement_pct, d: deltas?.improvement_pct, digits: 1, suffix: '%', lowerIsBetter: false },
                 ].map(row => (
                   <tr key={row.label} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={{ padding: '8px 10px', fontWeight: 500 }}>{row.label}</td>
                     <td style={{ padding: '8px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtValue(row.a, row.digits || 2, row.suffix || '')}</td>
                     <td style={{ padding: '8px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtValue(row.b, row.digits || 2, row.suffix || '')}</td>
-                    <td style={{ padding: '8px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: deltaColor(row.d) }}>{fmtValue(row.d, row.digits || 2, row.suffix || '')}</td>
+                    <td style={{ padding: '8px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: deltaColor(row.d, row.lowerIsBetter) }}>{fmtValue(row.d, row.digits || 2, row.suffix || '')}</td>
                   </tr>
                 ))}
               </tbody>
