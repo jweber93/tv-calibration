@@ -42,7 +42,7 @@ def report_payload(session: Dict[str, Any]) -> Dict[str, Any]:
     cms = stats(session["cms_measurements"])
     gamma = gamma_stats(session["gamma_measurements"])
     improvement = None
-    if pre["avg_de"] and post["avg_de"] and pre["avg_de"] > 0:
+    if pre["avg_de"] is not None and post["avg_de"] is not None and pre["avg_de"] > 0:
         improvement = round((1 - post["avg_de"] / pre["avg_de"]) * 100, 1)
 
     return {
