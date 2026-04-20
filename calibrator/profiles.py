@@ -440,6 +440,112 @@ def _build_tcl7105x_profile() -> TVProfile:
             ),
         ],
         supported_gamuts=["bt709", "p3d65", "bt2020"],
+        llm_schema={
+            "model": "TCL 7105X",
+            "variants": ["557105X", "657105X", "757105X"],
+            "nomenclature": {
+                "backlight": {
+                    "term": "Backlight",
+                    "function": "Overall panel illumination (nits). Sets peak white output.",
+                    "path": "Settings > Picture > Backlight",
+                },
+                "black_level": {
+                    "term": "Brightness",
+                    "function": "Black level control. Set so near-black test patterns are just visible.",
+                    "path": "Settings > Picture > Brightness",
+                },
+            },
+            "settings": {
+                "gamma": {
+                    "path": "Settings > Picture > Advanced Picture > Gamma",
+                    "type": "enum",
+                    "options": [1.8, 2.0, 2.2, 2.4],
+                    "default": 2.2,
+                    "calibration_target": 2.2,
+                    "note": "Numbered presets only. No BT.1886 option.",
+                },
+                "color_space": {
+                    "path": "Settings > Picture > Advanced Picture > Color Space",
+                    "type": "enum",
+                    "options": ["Auto", "Native", "Wide"],
+                    "calibration_target": "Auto for SDR, Wide for HDR",
+                },
+                "color_temperature": {
+                    "path": "Settings > Picture > Advanced Picture > Color Temperature",
+                    "type": "enum",
+                    "options": ["Warm", "Cool"],
+                    "calibration_target": "Warm",
+                },
+                "white_balance_2pt": {
+                    "path": "Settings > Picture > Advanced Picture > White Balance",
+                    "type": "slider",
+                    "channels": {
+                        "R_gain": {
+                            "label": "Red Gain",
+                            "affects": "red highlights (80% gray)",
+                            "range": "-50 to +50",
+                            "neutral": 0,
+                        },
+                        "G_gain": {
+                            "label": "Green Gain",
+                            "affects": "green highlights (80% gray)",
+                            "range": "-50 to +50",
+                            "neutral": 0,
+                        },
+                        "B_gain": {
+                            "label": "Blue Gain",
+                            "affects": "blue highlights (80% gray)",
+                            "range": "-50 to +50",
+                            "neutral": 0,
+                        },
+                        "R_offset": {
+                            "label": "Red Offset",
+                            "affects": "red shadows (30% gray)",
+                            "range": "-50 to +50",
+                            "neutral": 0,
+                        },
+                        "G_offset": {
+                            "label": "Green Offset",
+                            "affects": "green shadows (30% gray)",
+                            "range": "-50 to +50",
+                            "neutral": 0,
+                        },
+                        "B_offset": {
+                            "label": "Blue Offset",
+                            "affects": "blue shadows (30% gray)",
+                            "range": "-50 to +50",
+                            "neutral": 0,
+                        },
+                    },
+                    "neutral_value": 0,
+                    "note": "Use 80% gray for Gain, 30% gray for Offset. Scale is -50 to +50.",
+                },
+                "cms": {
+                    "path": "Settings > Picture > Advanced Picture > Color Tuner",
+                    "type": "cms",
+                    "colors": ["Red", "Green", "Blue", "Cyan", "Magenta", "Yellow"],
+                    "params": {
+                        "Hue": "Shifts relative colour angle.",
+                        "Saturation": "Adjusts purity / vibrancy.",
+                        "Brightness": "Controls luminance of that specific colour.",
+                    },
+                    "neutral_value": 0,
+                    "note": "Zero all CMS values before loading a 3D LUT.",
+                },
+                "contrast": {
+                    "path": "Settings > Picture > Contrast",
+                    "type": "slider",
+                    "calibration_default": 90,
+                    "note": "Controls peak white levels. Back down if 100% whites clip.",
+                },
+                "brightness": {
+                    "path": "Settings > Picture > Brightness",
+                    "type": "slider",
+                    "calibration_default": 50,
+                    "note": "Black level control — NOT luminance. Set so 5% near-black is just visible.",
+                },
+            },
+        },
     )
 
 
@@ -876,6 +982,118 @@ def _build_vizio_v4k55m_profile() -> TVProfile:
                 "Factory uniformity correction (do not change unless you know what you are doing)",
             ),
         ],
+        llm_schema={
+            "model": "Vizio V4K55M",
+            "variants": ["V4K55M-0801", "V555M-K01"],
+            "nomenclature": {
+                "backlight": {
+                    "term": "Backlight",
+                    "function": "Overall panel illumination (nits). Sets peak white output.",
+                    "path": "Settings > Picture > Backlight",
+                },
+                "black_level": {
+                    "term": "Brightness",
+                    "function": "Black level control. Set so near-black test patterns are just visible.",
+                    "path": "Settings > Picture > Brightness",
+                },
+            },
+            "settings": {
+                "gamma": {
+                    "path": "Settings > Picture > Advanced Picture > Gamma",
+                    "type": "enum",
+                    "options": [1.8, 2.0, 2.2, 2.4],
+                    "default": 2.2,
+                    "calibration_target": 2.2,
+                    "note": "Numbered presets only. No BT.1886 option.",
+                },
+                "color_space": {
+                    "path": "Settings > Picture > Advanced Picture > Color Space",
+                    "type": "enum",
+                    "options": ["Auto", "Native"],
+                    "calibration_target": "Auto",
+                },
+                "color_temperature": {
+                    "path": "Settings > Picture > Color Temperature",
+                    "type": "enum",
+                    "options": ["Warm", "Cool"],
+                    "calibration_target": "Warm",
+                },
+                "white_balance_2pt": {
+                    "path": "Service Menu > White Balance",
+                    "type": "slider",
+                    "channels": {
+                        "R_gain": {
+                            "label": "Red Gain",
+                            "affects": "red highlights (80% gray)",
+                            "range": "-50 to +50",
+                            "neutral": 0,
+                        },
+                        "G_gain": {
+                            "label": "Green Gain",
+                            "affects": "green highlights (80% gray)",
+                            "range": "-50 to +50",
+                            "neutral": 0,
+                        },
+                        "B_gain": {
+                            "label": "Blue Gain",
+                            "affects": "blue highlights (80% gray)",
+                            "range": "-50 to +50",
+                            "neutral": 0,
+                        },
+                        "R_offset": {
+                            "label": "Red Offset",
+                            "affects": "red shadows (30% gray)",
+                            "range": "-50 to +50",
+                            "neutral": 0,
+                        },
+                        "G_offset": {
+                            "label": "Green Offset",
+                            "affects": "green shadows (30% gray)",
+                            "range": "-50 to +50",
+                            "neutral": 0,
+                        },
+                        "B_offset": {
+                            "label": "Blue Offset",
+                            "affects": "blue shadows (30% gray)",
+                            "range": "-50 to +50",
+                            "neutral": 0,
+                        },
+                    },
+                    "neutral_value": 0,
+                    "note": "Service menu only. Write down originals before changing. 80% gray for Gain, 30% gray for Offset.",
+                },
+                "cms": {
+                    "path": "Service Menu > Color Tuner",
+                    "type": "cms",
+                    "colors": ["Red", "Green", "Blue", "Cyan", "Magenta", "Yellow"],
+                    "params": {
+                        "Hue": "Shifts relative colour angle.",
+                        "Saturation": "Adjusts purity / vibrancy.",
+                        "Brightness": "Controls luminance of that specific colour.",
+                    },
+                    "neutral_value": 0,
+                    "note": "Service menu offers finer resolution than user menu Color Calibration.",
+                },
+                "contrast": {
+                    "path": "Settings > Picture > Contrast",
+                    "type": "slider",
+                    "calibration_default": 50,
+                    "note": "Controls peak white levels. Default 50 is usually safe.",
+                },
+                "brightness": {
+                    "path": "Settings > Picture > Brightness",
+                    "type": "slider",
+                    "calibration_default": 50,
+                    "note": "Black level control — NOT luminance. Set so 5% near-black is just visible.",
+                },
+                "color_enhancement": {
+                    "path": "Settings > Picture > Color Enhancement",
+                    "type": "toggle",
+                    "calibration_value": "Off",
+                    "note": "Separate from disable list — easy to miss. Disable during calibration.",
+                },
+            },
+        },
     )
 
 
