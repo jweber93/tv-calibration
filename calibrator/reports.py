@@ -19,13 +19,15 @@ def report_payload(session: Dict[str, Any]) -> Dict[str, Any]:
 
     def stats(measurements: list) -> Dict[str, Any]:
         if not measurements:
-            return {"avg_de": None, "max_de": None, "measurements": []}
+            return {"avg_de": None, "max_de": None, "measurements": [], "invalid_count": 0}
         items = [m_to_dict(m, target, signal_range, code_scale) for m in measurements]
-        des = [item["delta_e"] for item in items]
+        valid = [item["delta_e"] for item in items if item["delta_e"] is not None]
+        invalid_count = sum(1 for item in items if item["delta_e"] is None)
         return {
-            "avg_de": round(sum(des) / len(des), 2),
-            "max_de": round(max(des), 2),
+            "avg_de": round(sum(valid) / len(valid), 2) if valid else None,
+            "max_de": round(max(valid), 2) if valid else None,
             "measurements": items,
+            "invalid_count": invalid_count,
         }
 
     def gamma_stats(measurements: list) -> Dict[str, Any]:
@@ -59,8 +61,8 @@ def report_payload(session: Dict[str, Any]) -> Dict[str, Any]:
         },
         "pre_cal": pre,
         "post_cal": post,
-        "white_balance": {"avg_de": wb["avg_de"], "max_de": wb["max_de"]},
-        "color_tuner": {"avg_de": cms["avg_de"], "max_de": cms["max_de"]},
+        "white_balance": {"avg_de": wb["avg_de"], "max_de": wb["max_de"], "invalid_count": wb["invalid_count"]},
+        "color_tuner": {"avg_de": cms["avg_de"], "max_de": cms["max_de"], "invalid_count": cms["invalid_count"]},
         "gamma": gamma,
         "improvement_pct": improvement,
         "repass_count": session.get("repass_count", 0),
