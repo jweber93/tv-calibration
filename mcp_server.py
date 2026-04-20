@@ -36,23 +36,23 @@ mem0_config = {
 memory = Memory.from_config(mem0_config)
 mcp = FastMCP("opencode-mem")
 
+def _extract_results(results) -> list:
+    if isinstance(results, list):
+        return results
+    if isinstance(results, dict):
+        return results.get("results", [])
+    return []
+
 @mcp.tool()
 def save_memory(content: str, user_id: str = "jweber") -> str:
     """Save something to persistent memory."""
-    result = memory.add(content, user_id=user_id)
+    result = memory.add(content, filters={"user_id": user_id})
     return f"Saved: {result}"
-
-def _extract_results(results) -> list:
-    if isinstance(results, dict):
-        return results.get("results", [])
-    if isinstance(results, list):
-        return results
-    return []
 
 @mcp.tool()
 def search_memory(query: str, user_id: str = "jweber", limit: int = 5) -> str:
     """Search persistent memory for relevant context."""
-    results = memory.search(query, user_id=user_id, limit=limit)
+    results = memory.search(query, filters={"user_id": user_id}, limit=limit)
     items = _extract_results(results)
     if not items:
         return "No relevant memories found."
@@ -61,7 +61,7 @@ def search_memory(query: str, user_id: str = "jweber", limit: int = 5) -> str:
 @mcp.tool()
 def list_memories(user_id: str = "jweber") -> str:
     """List all stored memories."""
-    results = memory.get_all(user_id=user_id)
+    results = memory.get_all(filters={"user_id": user_id})
     items = _extract_results(results)
     if not items:
         return "No memories stored yet."
