@@ -12,7 +12,7 @@
  * Also accepts an optional `plan` object (from LLM) with next_step and confidence.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const SCOPE_BADGE = {
   global: { label: 'Global', color: 'var(--accent)' },
@@ -177,8 +177,6 @@ export function OSDStepList({ steps, title = 'OSD Navigation', usesAdb, adbInstr
  *   sid       — string, session ID
  */
 
-import { useEffect, useState } from 'react';
-import { LlmInsightCard } from './LlmInsightCard';
 import { api } from '../api/client';
 
 const NEXT_STEP_LABEL = {
@@ -188,7 +186,7 @@ const NEXT_STEP_LABEL = {
   verify:          'Verify / Done',
 };
 
-export function CombinedInsightCard({ insight, streaming, error, onDismiss, tvKey, sid }) {
+export function CombinedInsightCard({ insight, streaming, error, onDismiss, sid }) {
   const [osdSteps, setOsdSteps] = useState([]);
   const [adbInfo, setAdbInfo] = useState({ usesAdb: false, adbInstructions: null });
   const [osdLoading, setOsdLoading] = useState(false);
@@ -265,5 +263,4 @@ export function CombinedInsightCard({ insight, streaming, error, onDismiss, tvKe
   );
 }
 
-// Re-export for importers
-export { OSDStepList };
+

@@ -143,7 +143,6 @@ def _derive_setting_key(setting_name: str, menu: str) -> str:
         "Backlight": "backlight",
         "Backlight Level": "backlight",
         "OLED Light": "backlight",
-        "Brightness": "black_level",
         "Black Level": "black_level",
         "Contrast": "contrast",
         "Colour Temperature": "color_temperature",
@@ -548,10 +547,7 @@ def _has_schema_for_setting(tv_profile: Any, adj: Dict[str, Any]) -> bool:
         return True
 
     known_settings = {"backlight", "black_level", "contrast", "color_temperature", "color_space"}
-    if setting_key in known_settings:
-        return True
-
-    return False
+    return setting_key in known_settings
 
 
 def translate_corrections(
