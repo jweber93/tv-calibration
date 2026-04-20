@@ -1965,3 +1965,108 @@ class TestHistoryGuardedByCompletion:
         client.get(f"/api/session/{session_id}/report")
         client.get(f"/api/session/{session_id}/report")
         assert len(recorded) == 1
+
+
+# ── Bug fix: #217 invalid measurements with delta_e=None don't crash reports ────
+
+class TestReportPayloadInvalidMeasurements:
+    def test_report_payload_handles_delta_e_none_gracefully(self, client, session_id):
+        """#217: invalid measurements with delta_e=None must not crash report generation."""
+        from calibrator.reports import report_payload
+
+        _sessions[session_id]["step"] = "report"
+        _sessions[session_id]["target"] = type("T", (), {
+            "gamut": "bt709", "eotf": "bt1886",
+            "peak_luminance_nits": 500, "white_point_xy": (0.3127, 0.3290),
+            "gamma": 2.4,
+        })()
+        _sessions[session_id]["pre_measurements"] = [
+            Measurement(x=0.35, y=0.35, Y=50.0, X=48.0, Z=56.0,
+                        stimulus_rgb=(128, 128, 128), label="50% Gray"),
+            Measurement(x=-1.0, y=-1.0, Y=-1.0, X=48.0, Z=56.0,
+                        stimulus_rgb=(128, 128, 128), label="Bad Gray"),
+        ]
+        _sessions[session_id]["post_measurements"] = [
+            Measurement(x=0.3127, y=0.3290, Y=50.0, X=48.3, Z=55.1,
+                        stimulus_rgb=(128, 128, 128), label="50% Gray"),
+        ]
+        _sessions[session_id]["wb_measurements"] = [
+            Measurement(x=-1.0, y=-1.0, Y=-1.0, X=48.0, Z=56.0,
+                        stimulus_rgb=(128, 128, 128), label="Bad WB"),
+            Measurement(x=0.3150, y=0.3280, Y=50.0, X=48.3, Z=55.1,
+                        stimulus_rgb=(128, 128, 128), label="Good WB"),
+        ]
+        _sessions[session_id]["gamma_measurements"] = []
+        _sessions[session_id]["cms_measurements"] = []
+        _sessions[session_id]["lum_measurements"] = []
+        _sessions[session_id]["peak_luminance"] = 200.0
+
+        report = report_payload(_sessions[session_id])
+        assert report is not None
+        assert report["pre_cal"]["avg_de"] is not None
+        assert report["pre_cal"]["invalid_count"] == 1
+        assert report["post_cal"]["avg_de"] is not None
+        assert report["post_cal"]["invalid_count"] == 0
+        assert report["white_balance"]["avg_de"] is not None
+        assert report["white_balance"]["invalid_count"] == 1
+
+    def test_report_payload_all_invalid_measurements_yields_none_stats(self, client, session_id):
+        """#217: when all measurements in a group are invalid, stats should be None."""
+        from calibrator.reports import report_payload
+
+        _sessions[session_id]["step"] = "report"
+        _sessions[session_id]["target"] = type("T", (), {
+            "gamut": "bt709", "eotf": "bt1886",
+            "peak_luminance_nits": 500, "white_point_xy": (0.3127, 0.3290),
+            "gamma": 2.4,
+        })()
+        _sessions[session_id]["pre_measurements"] = [
+            Measurement(x=-1.0, y=-1.0, Y=-1.0, X=48.0, Z=56.0,
+                        stimulus_rgb=(128, 128, 128), label="Bad Gray 1"),
+            Measurement(x=0.0, y=0.0, Y=0.0, X=48.0, Z=56.0,
+                        stimulus_rgb=(128, 128, 128), label="Bad Gray 2"),
+        ]
+        _sessions[session_id]["post_measurements"] = []
+        _sessions[session_id]["wb_measurements"] = []
+        _sessions[session_id]["gamma_measurements"] = []
+        _sessions[session_id]["cms_measurements"] = []
+        _sessions[session_id]["lum_measurements"] = []
+        _sessions[session_id]["peak_luminance"] = 0.0
+
+        report = report_payload(_sessions[session_id])
+        assert report["pre_cal"]["avg_de"] is None
+        assert report["pre_cal"]["max_de"] is None
+        assert report["pre_cal"]["invalid_count"] == 2
+        assert report["post_cal"]["avg_de"] is None
+        assert report["post_cal"]["max_de"] is None
+        assert report["improvement_pct"] is None
+
+    def test_report_api_does_not_crash_with_invalid_measurements(self, client, session_id):
+        """#217: the /report endpoint should return 200 even with invalid measurements."""
+        _sessions[session_id]["step"] = "report"
+        _sessions[session_id]["target"] = type("T", (), {
+            "gamut": "bt709", "eotf": "bt1886",
+            "peak_luminance_nits": 500, "white_point_xy": (0.3127, 0.3290),
+            "gamma": 2.4,
+        })()
+        _sessions[session_id]["pre_measurements"] = [
+            Measurement(x=-1.0, y=-1.0, Y=-1.0, X=48.0, Z=56.0,
+                        stimulus_rgb=(128, 128, 128), label="Bad Gray"),
+        ]
+        _sessions[session_id]["post_measurements"] = [
+            Measurement(x=-1.0, y=-1.0, Y=-1.0, X=48.0, Z=56.0,
+                        stimulus_rgb=(128, 128, 128), label="Bad Post"),
+        ]
+        _sessions[session_id]["wb_measurements"] = []
+        _sessions[session_id]["gamma_measurements"] = []
+        _sessions[session_id]["cms_measurements"] = []
+        _sessions[session_id]["lum_measurements"] = []
+        _sessions[session_id]["peak_luminance"] = 0.0
+
+        resp = client.get(f"/api/session/{session_id}/report")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "pre_cal" in data
+        assert "post_cal" in data
+        assert data["pre_cal"]["avg_de"] is None
+        assert data["post_cal"]["avg_de"] is None
