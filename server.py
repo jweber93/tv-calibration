@@ -1358,7 +1358,13 @@ def get_report(sid: str):
     session = store.get(sid)
     report = _report_payload(session)
     # Record to per-TV calibration history on first fetch (idempotent via session flag).
-    if not session.get("_history_recorded"):
+    # Only record completed sessions — skip sessions that are still in-flight or have
+    # no meaningful measurements (they pollute history with null entries).
+    completed_steps = {"luminance", "white_balance", "gamma", "report"}
+    has_measurements = (
+        session.get("post_measurements") and len(session["post_measurements"]) > 0
+    )
+    if not session.get("_history_recorded") and session.get("step") in completed_steps and has_measurements:
         try:
             _record_session(
                 tv_key=session.get("tv_key", "unknown"),

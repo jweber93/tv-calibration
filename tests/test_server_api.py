@@ -1800,3 +1800,168 @@ def test_cors_blocks_credentials_on_unknown_origin(client):
     )
     assert resp.status_code == 200
     assert resp.headers.get("access-control-allow-origin") != "http://evil.example.com"
+
+
+# ── Bug fix: #220 improvement_pct with zero post ΔE ────────────────
+
+class TestImprovementPercentZeroDeltaE:
+    def test_perfect_post_cal_yields_100_pct_improvement(self, client, session_id):
+        """#220: perfect post-cal ΔE of 0.0 should give 100% improvement, not None."""
+        from calibrator.reports import report_payload
+
+        _sessions[session_id]["step"] = "report"
+        _sessions[session_id]["target"] = type("T", (), {
+            "gamut": "bt709", "eotf": "bt1886",
+            "peak_luminance_nits": 500, "white_point_xy": (0.3127, 0.3290),
+            "gamma": 2.4,
+        })()
+        _sessions[session_id]["pre_measurements"] = [
+            Measurement(x=0.35, y=0.35, Y=50.0, X=48.0, Z=56.0,
+                        stimulus_rgb=(255, 0, 0), label="Red 100%"),
+        ]
+        _sessions[session_id]["post_measurements"] = [
+            Measurement(x=0.3127, y=0.3290, Y=50.0, X=48.3, Z=55.1,
+                        stimulus_rgb=(255, 0, 0), label="Red 100%"),
+        ]
+        _sessions[session_id]["wb_measurements"] = []
+        _sessions[session_id]["gamma_measurements"] = []
+        _sessions[session_id]["cms_measurements"] = []
+        _sessions[session_id]["lum_measurements"] = []
+        _sessions[session_id]["peak_luminance"] = 200.0
+
+        report = report_payload(_sessions[session_id])
+        assert report["improvement_pct"] == 100.0
+
+    def test_normal_improvement_calculation_with_nonzero_post(self, client, session_id):
+        """Ensure normal improvement calc still works for non-zero post ΔE."""
+        from calibrator.reports import report_payload
+
+        _sessions[session_id]["step"] = "report"
+        _sessions[session_id]["target"] = type("T", (), {
+            "gamut": "bt709", "eotf": "bt1886",
+            "peak_luminance_nits": 500, "white_point_xy": (0.3127, 0.3290),
+            "gamma": 2.4,
+        })()
+        _sessions[session_id]["pre_measurements"] = [
+            Measurement(x=0.40, y=0.40, Y=50.0, X=40.0, Z=48.0,
+                        stimulus_rgb=(255, 0, 0), label="Red 100%"),
+        ]
+        _sessions[session_id]["post_measurements"] = [
+            Measurement(x=0.35, y=0.35, Y=50.0, X=48.0, Z=56.0,
+                        stimulus_rgb=(255, 0, 0), label="Red 100%"),
+        ]
+        _sessions[session_id]["wb_measurements"] = []
+        _sessions[session_id]["gamma_measurements"] = []
+        _sessions[session_id]["cms_measurements"] = []
+        _sessions[session_id]["lum_measurements"] = []
+        _sessions[session_id]["peak_luminance"] = 200.0
+
+        report = report_payload(_sessions[session_id])
+        assert report["improvement_pct"] is not None
+        assert report["improvement_pct"] > 0
+        assert report["improvement_pct"] < 100
+
+
+# ── Bug fix: #221 incomplete sessions don't pollute history ───────
+
+class TestHistoryGuardedByCompletion:
+    def test_report_does_not_record_history_for_incomplete_session(self, client, session_id, monkeypatch):
+        """#221: sessions in 'select_mode' should not record to history."""
+        recorded = []
+        def mock_record(*a, **kw):
+            recorded.append((a, kw))
+        monkeypatch.setattr(server_module, "_record_session", mock_record)
+
+        # Session is still in select_mode — no post_measurements
+        resp = client.get(f"/api/session/{session_id}/report")
+        assert resp.status_code == 400  # no target selected
+
+        assert len(recorded) == 0
+
+    def test_report_does_not_record_history_without_post_measurements(self, client, session_id, monkeypatch):
+        """Sessions at report step but without post_measurements should not record to history."""
+        recorded = []
+        def mock_record(*a, **kw):
+            recorded.append((a, kw))
+        monkeypatch.setattr(server_module, "_record_session", mock_record)
+
+        _sessions[session_id]["step"] = "report"
+        _sessions[session_id]["target"] = type("T", (), {
+            "gamut": "bt709", "eotf": "bt1886",
+            "peak_luminance_nits": 500, "white_point_xy": (0.3127, 0.3290),
+            "gamma": 2.4,
+        })()
+        _sessions[session_id]["pre_measurements"] = []
+        _sessions[session_id]["post_measurements"] = []
+        _sessions[session_id]["wb_measurements"] = []
+        _sessions[session_id]["gamma_measurements"] = []
+        _sessions[session_id]["cms_measurements"] = []
+        _sessions[session_id]["lum_measurements"] = []
+        _sessions[session_id]["peak_luminance"] = 0.0
+
+        resp = client.get(f"/api/session/{session_id}/report")
+        assert resp.status_code == 200
+        assert len(recorded) == 0
+
+    def test_report_records_history_for_completed_session(self, client, session_id, monkeypatch):
+        """Only sessions with post_measurements at a completed step should record to history."""
+        recorded = []
+        def mock_record(*a, **kw):
+            recorded.append((a, kw))
+        monkeypatch.setattr(server_module, "_record_session", mock_record)
+
+        _sessions[session_id]["step"] = "report"
+        _sessions[session_id]["target"] = type("T", (), {
+            "gamut": "bt709", "eotf": "bt1886",
+            "peak_luminance_nits": 500, "white_point_xy": (0.3127, 0.3290),
+            "gamma": 2.4,
+        })()
+        _sessions[session_id]["pre_measurements"] = [
+            Measurement(x=0.3127, y=0.3290, Y=50.0, X=48.3, Z=55.1,
+                        stimulus_rgb=(128, 128, 128), label="50% Gray"),
+        ]
+        _sessions[session_id]["post_measurements"] = [
+            Measurement(x=0.3127, y=0.3290, Y=50.0, X=48.3, Z=55.1,
+                        stimulus_rgb=(128, 128, 128), label="50% Gray"),
+        ]
+        _sessions[session_id]["wb_measurements"] = []
+        _sessions[session_id]["gamma_measurements"] = []
+        _sessions[session_id]["cms_measurements"] = []
+        _sessions[session_id]["lum_measurements"] = []
+        _sessions[session_id]["peak_luminance"] = 200.0
+
+        resp = client.get(f"/api/session/{session_id}/report")
+        assert resp.status_code == 200
+        assert len(recorded) == 1
+        assert recorded[0][1]["session_id"] == session_id
+
+    def test_second_report_fetch_is_idempotent(self, client, session_id, monkeypatch):
+        """Subsequent report fetches should not record history again."""
+        recorded = []
+        def mock_record(*a, **kw):
+            recorded.append((a, kw))
+        monkeypatch.setattr(server_module, "_record_session", mock_record)
+
+        _sessions[session_id]["step"] = "report"
+        _sessions[session_id]["target"] = type("T", (), {
+            "gamut": "bt709", "eotf": "bt1886",
+            "peak_luminance_nits": 500, "white_point_xy": (0.3127, 0.3290),
+            "gamma": 2.4,
+        })()
+        _sessions[session_id]["pre_measurements"] = [
+            Measurement(x=0.3127, y=0.3290, Y=50.0, X=48.3, Z=55.1,
+                        stimulus_rgb=(128, 128, 128), label="50% Gray"),
+        ]
+        _sessions[session_id]["post_measurements"] = [
+            Measurement(x=0.3127, y=0.3290, Y=50.0, X=48.3, Z=55.1,
+                        stimulus_rgb=(128, 128, 128), label="50% Gray"),
+        ]
+        _sessions[session_id]["wb_measurements"] = []
+        _sessions[session_id]["gamma_measurements"] = []
+        _sessions[session_id]["cms_measurements"] = []
+        _sessions[session_id]["lum_measurements"] = []
+        _sessions[session_id]["peak_luminance"] = 200.0
+
+        client.get(f"/api/session/{session_id}/report")
+        client.get(f"/api/session/{session_id}/report")
+        assert len(recorded) == 1
