@@ -84,6 +84,8 @@ from calibrator.reports import (
     render_report_pdf as _render_report_pdf,
     report_payload as _report_payload,
 )
+from calibrator.osd import translate_from_adjustment_plan as _osd_translate
+from calibrator.osd import translate_from_adjustment_plan as _osd_translate
 from calibrator.session import (
     CMS_PATCHES,
     cv as _cv,
@@ -1261,11 +1263,29 @@ def session_history(sid: str):
 # ── Hardware remediation endpoint ─────────────────────────────────────────────
 
 
+class _OsdTranslateReq(BaseModel):
+    plan: dict  # AdjustmentPlan dict from LLM
+
+
 class _HardwareEventReq(BaseModel):
     event_type: str
     context: dict = {}
     attempt_count: int = 1
     session_phase: str = ""
+
+
+@app.post("/api/session/{sid}/osd/translate")
+def osd_translate(sid: str, req: _OsdTranslateReq):
+    """Translate an LLM adjustment plan into step-by-step OSD navigation instructions."""
+    session = store.get(sid)
+    tv_key = session.get("tv_key", "")
+
+    if not tv_key:
+        raise HTTPException(400, "No TV profile selected for this session.")
+
+    tv_profile = _get_tv_profile(tv_key)
+    result = _osd_translate(req.plan, tv_profile)
+    return result.to_dict()
 
 
 @app.post("/api/session/{sid}/hardware/remediate")

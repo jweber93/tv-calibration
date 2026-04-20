@@ -131,6 +131,10 @@ export const api = {
   runSuggestedPatches: (sid, patches) =>
     api.post(`/api/session/${sid}/suggested-patches/run`, { patches }),
 
+  // OSD Command Translator (#167)
+  translateOsd: (sid, plan) =>
+    api.post(`/api/session/${sid}/osd/translate`, { plan }),
+
   // Report
   getReport:     (sid)        => api.get(`/api/session/${sid}/report`),
   downloadPdf:   async (sid, tv) => {
