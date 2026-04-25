@@ -85,7 +85,6 @@ from calibrator.reports import (
     report_payload as _report_payload,
 )
 from calibrator.osd import translate_from_adjustment_plan as _osd_translate
-from calibrator.osd import translate_from_adjustment_plan as _osd_translate
 from calibrator.session import (
     CMS_PATCHES,
     cv as _cv,
