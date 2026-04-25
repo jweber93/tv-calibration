@@ -22,6 +22,7 @@ from contextlib import asynccontextmanager, suppress as context_suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 import httpx
 
@@ -707,11 +708,13 @@ def _run_llm_background(
     session_step_history: Optional[List[Dict[str, Any]]] = None,
     tv_settings: Optional[TVSettings] = None,
 ) -> None:
+    _parsed_ep = urlparse(llm_cfg.endpoint)
+    _safe_endpoint = f"{_parsed_ep.scheme}://{_parsed_ep.hostname or ''}{_parsed_ep.path}"
     logger.info(
         "LLM run started  sid=%s phase=%s endpoint=%s model=%s",
         sid,
         phase,
-        llm_cfg.endpoint,
+        _safe_endpoint,
         llm_cfg.model,
     )
     _llm_broadcast(
@@ -826,7 +829,11 @@ def _maybe_trigger_llm(sid: str, session: Dict[str, Any]) -> None:
     endpoint = llm_cfg_dict.get("endpoint", "")
     model = llm_cfg_dict.get("model", "")
     if not (endpoint and model):
-        endpoint_repr = endpoint.split("?")[0] if endpoint else ""
+        if endpoint:
+            _rep = urlparse(endpoint)
+            endpoint_repr = f"{_rep.scheme}://{_rep.hostname or ''}{_rep.path}"
+        else:
+            endpoint_repr = ""
         logger.info(
             "LLM skip  sid=%s reason=not_configured endpoint=%r model=%r",
             sid,
