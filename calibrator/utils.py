@@ -88,3 +88,22 @@ def direction_hint(measured_val, target_val, label="") -> str:
     if diff > 0:
         return f"[yellow]↓ Decrease {label}[/yellow]"
     return f"[cyan]↑ Increase {label}[/cyan]"
+
+
+_MEASUREMENT_BUCKETS = (
+    "pre_measurements",
+    "wb_measurements",
+    "gamma_measurements",
+    "cms_measurements",
+    "post_measurements",
+)
+
+
+def get_all_measurements(session: dict) -> list:
+    """Return a flat list of all measurements across every bucket."""
+    result: list = []
+    for key in _MEASUREMENT_BUCKETS:
+        bucket = session.get(key)
+        if bucket:
+            result.extend(bucket)
+    return result

@@ -106,6 +106,7 @@ from calibrator.session import (
     validate_peak_luminance as _validate_peak_luminance,
     zro_step_instructions as _zro_step_instructions,
 )
+from calibrator.utils import get_all_measurements as _get_all_measurements
 import calibrator.adb_control as _adb
 
 logger = logging.getLogger(__name__)
@@ -911,13 +912,7 @@ def _maybe_trigger_llm(sid: str, session: Dict[str, Any]) -> None:
         )
         return
 
-    all_measurements = (
-        session.get("pre_measurements", [])
-        + session.get("wb_measurements", [])
-        + session.get("gamma_measurements", [])
-        + session.get("cms_measurements", [])
-        + session.get("post_measurements", [])
-    )
+    all_measurements = _get_all_measurements(session)
     if not all_measurements:
         logger.info("LLM skip  sid=%s reason=no_measurements", sid)
         return
@@ -1191,13 +1186,7 @@ def llm_run(sid: str):
             400, "LLM not configured; POST /api/session/{sid}/llm/configure first."
         )
 
-    all_measurements = (
-        session.get("pre_measurements", [])
-        + session.get("wb_measurements", [])
-        + session.get("gamma_measurements", [])
-        + session.get("cms_measurements", [])
-        + session.get("post_measurements", [])
-    )
+    all_measurements = _get_all_measurements(session)
     if not all_measurements:
         raise HTTPException(
             400, "No measurements in session; import data before running LLM analysis."
@@ -1591,13 +1580,7 @@ def get_suggested_patches(sid: str, budget: int = 30):
 
     session = store.get(sid)
 
-    all_measurements = (
-        session.get("pre_measurements", [])
-        + session.get("wb_measurements", [])
-        + session.get("gamma_measurements", [])
-        + session.get("cms_measurements", [])
-        + session.get("post_measurements", [])
-    )
+    all_measurements = _get_all_measurements(session)
     if not all_measurements:
         raise HTTPException(400, "No measurements in session; import data first.")
 
