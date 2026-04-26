@@ -14,11 +14,11 @@ from server import app as server_app
 
 def _reset_server_globals():
     server_module._sessions.clear()
-    server_module._watched_session_id = None
-    server_module._dogegen_proc = None
-    server_module._dogegen_started_at = None
-    server_module._dogegen_launch_cmd = []
-    server_module._dogegen_last_error = None
+    server_module._watched_session.set(None)
+    server_module._dogegen_state.proc = None
+    server_module._dogegen_state.started_at = None
+    server_module._dogegen_state.launch_cmd = []
+    server_module._dogegen_state.last_error = None
     server_module._dogegen_config = {
         "path": "",
         "resolve_host": "",
@@ -37,7 +37,7 @@ def _reset_server_globals():
         },
     }
     server_module._llm_queues.clear()
-    server_module._zro_bridge_url = ""
+    server_module._zro_bridge.set("")
 
 
 class TestSuggestedPatchesAPI(unittest.TestCase):
@@ -167,7 +167,7 @@ class TestSuggestedPatchesAPI(unittest.TestCase):
         _reset_server_globals()
         self.client = TestClient(server_app)
         sid = self._create_session()
-        server_module._zro_bridge_url = "http://localhost:7070"
+        server_module._zro_bridge.set("http://localhost:7070")
 
         # Mock the bridge so we can test validation before the bridge call
         def mock_post(url, **kwargs):
@@ -214,7 +214,7 @@ class TestSuggestedPatchesAPI(unittest.TestCase):
         _reset_server_globals()
         self.client = TestClient(server_app)
         sid = self._create_session()
-        server_module._zro_bridge_url = "http://localhost:7070"
+        server_module._zro_bridge.set("http://localhost:7070")
 
         big_patches = [
             {"nits": 120, "r": 235, "g": 16, "b": 16, "priority": "high"}

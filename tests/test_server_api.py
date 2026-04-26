@@ -14,11 +14,11 @@ from server import app, _sessions
 
 def _reset_globals():
     _sessions.clear()
-    server_module._watched_session_id = None
-    server_module._dogegen_proc = None
-    server_module._dogegen_started_at = None
-    server_module._dogegen_launch_cmd = []
-    server_module._dogegen_last_error = None
+    server_module._watched_session.set(None)
+    server_module._dogegen_state.proc = None
+    server_module._dogegen_state.started_at = None
+    server_module._dogegen_state.launch_cmd = []
+    server_module._dogegen_state.last_error = None
     server_module._dogegen_config = {
         "path": "",
         "resolve_host": "",
@@ -199,7 +199,7 @@ class TestSessionCreation:
             **_sessions["expired1"],
             "id": "watched1",
         }
-        server_module._watched_session_id = "watched1"
+        server_module._watched_session.set("watched1")
         (tmp_path / "expired1.json").write_text("{}")
         (tmp_path / "watched1.json").write_text("{}")
 
@@ -406,7 +406,7 @@ class TestDeleteSessionWatcherCleanup:
         # Set up a watched session
         resp = client.post("/api/session", json={"tv_key": "u8g"})
         sid = resp.json()["id"]
-        server_module._watched_session_id = sid
+        server_module._watched_session.set(sid)
 
         # Mock _fw_stop to track calls
         stopped = []
@@ -419,7 +419,7 @@ class TestDeleteSessionWatcherCleanup:
             resp = client.delete(f"/api/session/{sid}")
             assert resp.status_code == 200
             assert stopped == [True]
-            assert server_module._watched_session_id is None
+            assert server_module._watched_session.get() is None
         finally:
             server_module._fw_stop = original_fw_stop
 
@@ -427,7 +427,7 @@ class TestDeleteSessionWatcherCleanup:
         """Deleting a non-watched session should not stop the watcher."""
         resp = client.post("/api/session", json={"tv_key": "u8g"})
         sid = resp.json()["id"]
-        server_module._watched_session_id = "other_session"
+        server_module._watched_session.set("other_session")
 
         stopped = []
         original_fw_stop = server_module._fw_stop
@@ -439,7 +439,7 @@ class TestDeleteSessionWatcherCleanup:
             resp = client.delete(f"/api/session/{sid}")
             assert resp.status_code == 200
             assert stopped == []
-            assert server_module._watched_session_id == "other_session"
+            assert server_module._watched_session.get() == "other_session"
         finally:
             server_module._fw_stop = original_fw_stop
 
@@ -637,7 +637,7 @@ class TestDogegenAutomation:
         exe = tmp_path / "Dogegen.exe"
         exe.write_text("")
         fake_proc = _FakeProc()
-        server_module._dogegen_proc = fake_proc
+        server_module._dogegen_state.proc = fake_proc
         server_module._dogegen_config["path"] = str(exe)
         monkeypatch.setattr(server_module, "_find_dogegen_executable", lambda: str(exe))
 
@@ -645,7 +645,7 @@ class TestDogegenAutomation:
 
         assert resp.status_code == 200
         assert resp.json()["running"] is False
-        assert server_module._dogegen_proc is None
+        assert server_module._dogegen_state.proc is None
 
 
 # ── ZRO CSV import ────────────────────────────────────────────────────────────
@@ -1661,7 +1661,7 @@ class TestSessionTTLCleanup:
             "last_accessed_at": stale_time,
             "zro_imports": [],
         }
-        server_module._watched_session_id = "watched_evict"
+        server_module._watched_session.set("watched_evict")
         (tmp_path / "watched_evict.json").write_text("{}")
 
         expired = server_module.store.evict_expired_sessions()
