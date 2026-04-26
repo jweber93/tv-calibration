@@ -51,6 +51,16 @@ class LLMConfig:
     temperature: float = 0.2
     timeout: float = 120.0
 
+    @classmethod
+    def from_dict(cls, d: dict, default_timeout: float = 120.0, default_temperature: float = 0.2) -> "LLMConfig":
+        return cls(
+            endpoint=d.get("endpoint", ""),
+            model=d.get("model", ""),
+            api_key=d.get("api_key", ""),
+            temperature=float(d.get("temperature", default_temperature)),
+            timeout=float(d.get("timeout", default_timeout)),
+        )
+
 
 @dataclass
 class Summary:
