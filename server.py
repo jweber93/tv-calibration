@@ -473,26 +473,26 @@ class PrefsReq(BaseModel):
     watch_folder: Optional[str] = None
 
 
-class _AdbCmsSetReq(BaseModel):
+class AdbCmsSetReq(BaseModel):
     channel: str
     control: str
     value: int
     device: Optional[str] = None
 
 
-class _AdbCmsGetReq(BaseModel):
+class AdbCmsGetReq(BaseModel):
     channel: str
     control: str
     device: Optional[str] = None
 
 
-class _AdbPictureSetReq(BaseModel):
+class AdbPictureSetReq(BaseModel):
     control: str
     value: int
     device: Optional[str] = None
 
 
-class _AdbPictureGetReq(BaseModel):
+class AdbPictureGetReq(BaseModel):
     control: str
     device: Optional[str] = None
 
@@ -505,16 +505,16 @@ class TvSettingsReq(BaseModel):
     cms_sliders: Optional[Dict[str, Any]] = None
 
 
-class _ZroBridgeConfigBody(BaseModel):
+class ZroBridgeConfigBody(BaseModel):
     url: str
 
 
-class _WatchConfigBody(BaseModel):
+class WatchConfigBody(BaseModel):
     path: str
     sid: str
 
 
-class _WatchStartBody(BaseModel):
+class WatchStartBody(BaseModel):
     path: str
 
 
@@ -1310,11 +1310,11 @@ def session_history(sid: str):
 # ── Hardware remediation endpoint ─────────────────────────────────────────────
 
 
-class _OsdTranslateReq(BaseModel):
+class OsdTranslateReq(BaseModel):
     plan: dict  # AdjustmentPlan dict from LLM
 
 
-class _HardwareEventReq(BaseModel):
+class HardwareEventReq(BaseModel):
     event_type: str
     context: dict = {}
     attempt_count: int = 1
@@ -1322,7 +1322,7 @@ class _HardwareEventReq(BaseModel):
 
 
 @app.post("/api/session/{sid}/osd/translate")
-def osd_translate(sid: str, req: _OsdTranslateReq):
+def osd_translate(sid: str, req: OsdTranslateReq):
     """Translate an LLM adjustment plan into step-by-step OSD navigation instructions."""
     session = store.get(sid)
     tv_key = session.get("tv_key", "")
@@ -1336,7 +1336,7 @@ def osd_translate(sid: str, req: _OsdTranslateReq):
 
 
 @app.post("/api/session/{sid}/hardware/remediate")
-def hardware_remediate(sid: str, req: _HardwareEventReq):
+def hardware_remediate(sid: str, req: HardwareEventReq):
     """Ask the LLM to diagnose a hardware fault and suggest recovery steps."""
     session = store.get(sid)
     llm_cfg_dict = session.get("llm_config", {})
@@ -1649,7 +1649,7 @@ def run_suggested_patches(sid: str, body: RunPatchesReq):
 
 # ── Adaptive repass endpoint (#166) ────────────────────────────────────────────
 
-class _RepassReq(BaseModel):
+class RepassReq(BaseModel):
     """LLM pass-decision result to drive the repass state transition."""
     action: str
     patches: List[str] = []
@@ -1698,7 +1698,7 @@ def _label_to_rgb(label: str, signal_range: str, code_scale: str = "8bit") -> Li
 
 
 @app.post("/api/session/{sid}/repass")
-def post_repass(sid: str, req: _RepassReq):
+def post_repass(sid: str, req: RepassReq):
     """Apply an LLM pass-decision to the session state machine."""
     session = store.get(sid)
     signal_range = session.get("signal_range", "full")
@@ -1744,13 +1744,13 @@ def post_repass(sid: str, req: _RepassReq):
 
 # ── Adaptive pass-decision endpoint (#166) ─────────────────────────────────────
 
-class _PassDecisionReq(BaseModel):
+class PassDecisionReq(BaseModel):
     measurements: List[Dict[str, Any]]
     repass_count: int = 0
 
 
 @app.post("/api/session/{sid}/pass-decision")
-def post_pass_decision(sid: str, req: _PassDecisionReq):
+def post_pass_decision(sid: str, req: PassDecisionReq):
     """Evaluate measurement residuals and decide: accept, repatch, or ceiling.
 
     Returns {"action": "accept"|"repatch"|"ceiling", "patches": [...], "reason": "...", "confidence": 0.0, "repass_count": N}.
@@ -1814,7 +1814,7 @@ def adb_cms_push(device: Optional[str] = None):
 
 
 @app.post("/api/adb/cms/set")
-def adb_cms_set(req: _AdbCmsSetReq):
+def adb_cms_set(req: AdbCmsSetReq):
     try:
         result = _adb.set_cms_value(
             channel=req.channel, control=req.control, value=req.value, device=req.device
@@ -1831,7 +1831,7 @@ def adb_cms_set(req: _AdbCmsSetReq):
 
 
 @app.post("/api/adb/cms/get")
-def adb_cms_get(req: _AdbCmsGetReq):
+def adb_cms_get(req: AdbCmsGetReq):
     try:
         result = _adb.get_cms_value(
             channel=req.channel, control=req.control, device=req.device
@@ -1874,7 +1874,7 @@ def adb_cms_reset(device: Optional[str] = None):
 
 
 @app.post("/api/adb/picture/set")
-def adb_picture_set(req: _AdbPictureSetReq):
+def adb_picture_set(req: AdbPictureSetReq):
     try:
         result = _adb.set_picture_control(
             control=req.control, value=req.value, device=req.device
@@ -1891,7 +1891,7 @@ def adb_picture_set(req: _AdbPictureSetReq):
 
 
 @app.post("/api/adb/picture/get")
-def adb_picture_get(req: _AdbPictureGetReq):
+def adb_picture_get(req: AdbPictureGetReq):
     try:
         result = _adb.get_picture_control(control=req.control, device=req.device)
     except ValueError as exc:
@@ -1942,7 +1942,7 @@ def zro_bridge_status():
 
 @app.post("/api/zro/bridge/config")
 @app.post("/api/bridge/url")
-def zro_bridge_config(body: _ZroBridgeConfigBody):
+def zro_bridge_config(body: ZroBridgeConfigBody):
     _zro_bridge.set(body.url.rstrip("/"))
     _save_prefs()
     return {"ok": True, "url": _zro_bridge.get()}
@@ -2001,8 +2001,8 @@ def zro_trigger():
 
 
 @app.post("/api/session/{sid}/watch")
-def session_watch_start(sid: str, body: _WatchStartBody):
-    return watch_config(_WatchConfigBody(sid=sid, path=body.path))
+def session_watch_start(sid: str, body: WatchStartBody):
+    return watch_config(WatchConfigBody(sid=sid, path=body.path))
 
 
 @app.post("/api/watch/stop")
@@ -2014,7 +2014,7 @@ _WATCH_ROOT = Path(os.getenv("WATCH_ROOT", Path.home().resolve())).resolve()
 
 
 @app.post("/api/watch/config")
-def watch_config(body: _WatchConfigBody):
+def watch_config(body: WatchConfigBody):
     sid = body.sid
     session = store.get(sid)
     abs_path = Path(body.path).resolve()
