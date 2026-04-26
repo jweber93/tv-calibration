@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import logging
 import os
 import time
 from dataclasses import asdict
@@ -23,6 +24,9 @@ from calcore import (
 )
 from calcore.llm import hash_summary, query_delta_summary
 from calcore.models import Summary
+
+
+logger = logging.getLogger(__name__)
 
 
 def format_num(v: Optional[float], digits: int = 3) -> str:
@@ -165,7 +169,8 @@ def load_state(path: Path, default_cfg: AnalysisConfig) -> SessionState:
             ),
             llm=LLMConfig.from_dict(llm_raw, default_timeout=120.0),
         )
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to load session state from %s; starting fresh", path, exc_info=True)
         return SessionState(config=default_cfg)
 
 
