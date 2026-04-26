@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ZRO Calibration Helper â€” web API backend.
+ZRO Calibration Helper — web API backend.
 
 Run with:
     uvicorn server:app --host 0.0.0.0 --port 8000
@@ -240,13 +240,107 @@ app.add_middleware(
 
 SESSION_STORE_DIR = Path(__file__).parent / ".sessions"
 SESSION_TTL = timedelta(days=7)
-_watched_session_id: Optional[str] = None
 
-_dogegen_proc: Optional[subprocess.Popen] = None
-_dogegen_launch_cmd: List[str] = []
-_dogegen_last_error: Optional[str] = None
-_dogegen_started_at: Optional[datetime] = None
-_dogegen_lock = threading.RLock()  # Guards all reads/writes of _dogegen_proc
+
+class _WatchedSessionState:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._sid: Optional[str] = None
+
+    def get(self) -> Optional[str]:
+        with self._lock:
+            return self._sid
+
+    def set(self, sid: Optional[str]) -> None:
+        with self._lock:
+            self._sid = sid
+
+
+class _DogegenState:
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self.proc: Optional[subprocess.Popen] = None
+        self.started_at: Optional[datetime] = None
+        self.launch_cmd: List[str] = []
+        self.last_error: Optional[str] = None
+
+    def is_running(self) -> bool:
+        with self._lock:
+            if self.proc is None:
+                return False
+            if self.proc.poll() is None:
+                return True
+            self.proc = None
+            self.started_at = None
+            return False
+
+    def get_started_at(self) -> Optional[datetime]:
+        with self._lock:
+            return self.started_at
+
+    def get_proc_pid(self) -> Optional[int]:
+        with self._lock:
+            return self.proc.pid if self.proc is not None else None
+
+    def get_last_error(self) -> Optional[str]:
+        with self._lock:
+            return self.last_error
+
+    def get_launch_cmd(self) -> List[str]:
+        with self._lock:
+            return list(self.launch_cmd)
+
+    def set_started(self, proc: subprocess.Popen, started_at: datetime, cmd: List[str]) -> None:
+        with self._lock:
+            self.proc = proc
+            self.started_at = started_at
+            self.launch_cmd = list(cmd)
+            self.last_error = None
+
+    def set_failed(self, cmd: List[str], error: str) -> None:
+        with self._lock:
+            self.proc = None
+            self.started_at = None
+            self.launch_cmd = list(cmd)
+            self.last_error = error
+
+    def set_last_error(self, error: str) -> None:
+        with self._lock:
+            self.last_error = error
+
+    def terminate(self) -> None:
+        with self._lock:
+            if self.proc is not None:
+                try:
+                    self.proc.terminate()
+                    self.proc.wait(timeout=3)
+                except Exception:
+                    try:
+                        self.proc.kill()
+                    except Exception:
+                        pass
+                finally:
+                    self.proc = None
+                    self.started_at = None
+
+
+class _ZroBridgeState:
+    def __init__(self, url: str) -> None:
+        self._lock = threading.Lock()
+        self._url = url
+
+    def get(self) -> str:
+        with self._lock:
+            return self._url
+
+    def set(self, url: str) -> None:
+        with self._lock:
+            self._url = url
+
+
+_watched_session = _WatchedSessionState()
+_dogegen_state = _DogegenState()
+_zro_bridge = _ZroBridgeState(os.getenv("ZRO_BRIDGE_URL", "http://localhost:7070").rstrip("/"))
 _DOGEGEN_READY_DELAY_SECONDS = 2.0
 _dogegen_config: Dict[str, Any] = {
     "path": os.getenv("DOGEGEN_PATH", "").strip(),
@@ -262,7 +356,7 @@ _llm_queues_lock = threading.Lock()
 store = SessionStore(
     session_dir_getter=lambda: SESSION_STORE_DIR,
     ttl_getter=lambda: SESSION_TTL,
-    watched_session_id_getter=lambda: _watched_session_id,
+    watched_session_id_getter=lambda: _watched_session.get(),
 )
 store.load_sessions()
 
@@ -288,7 +382,6 @@ _prefs: Dict[str, Any] = {
 def _load_prefs() -> None:
     """Read .prefs.json and apply to live globals. Env vars set initial values;
     saved prefs overwrite them so the user's last UI choice always wins."""
-    global _zro_bridge_url
     if not _PREFS_PATH.exists():
         return
     try:
@@ -302,13 +395,13 @@ def _load_prefs() -> None:
         if field in _prefs.get("dogegen", {}):
             _dogegen_config[field] = _prefs["dogegen"][field]
     if _prefs.get("bridge_url"):
-        _zro_bridge_url = _prefs["bridge_url"]
+        _zro_bridge.set(_prefs["bridge_url"])
 
 
 def _save_prefs() -> None:
     """Snapshot current globals into _prefs and write atomically."""
     _prefs["dogegen"] = dict(_dogegen_config)
-    _prefs["bridge_url"] = _zro_bridge_url
+    _prefs["bridge_url"] = _zro_bridge.get()
     try:
         tmp = _PREFS_PATH.with_suffix(".tmp")
         tmp.write_text(json.dumps(_prefs, indent=2), encoding="utf-8")
@@ -460,15 +553,7 @@ def _find_dogegen_executable() -> Optional[str]:
 
 
 def _managed_dogegen_is_running() -> bool:
-    global _dogegen_proc, _dogegen_started_at
-    with _dogegen_lock:
-        if _dogegen_proc is None:
-            return False
-        if _dogegen_proc.poll() is None:
-            return True
-        _dogegen_proc = None
-        _dogegen_started_at = None
-        return False
+    return _dogegen_state.is_running()
 
 
 def _external_dogegen_pid() -> Optional[int]:
@@ -524,10 +609,11 @@ def _dogegen_status_payload() -> Dict[str, Any]:
     if external_pid is not None:
         ready = True
     elif managed_running:
+        started_at = _dogegen_state.get_started_at()
         elapsed = (
             0.0
-            if _dogegen_started_at is None
-            else (_now() - _dogegen_started_at).total_seconds()
+            if started_at is None
+            else (_now() - started_at).total_seconds()
         )
         ready = elapsed >= _DOGEGEN_READY_DELAY_SECONDS
         if not ready:
@@ -536,15 +622,15 @@ def _dogegen_status_payload() -> Dict[str, Any]:
         "configured": bool(path),
         "path": path,
         "running": running,
-        "pid": _dogegen_proc.pid if managed_running and _dogegen_proc else external_pid,
+        "pid": _dogegen_state.get_proc_pid() if managed_running else external_pid,
         "managed": managed_running,
         "ready": ready,
         "ready_in_ms": ready_in_ms,
         "resolve_host": _dogegen_config.get("resolve_host") or "",
         "window_pct": int(_dogegen_config.get("window_pct") or 10),
         "maxcll": int(_dogegen_config.get("maxcll") or 1000),
-        "last_error": _dogegen_last_error,
-        "launch_cmd": list(_dogegen_launch_cmd),
+        "last_error": _dogegen_state.get_last_error(),
+        "launch_cmd": _dogegen_state.get_launch_cmd(),
     }
 
 
@@ -569,62 +655,43 @@ def _dogegen_command_for_session(session: Dict[str, Any], exe_path: str) -> List
 
 
 def _start_dogegen_for_session(session: Dict[str, Any]) -> Dict[str, Any]:
-    global _dogegen_proc, _dogegen_launch_cmd, _dogegen_last_error, _dogegen_started_at
-    with _dogegen_lock:
+    with _dogegen_state._lock:
         if _managed_dogegen_is_running() or _external_dogegen_pid() is not None:
             return {"ok": True, "already_running": True, **_dogegen_status_payload()}
         exe_path = _find_dogegen_executable()
         if not exe_path:
-            _dogegen_last_error = (
+            error = (
                 "Dogegen.exe not found. Set DOGEGEN_PATH, configure it in the app, "
                 "or place it at tools/dogegen/Dogegen.exe."
             )
-            raise HTTPException(400, _dogegen_last_error)
+            _dogegen_state.set_last_error(error)
+            raise HTTPException(400, error)
         cmd = _dogegen_command_for_session(session, exe_path)
         try:
             kwargs: Dict[str, Any] = {"cwd": str(Path(exe_path).parent)}
             if os.name == "nt":
                 kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-            _dogegen_proc = subprocess.Popen(cmd, **kwargs)
-            _dogegen_started_at = _now()
-            _dogegen_launch_cmd = list(cmd)
-            _dogegen_last_error = None
+            proc = subprocess.Popen(cmd, **kwargs)
+            _dogegen_state.set_started(proc, _now(), cmd)
             return {"ok": True, "already_running": False, **_dogegen_status_payload()}
         except Exception as exc:
-            _dogegen_proc = None
-            _dogegen_started_at = None
-            _dogegen_launch_cmd = list(cmd)
-            _dogegen_last_error = str(exc)
+            _dogegen_state.set_failed(cmd, str(exc))
             raise HTTPException(500, f"Failed to start Dogegen: {exc}") from exc
 
 
 def _stop_dogegen() -> Dict[str, Any]:
-    global _dogegen_proc, _dogegen_started_at
-    with _dogegen_lock:
+    with _dogegen_state._lock:
         if not _managed_dogegen_is_running():
             return {"ok": True, "already_stopped": True, **_dogegen_status_payload()}
-        try:
-            if _dogegen_proc is not None:
-                _dogegen_proc.terminate()
-                _dogegen_proc.wait(timeout=3)
-        except Exception:
-            try:
-                if _dogegen_proc is not None:
-                    _dogegen_proc.kill()
-            except Exception:
-                pass
-        finally:
-            _dogegen_proc = None
-            _dogegen_started_at = None
+        _dogegen_state.terminate()
         return {"ok": True, "already_stopped": False, **_dogegen_status_payload()}
 
 
 def _watch_status_payload() -> Dict[str, Any]:
     status = _fw_status()
-    status["session_id"] = _watched_session_id
-    status["session_exists"] = bool(
-        _watched_session_id and _watched_session_id in _sessions
-    )
+    sid = _watched_session.get()
+    status["session_id"] = sid
+    status["session_exists"] = bool(sid and sid in _sessions)
     return status
 
 
@@ -948,10 +1015,9 @@ def get_session(sid: str):
 
 @app.delete("/api/session/{sid}")
 def delete_session(sid: str):
-    global _watched_session_id
-    if sid == _watched_session_id:
+    if sid == _watched_session.get():
         _fw_stop()
-        _watched_session_id = None
+        _watched_session.set(None)
     store.delete(sid)
     return {"ok": True}
 
@@ -1603,8 +1669,8 @@ def run_suggested_patches(sid: str, body: RunPatchesReq):
     Sends a POST to {_zro_bridge_url}/measure/sequence with the patch list.
     The ZRO bridge must support arbitrary patch sequences (not just fixed grids).
     """
-    global _zro_bridge_url
-    if not _zro_bridge_url:
+    url = _zro_bridge.get()
+    if not url:
         raise HTTPException(
             400,
             'ZRO Bridge URL not configured. Set ZRO_BRIDGE_URL env var or POST /api/zro/bridge/config.',
@@ -1615,7 +1681,7 @@ def run_suggested_patches(sid: str, body: RunPatchesReq):
     patches_dict = [p.model_dump() for p in body.patches]
     try:
         resp = httpx.post(
-            f"{_zro_bridge_url}/measure/sequence",
+            f"{url}/measure/sequence",
             json={"patches": patches_dict},
             timeout=30.0,
         )
@@ -1624,7 +1690,7 @@ def run_suggested_patches(sid: str, body: RunPatchesReq):
     except httpx.ConnectError:
         raise HTTPException(
             502,
-            f"Cannot reach ZRO Bridge at {_zro_bridge_url} — is start.bat running on the Windows PC?",
+            f"Cannot reach ZRO Bridge at {url} — is start.bat running on the Windows PC?",
         )
     except httpx.HTTPStatusError as exc:
         raise HTTPException(502, f"ZRO Bridge error: {exc.response.text}")
@@ -1703,10 +1769,11 @@ def post_repass(sid: str, req: _RepassReq):
                 "r": rgb[0], "g": rgb[1], "b": rgb[2],
                 "label": label, "nits": 100.0,
             })
-        if patches_for_bridge and _zro_bridge_url:
+        bridge_url = _zro_bridge.get()
+        if patches_for_bridge and bridge_url:
             try:
                 resp = httpx.post(
-                    f"{_zro_bridge_url}/measure/sequence",
+                    f"{bridge_url}/measure/sequence",
                     json={"patches": patches_for_bridge},
                     timeout=30.0,
                 )
@@ -1895,15 +1962,14 @@ def adb_picture_get(req: _AdbPictureGetReq):
     return result
 
 
-_zro_bridge_url: str = os.getenv("ZRO_BRIDGE_URL", "http://localhost:7070").rstrip("/")
 _ZRO_BRIDGE_TIMEOUT = 5.0
 
 
 @app.get("/api/zro/bridge/status")
 @app.get("/api/bridge/status")
 def zro_bridge_status():
-    global _zro_bridge_url
-    if not _zro_bridge_url:
+    url = _zro_bridge.get()
+    if not url:
         return {
             "configured": False,
             "url": None,
@@ -1911,21 +1977,21 @@ def zro_bridge_status():
             "error": "ZRO Bridge URL not configured",
         }
     try:
-        resp = httpx.get(f"{_zro_bridge_url}/status", timeout=_ZRO_BRIDGE_TIMEOUT)
+        resp = httpx.get(f"{url}/status", timeout=_ZRO_BRIDGE_TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
-        return {"configured": True, "url": _zro_bridge_url, "ok": True, **data}
+        return {"configured": True, "url": url, "ok": True, **data}
     except httpx.ConnectError:
         return {
             "configured": True,
-            "url": _zro_bridge_url,
+            "url": url,
             "ok": False,
-            "error": "Cannot reach ZRO Bridge â€” is start.bat running on the Windows PC?",
+            "error": "Cannot reach ZRO Bridge — is start.bat running on the Windows PC?",
         }
     except Exception as exc:
         return {
             "configured": True,
-            "url": _zro_bridge_url,
+            "url": url,
             "ok": False,
             "error": str(exc),
         }
@@ -1934,10 +2000,9 @@ def zro_bridge_status():
 @app.post("/api/zro/bridge/config")
 @app.post("/api/bridge/url")
 def zro_bridge_config(body: _ZroBridgeConfigBody):
-    global _zro_bridge_url
-    _zro_bridge_url = body.url.rstrip("/")
+    _zro_bridge.set(body.url.rstrip("/"))
     _save_prefs()
-    return {"ok": True, "url": _zro_bridge_url}
+    return {"ok": True, "url": _zro_bridge.get()}
 
 
 @app.get("/api/prefs")
@@ -1971,20 +2036,20 @@ def save_prefs_endpoint(req: PrefsReq):
 @app.post("/api/zro/trigger")
 @app.post("/api/bridge/measure")
 def zro_trigger():
-    global _zro_bridge_url
-    if not _zro_bridge_url:
+    url = _zro_bridge.get()
+    if not url:
         raise HTTPException(
             400,
             'ZRO Bridge URL not configured.  Set ZRO_BRIDGE_URL env var or POST /api/zro/bridge/config { "url": "http://<windows-pc>:7070" }',
         )
     try:
-        resp = httpx.post(f"{_zro_bridge_url}/measure", timeout=_ZRO_BRIDGE_TIMEOUT)
+        resp = httpx.post(f"{url}/measure", timeout=_ZRO_BRIDGE_TIMEOUT)
         resp.raise_for_status()
         return resp.json()
     except httpx.ConnectError:
         raise HTTPException(
             502,
-            f"Cannot reach ZRO Bridge at {_zro_bridge_url} â€” is start.bat running on the Windows PC?",
+            f"Cannot reach ZRO Bridge at {url} — is start.bat running on the Windows PC?",
         )
     except httpx.HTTPStatusError as exc:
         raise HTTPException(502, f"ZRO Bridge error: {exc.response.text}")
@@ -2007,7 +2072,6 @@ _WATCH_ROOT = Path(os.getenv("WATCH_ROOT", Path.home().resolve())).resolve()
 
 @app.post("/api/watch/config")
 def watch_config(body: _WatchConfigBody):
-    global _watched_session_id
     sid = body.sid
     session = store.get(sid)
     abs_path = Path(body.path).resolve()
@@ -2031,15 +2095,14 @@ def watch_config(body: _WatchConfigBody):
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    _watched_session_id = sid
+    _watched_session.set(sid)
     return _watch_status_payload()
 
 
 @app.delete("/api/watch/config")
 def watch_config_delete():
-    global _watched_session_id
     _fw_stop()
-    _watched_session_id = None
+    _watched_session.set(None)
     return _watch_status_payload()
 
 
