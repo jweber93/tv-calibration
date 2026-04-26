@@ -1,5 +1,7 @@
 """Tests for server.py API endpoints — ZRO helper workflow."""
 import io
+import os
+import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -1422,6 +1424,18 @@ class TestWatchConfig:
         resp = client.post("/api/watch/config",
                            json={"path": str(outside), "sid": session_id})
         assert resp.status_code == 400
+
+    def test_watch_config_rejects_path_traversal(self, client, session_id, tmp_path, monkeypatch):
+        """A path that starts with the same string as WATCH_ROOT but extends it should be rejected."""
+        monkeypatch.setattr(server_module, "_WATCH_ROOT", tmp_path.resolve())
+        evil_path = str(tmp_path) + "-evil"
+        os.makedirs(evil_path, exist_ok=True)
+        try:
+            resp = client.post("/api/watch/config",
+                               json={"path": evil_path, "sid": session_id})
+            assert resp.status_code == 400
+        finally:
+            shutil.rmtree(evil_path, ignore_errors=True)
 
 
 class TestLLMIntegration:
