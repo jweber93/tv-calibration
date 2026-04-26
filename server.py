@@ -638,8 +638,10 @@ def _llm_subscribe(sid: str) -> "queue.Queue[Dict[str, Any]]":
 def _llm_unsubscribe(sid: str, q: "queue.Queue[Dict[str, Any]]") -> None:
     with _llm_queues_lock:
         listeners = _llm_queues.get(sid, [])
-        if q in listeners:
+        try:
             listeners.remove(q)
+        except ValueError:
+            pass
         if not listeners:
             _llm_queues.pop(sid, None)
 
