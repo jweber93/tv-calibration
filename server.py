@@ -390,6 +390,7 @@ def _load_prefs() -> None:
     try:
         saved = json.loads(_PREFS_PATH.read_text(encoding="utf-8"))
     except Exception:
+        logger.warning("Failed to parse .prefs.json; using defaults", exc_info=True)
         return
     for key in ("dogegen", "bridge_url", "watch_folder", "llm", "session_defaults"):
         if key in saved:
@@ -813,6 +814,7 @@ def _run_llm_background(
                 if hist:
                     history_block = _build_history_block(hist, baseline)
             except Exception:
+                logger.warning("Failed to load LLM history for tv_key=%s", tv_key, exc_info=True)
                 pass  # history is advisory; never block the main LLM call
 
         # Inject TV settings schema when the TV model is known (#99)
@@ -966,16 +968,19 @@ def create_session(req: CreateSessionReq):
         try:
             session = store.set_signal_range(sid, sd["signal_range"])
         except Exception:
+            logger.warning("Failed to apply default signal_range for sid=%s", sid, exc_info=True)
             pass
     if sd.get("code_scale"):
         try:
             session = store.set_code_scale(sid, sd["code_scale"])
         except Exception:
+            logger.warning("Failed to apply default code_scale for sid=%s", sid, exc_info=True)
             pass
     if sd.get("pattern_generator"):
         try:
             session = store.set_pattern_generator(sid, sd["pattern_generator"])
         except Exception:
+            logger.warning("Failed to apply default pattern_generator for sid=%s", sid, exc_info=True)
             pass
     llm = _prefs.get("llm", {})
     if llm.get("endpoint") or llm.get("model"):
@@ -1416,6 +1421,7 @@ def get_report(sid: str):
             session["_history_recorded"] = True
             store.save_session(sid)
         except Exception:
+            logger.warning("Failed to record calibration history for sid=%s", sid, exc_info=True)
             pass  # history recording is non-critical
     return report
 
