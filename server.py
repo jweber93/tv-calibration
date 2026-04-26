@@ -29,7 +29,7 @@ import httpx
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024  # 10MB limit for CSV uploads
+_MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB limit for CSV uploads
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -343,11 +343,13 @@ _watched_session = _WatchedSessionState()
 _dogegen_state = _DogegenState()
 _zro_bridge = _ZroBridgeState(os.getenv("ZRO_BRIDGE_URL", "http://localhost:7070").rstrip("/"))
 _DOGEGEN_READY_DELAY_SECONDS = 2.0
+_DOGEGEN_DEFAULT_WINDOW_PCT = 10
+_DOGEGEN_DEFAULT_MAXCLL = 1000
 _dogegen_config: Dict[str, Any] = {
     "path": os.getenv("DOGEGEN_PATH", "").strip(),
     "resolve_host": os.getenv("DOGEGEN_RESOLVE_HOST", "").strip(),
-    "window_pct": int(os.getenv("DOGEGEN_WINDOW_PCT", "10")),
-    "maxcll": int(os.getenv("DOGEGEN_MAXCLL", "1000")),
+    "window_pct": int(os.getenv("DOGEGEN_WINDOW_PCT", str(_DOGEGEN_DEFAULT_WINDOW_PCT))),
+    "maxcll": int(os.getenv("DOGEGEN_MAXCLL", str(_DOGEGEN_DEFAULT_MAXCLL))),
 }
 
 # Per-session LLM SSE subscriber queues
@@ -628,8 +630,8 @@ def _dogegen_status_payload() -> Dict[str, Any]:
         "ready": ready,
         "ready_in_ms": ready_in_ms,
         "resolve_host": _dogegen_config.get("resolve_host") or "",
-        "window_pct": int(_dogegen_config.get("window_pct") or 10),
-        "maxcll": int(_dogegen_config.get("maxcll") or 1000),
+        "window_pct": int(_dogegen_config.get("window_pct") or _DOGEGEN_DEFAULT_WINDOW_PCT),
+        "maxcll": int(_dogegen_config.get("maxcll") or _DOGEGEN_DEFAULT_MAXCLL),
         "last_error": _dogegen_state.get_last_error(),
         "launch_cmd": _dogegen_state.get_launch_cmd(),
     }
@@ -637,8 +639,8 @@ def _dogegen_status_payload() -> Dict[str, Any]:
 
 def _dogegen_command_for_session(session: Dict[str, Any], exe_path: str) -> List[str]:
     mode = session.get("mode")
-    window_pct = int(_dogegen_config.get("window_pct") or 10)
-    maxcll = int(_dogegen_config.get("maxcll") or 1000)
+    window_pct = int(_dogegen_config.get("window_pct") or _DOGEGEN_DEFAULT_WINDOW_PCT)
+    maxcll = int(_dogegen_config.get("maxcll") or _DOGEGEN_DEFAULT_MAXCLL)
     resolve_host = (_dogegen_config.get("resolve_host") or "").strip()
     if mode == "HDR10":
         cmd = [exe_path, "mode 10_hdr", f"maxcll {maxcll}"]
@@ -1365,9 +1367,9 @@ async def import_zro_csv(sid: str, file: UploadFile = File(...)):
     except Exception as exc:
         raise HTTPException(400, f"Could not read uploaded file: {exc}") from exc
 
-    if len(contents) > MAX_UPLOAD_SIZE_BYTES:
+    if len(contents) > _MAX_UPLOAD_BYTES:
         raise HTTPException(
-            413, f"File too large: {len(contents)} bytes (max {MAX_UPLOAD_SIZE_BYTES})"
+            413, f"File too large: {len(contents)} bytes (max {_MAX_UPLOAD_BYTES})"
         )
 
     session, import_meta = store.import_zro_bytes(sid, file.filename, contents)
@@ -1382,9 +1384,9 @@ async def import_generic_csv(sid: str, file: UploadFile = File(...)):
     except Exception as exc:
         raise HTTPException(400, f"Could not read uploaded file: {exc}") from exc
 
-    if len(contents) > MAX_UPLOAD_SIZE_BYTES:
+    if len(contents) > _MAX_UPLOAD_BYTES:
         raise HTTPException(
-            413, f"File too large: {len(contents)} bytes (max {MAX_UPLOAD_SIZE_BYTES})"
+            413, f"File too large: {len(contents)} bytes (max {_MAX_UPLOAD_BYTES})"
         )
 
     session, import_meta = store.import_generic_bytes(sid, file.filename, contents)
