@@ -924,13 +924,7 @@ def _maybe_trigger_llm(sid: str, session: Dict[str, Any]) -> None:
 
     patches = [_measurement_to_patch(m) for m in all_measurements]
     cfg = _session_to_analysis_config(session)
-    llm_cfg = LLMConfig(
-        endpoint=llm_cfg_dict.get("endpoint", ""),
-        model=llm_cfg_dict.get("model", ""),
-        api_key=llm_cfg_dict.get("api_key", ""),
-        temperature=float(llm_cfg_dict.get("temperature", 0.2)),
-        timeout=float(llm_cfg_dict.get("timeout", 30.0)),
-    )
+    llm_cfg = LLMConfig.from_dict(llm_cfg_dict, default_timeout=30.0)
     has_key = bool(llm_cfg_dict.get("api_key"))
     logger.info(
         "LLM trigger  sid=%s step=%s patches=%d has_api_key=%s",
@@ -1211,13 +1205,7 @@ def llm_run(sid: str):
 
     patches = [_measurement_to_patch(m) for m in all_measurements]
     cfg = _session_to_analysis_config(session)
-    llm_cfg = LLMConfig(
-        endpoint=llm_cfg_dict.get("endpoint", ""),
-        model=llm_cfg_dict.get("model", ""),
-        api_key=llm_cfg_dict.get("api_key", ""),
-        temperature=float(llm_cfg_dict.get("temperature", 0.2)),
-        timeout=float(llm_cfg_dict.get("timeout", 30.0)),
-    )
+    llm_cfg = LLMConfig.from_dict(llm_cfg_dict, default_timeout=30.0)
     phase_str = session.get("step", "baseline")
 
     t = threading.Thread(
@@ -1303,13 +1291,7 @@ def gamut_advise(sid: str):
     diagnosis = _assess_gamut_constraints(summary.color_rows, cfg.target_space)
     diagnosis_text = _format_gamut_diagnosis(diagnosis)
 
-    llm_cfg = LLMConfig(
-        endpoint=llm_cfg_dict.get("endpoint", ""),
-        model=llm_cfg_dict.get("model", ""),
-        api_key=llm_cfg_dict.get("api_key", ""),
-        temperature=float(llm_cfg_dict.get("temperature", 0.2)),
-        timeout=float(llm_cfg_dict.get("timeout", 30.0)),
-    )
+    llm_cfg = LLMConfig.from_dict(llm_cfg_dict, default_timeout=30.0)
     advice = _query_gamut_advice(diagnosis_text, cfg.target_space, llm_cfg)
     return {
         "diagnosis": _gamut_diagnosis_to_dict(diagnosis),
@@ -1369,13 +1351,7 @@ def hardware_remediate(sid: str, req: _HardwareEventReq):
     llm_cfg_dict = session.get("llm_config", {})
     if not (llm_cfg_dict.get("endpoint") and llm_cfg_dict.get("model")):
         raise HTTPException(400, "LLM not configured.")
-    llm_cfg = LLMConfig(
-        endpoint=llm_cfg_dict.get("endpoint", ""),
-        model=llm_cfg_dict.get("model", ""),
-        api_key=llm_cfg_dict.get("api_key", ""),
-        temperature=0.0,
-        timeout=20.0,
-    )
+    llm_cfg = LLMConfig.from_dict(llm_cfg_dict, default_timeout=20.0, default_temperature=0.0)
     plan = _query_remediation(
         event_type=req.event_type,
         context=req.context,
@@ -1586,13 +1562,7 @@ def post_delta_summary(a: str, b: str):
     if not (llm_cfg_dict.get("endpoint") and llm_cfg_dict.get("model")):
         return {"summary": None, "reason": "LLM not configured"}
 
-    llm_cfg = LLMConfig(
-        endpoint=llm_cfg_dict.get("endpoint", ""),
-        model=llm_cfg_dict.get("model", ""),
-        api_key=llm_cfg_dict.get("api_key", ""),
-        temperature=float(llm_cfg_dict.get("temperature", 0.3)),
-        timeout=float(llm_cfg_dict.get("timeout", 45.0)),
-    )
+    llm_cfg = LLMConfig.from_dict(llm_cfg_dict, default_temperature=float(llm_cfg_dict.get("temperature", 0.3)), default_timeout=45.0)
     summary_text = _query_delta_summary(
         comparison["session_a"]["report"],
         comparison["session_b"]["report"],
@@ -1639,13 +1609,7 @@ def get_suggested_patches(sid: str, budget: int = 30):
     patches_core = [_measurement_to_patch(m) for m in all_measurements]
     summary = _calcore_analyze(patches_core, cfg)
 
-    llm_cfg = LLMConfig(
-        endpoint=llm_cfg_dict.get("endpoint", ""),
-        model=llm_cfg_dict.get("model", ""),
-        api_key=llm_cfg_dict.get("api_key", ""),
-        temperature=float(llm_cfg_dict.get("temperature", 0.2)),
-        timeout=float(llm_cfg_dict.get("timeout", 60.0)),
-    )
+    llm_cfg = LLMConfig.from_dict(llm_cfg_dict, default_timeout=60.0)
     phase = session.get("step", "baseline")
     optimization = _query_patch_optimization(
         summary.grayscale_rows,
@@ -1811,13 +1775,7 @@ def post_pass_decision(sid: str, req: _PassDecisionReq):
     if not (llm_cfg_dict.get("endpoint") and llm_cfg_dict.get("model")):
         return {"action": "accept", "reason": "LLM not configured", "confidence": 1.0, "repass_count": req.repass_count}
 
-    llm_cfg = LLMConfig(
-        endpoint=llm_cfg_dict.get("endpoint", ""),
-        model=llm_cfg_dict.get("model", ""),
-        api_key=llm_cfg_dict.get("api_key", ""),
-        temperature=0.0,
-        timeout=float(llm_cfg_dict.get("timeout", 45.0)),
-    )
+    llm_cfg = LLMConfig.from_dict(llm_cfg_dict, default_timeout=45.0, default_temperature=0.0)
 
     target = session.get("target")
     target_gamma = target.gamma if target else 2.2

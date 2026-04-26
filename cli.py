@@ -163,13 +163,7 @@ def load_state(path: Path, default_cfg: AnalysisConfig) -> SessionState:
                 target_space=cfg.get("target_space", default_cfg.target_space),
                 code_max=int(cfg.get("code_max", default_cfg.code_max)),
             ),
-            llm=LLMConfig(
-                endpoint=llm_raw.get("endpoint", ""),
-                model=llm_raw.get("model", ""),
-                api_key=llm_raw.get("api_key", ""),
-                temperature=float(llm_raw.get("temperature", 0.2)),
-                timeout=float(llm_raw.get("timeout", 120.0)),
-            ),
+            llm=LLMConfig.from_dict(llm_raw, default_timeout=120.0),
         )
     except Exception:
         return SessionState(config=default_cfg)
