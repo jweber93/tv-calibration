@@ -14,11 +14,11 @@ from server import app, _sessions
 
 def _reset_globals():
     _sessions.clear()
-    server_module._watched_session_id = None
-    server_module._dogegen_proc = None
-    server_module._dogegen_started_at = None
-    server_module._dogegen_launch_cmd = []
-    server_module._dogegen_last_error = None
+    server_module._watched_session.set(None)
+    server_module._dogegen_state.proc = None
+    server_module._dogegen_state.started_at = None
+    server_module._dogegen_state.launch_cmd = []
+    server_module._dogegen_state.last_error = None
     server_module._dogegen_config = {
         "path": "",
         "resolve_host": "",
@@ -37,7 +37,7 @@ def _reset_globals():
         },
     }
     server_module._llm_queues.clear()
-    server_module._zro_bridge_url = ""
+    server_module._zro_bridge.set("")
 
 
 @pytest.fixture(autouse=True)
@@ -289,7 +289,7 @@ class TestSuggestedPatches:
         assert resp.status_code == 400
 
     def test_suggested_patches_run_bridge_unreachable_returns_502(self, client):
-        server_module._zro_bridge_url = "http://localhost:19999"  # nothing listening here
+        server_module._zro_bridge.set("http://localhost:19999")  # nothing listening here
         sid = _make_session_with_measurements(client)
         resp = client.post(
             f"/api/session/{sid}/suggested-patches/run",
