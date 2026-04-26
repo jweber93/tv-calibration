@@ -2075,7 +2075,8 @@ def watch_config(body: _WatchConfigBody):
     sid = body.sid
     session = store.get(sid)
     abs_path = Path(body.path).resolve()
-    if not str(abs_path).startswith(str(_WATCH_ROOT)):
+    _watch_root_str = str(_WATCH_ROOT)
+    if not (str(abs_path) == _watch_root_str or str(abs_path).startswith(_watch_root_str + os.sep)):
         raise HTTPException(400, "Watch path must be within allowed directory")
     csv_parent_exists = str(abs_path).lower().endswith(".csv") and os.path.isdir(
         os.path.dirname(str(abs_path)) or "."

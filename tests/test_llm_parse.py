@@ -196,5 +196,52 @@ class ParseAdjustmentPlanFenceTests(unittest.TestCase):
         self.assertEqual(result.adjustments, [])
 
 
+# ── pytest-style parametrized tests ────────────────────────────────────────────
+
+import pytest
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("", ""),
+        ("no json here", "no json here"),
+        ("{bad json", "{bad json"),
+        ("[]", "[]"),
+    ],
+)
+def test_extract_json_invalid_inputs(raw, expected):
+    """_extract_json never returns None; invalid inputs return stripped text."""
+    result = _extract_json(raw)
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "",
+        "no json here",
+        "{bad json",
+    ],
+)
+def test_extract_json_invalid_inputs_fail_json_loads(raw):
+    """Invalid inputs should fail json.loads after extraction."""
+    import json
+
+    result = _extract_json(raw)
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(result)
+
+
+def test_extract_json_array_returns_array_not_dict():
+    """'[]' returns '[]' which parses as a list, not a dict."""
+    import json
+
+    result = _extract_json("[]")
+    assert result == "[]"
+    parsed = json.loads(result)
+    assert isinstance(parsed, list)
+
+
 if __name__ == "__main__":
     unittest.main()
