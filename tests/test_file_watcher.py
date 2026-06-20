@@ -186,16 +186,25 @@ class TestLifecycle:
             with open(csv_file2, "w") as f:
                 f.write(csv_file_content2)
 
-            # Wait for the watcher to resume and import the new file.
+            # Wait for the watcher to resume and import the new file.  The
+            # pre_grayscale step replaces pre_measurements with the latest ramp
+            # rather than appending, so the list length stays at 1 — the proof
+            # that a second import happened is a second zro_imports entry plus
+            # the new ramp's content replacing the original.
             deadline = time.monotonic() + 3.0
             while time.monotonic() < deadline:
-                if len(session.get("pre_measurements", [])) > 1:
+                if len(session.get("zro_imports", [])) >= 2:
                     break
                 time.sleep(0.1)
 
-            assert len(session["pre_measurements"]) > 1, (
+            assert len(session["zro_imports"]) >= 2, (
                 "Watcher should resume and import after directory is recreated"
             )
+            assert any(
+                (m.get("label") if isinstance(m, dict) else getattr(m, "label", ""))
+                == "White (100%)"
+                for m in session["pre_measurements"]
+            ), "Re-import should replace pre_measurements with the new ramp"
             assert fw._watcher_error is None, (
                 "Error should be cleared once directory reappears"
             )
