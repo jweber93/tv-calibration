@@ -164,7 +164,7 @@ def analyze(patches: List[Patch], cfg: AnalysisConfig) -> Summary:
             "eotf": cfg.eotf,
             "target_space": cfg.target_space,
             "code_max": cfg.code_max,
-            "peak_fallback_used": measured_peak_y is None,
+            "peak_fallback_used": not (measured_peak_y and measured_peak_y > 0),
         },
         measured_patch_count=len(patches),
     )
