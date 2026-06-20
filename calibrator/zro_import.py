@@ -636,7 +636,11 @@ def merge_into_session(session: dict, result: ZROImportResult) -> dict:
     Merge a :class:`ZROImportResult` into an existing session dict in-place.
 
     Existing measurements are preserved; imported ones are appended.
-    Duplicate measurements (matching timestamp and stimulus RGB) are skipped.
+    Duplicate measurements (matching timestamp and stimulus RGB) within the same
+    bucket are skipped, but the same physical reading can coexist across different
+    buckets (e.g., a grayscale row that belongs in pre_measurements, wb_measurements,
+    and gamma_measurements simultaneously).
+
     Returns the modified session dict.
 
     Raises:
@@ -645,7 +649,6 @@ def merge_into_session(session: dict, result: ZROImportResult) -> dict:
     if result.fatal_error:
         raise ValueError(result.fatal_error)
 
-    existing_keys: Set[str] = set()
     bucket_map = {
         "cms_measurements": result.cms_measurements,
         "pre_measurements": result.pre_measurements,
@@ -658,23 +661,23 @@ def merge_into_session(session: dict, result: ZROImportResult) -> dict:
 
     duplicates_detected = 0
 
-    # Seed existing_keys with keys from the session's *current* measurements
-    # so that re-imports detect duplicates against what's already stored.
     for key, measurements in bucket_map.items():
-        existing = session.get(key, [])
-        for m in existing:
+        if not measurements:
+            continue
+
+        # Per-bucket deduplication set (seeded from session state for this bucket)
+        existing_keys: Set[str] = set()
+        for m in session.get(key, []):
             existing_keys.add(_measurement_key(m))
 
-    for key, measurements in bucket_map.items():
-        if measurements:
-            existing = session.setdefault(key, [])
-            for m in measurements:
-                m_key = _measurement_key(m)
-                if m_key in existing_keys:
-                    duplicates_detected += 1
-                    continue
-                existing_keys.add(m_key)
-                existing.append(m)
+        existing = session.setdefault(key, [])
+        for m in measurements:
+            m_key = _measurement_key(m)
+            if m_key in existing_keys:
+                duplicates_detected += 1
+                continue
+            existing_keys.add(m_key)
+            existing.append(m)
 
     import_meta = {
         "total_rows": result.total_rows,

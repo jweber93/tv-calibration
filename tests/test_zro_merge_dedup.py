@@ -143,11 +143,15 @@ class TestFatalError:
 
 
 class TestCrossBucketDedup:
-    """Duplicates should be detected across buckets, not just within one."""
+    """Per-bucket dedup allows same measurement to coexist across buckets."""
 
-    def test_duplicate_across_buckets_skipped(self):
-        """If the same measurement appears in two different result buckets,
-        the second bucket's copy should be deduplicated."""
+    def test_same_measurement_in_multiple_buckets(self):
+        """The same physical reading should exist in multiple buckets.
+
+        This test was updated to reflect the fix for #262 — per-bucket dedup
+        allows a measurement to coexist across buckets (e.g., white patch in
+        both cms_measurements and lum_measurements).
+        """
         result = ZROImportResult(cms_measurements=[], pre_measurements=[])
 
         m = {
@@ -162,11 +166,35 @@ class TestCrossBucketDedup:
         session: dict = {}
         merge_into_session(session, result)
 
-        # Only one copy should exist in cms_measurements; pre_measurements
-        # should have zero because the only row was already seen in cms.
+        # With per-bucket dedup, both buckets should have the measurement
         assert len(session["cms_measurements"]) == 1
-        assert len(session["pre_measurements"]) == 0
-        assert session["zro_imports"][-1]["duplicates_skipped"] == 1
+        assert len(session["pre_measurements"]) == 1
+
+        # No duplicates should be counted since they're in different buckets
+        assert session["zro_imports"][-1]["duplicates_skipped"] == 0
+
+    def test_reimport_dedup_within_bucket(self):
+        """Re-importing the same measurement should deduplicate within a bucket."""
+        result = ZROImportResult(
+            cms_measurements=[{
+                "timestamp": "2025-01-01T10:00:00",
+                "r": 255,
+                "g": 255,
+                "b": 255,
+            }]
+        )
+
+        session: dict = {}
+        merge_into_session(session, result)
+        first_count = len(session["cms_measurements"])
+
+        # Re-import the same result
+        merge_into_session(session, result)
+
+        # Should not duplicate within the bucket
+        assert len(session["cms_measurements"]) == first_count
+        last_meta = session["zro_imports"][-1]
+        assert last_meta["duplicates_skipped"] == 1
 
 
 class TestMeasurementKeyHandlesDataclass:
@@ -222,3 +250,79 @@ class TestMeasurementKeyHandlesDataclass:
         m2_dict = _measurement_key(m2)
 
         assert m1_dict == m2_dict
+
+
+class TestMultiBucketMembership:
+    """Same physical reading should coexist in multiple buckets.
+
+    Regression test for #262 — merge_into_session() uses a single dedup set
+    shared across all buckets, so any grayscale reading that legitimately
+    appears in multiple result buckets is kept only in the first bucket
+    processed and dropped from the rest.
+    """
+
+    def test_grayscale_row_in_multiple_buckets(self):
+        """A 5-row ramp that parses to wb=2, gamma=5 should populate all buckets.
+
+        This is the exact example from issue #262 demonstrating the bug where
+        wb_measurements and gamma_measurements end up empty because the same
+        physical reading is deduplicated across buckets.
+        """
+        from calibrator.zro_import import parse_zro_csv, merge_into_session
+
+        csv_content = (
+            "Date and time\tR\tG\tB\tY\tx\ty\tmsec\n"
+            "01/01/2025 10:00:00\t16\t16\t16\t0.3\t0.31\t0.32\t100\n"
+            "01/01/2025 10:00:02\t77\t77\t77\t18.0\t0.312\t0.329\t100\n"
+            "01/01/2025 10:00:04\t128\t128\t128\t70.0\t0.311\t0.328\t100\n"
+            "01/01/2025 10:00:06\t204\t204\t204\t150.0\t0.313\t0.329\t100\n"
+            "01/01/2025 10:00:08\t235\t235\t235\t200.0\t0.312\t0.329\t100\n"
+        )
+
+        res = parse_zro_csv(csv_content)
+        sess: dict = {}
+        merge_into_session(sess, res)
+
+        # Pre-measurements should have all 5 grayscale rows
+        assert len(sess["pre_measurements"]) == 5
+
+        # WB measurements should have 2 rows (30% and 80% gray)
+        assert len(sess["wb_measurements"]) == 2, (
+            f"Expected 2 wb rows (30%+80% gray), got {len(sess['wb_measurements'])}"
+        )
+
+        # Gamma measurements should have 5 rows (all snapped 5% steps)
+        assert len(sess["gamma_measurements"]) == 5, (
+            f"Expected 5 gamma rows (5% steps), got {len(sess['gamma_measurements'])}"
+        )
+
+    def test_per_bucket_dedup_still_works(self):
+        """Re-importing the same CSV should deduplicate within each bucket.
+
+        Verifies that per-bucket dedup doesn't break re-import idempotency.
+        """
+        from calibrator.zro_import import parse_zro_csv, merge_into_session
+
+        csv_content = (
+            "Date and time\tR\tG\tB\tY\tx\ty\tmsec\n"
+            "01/01/2025 10:00:00\t77\t77\t77\t18.0\t0.312\t0.329\t100\n"
+            "01/01/2025 10:00:02\t204\t204\t204\t150.0\t0.313\t0.329\t100\n"
+        )
+
+        res = parse_zro_csv(csv_content)
+        sess: dict = {}
+
+        # First import
+        merge_into_session(sess, res)
+        first_wb = len(sess["wb_measurements"])
+        first_gamma = len(sess["gamma_measurements"])
+
+        # Second import with same result — should deduplicate
+        merge_into_session(sess, res)
+
+        assert len(sess["wb_measurements"]) == first_wb
+        assert len(sess["gamma_measurements"]) == first_gamma
+
+        # Meta should show exactly 6 duplicates (2 rows × 3 buckets: pre, wb, gamma)
+        last_meta = sess["zro_imports"][-1]
+        assert last_meta["duplicates_skipped"] == 6
