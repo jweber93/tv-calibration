@@ -786,18 +786,18 @@ class TestMergeDedupAgainstExistingSession:
         assert len(session["gamma_measurements"]) == before
 
     def test_merge_into_session_dedup_lum_measurements(self):
-        """Luminance measurements dedup against existing session data."""
+        """Luminance measurements dedup against existing session data on re-import."""
         r = parse_zro_csv(FULL_CSV)
-        # White (100%) from the grayscale pass is in lum_measurements
-        existing_white = r.lum_measurements[0]
+        # Pre-seed with ALL lum_measurements from the import to test re-import dedup
         session = {
             "pre_measurements": [],
             "post_measurements": [], "cms_measurements": [],
-            "wb_measurements": [], "lum_measurements": [existing_white],
+            "wb_measurements": [], "lum_measurements": list(r.lum_measurements),
             "gamma_measurements": [],
         }
         before = len(session["lum_measurements"])
         merge_into_session(session, r)
+        # Re-import should deduplicate within the bucket
         assert len(session["lum_measurements"]) == before
 
     def test_merge_into_session_dedup_wb_measurements(self):
