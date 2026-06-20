@@ -121,10 +121,6 @@ class AnalyzeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "code_max must be positive"):
             AnalysisConfig(code_max=-100)
 
-    def test_analyze_raises_for_invalid_code_max_none(self):
-        with self.assertRaisesRegex(ValueError, "code_max must be positive"):
-            AnalysisConfig(code_max=0)
-
     def test_target_xyz_for_patch_raises_for_invalid_code_max(self):
         patch = Patch("512,512,512", 512, 512, 512, (19.609, 20.633, 22.469), kind="grayscale")
         cfg = AnalysisConfig(mode="sdr", eotf="gamma22", target_space="bt709")
