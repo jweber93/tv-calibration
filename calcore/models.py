@@ -42,6 +42,10 @@ class AnalysisConfig:
     target_space: str = "p3d65"  # bt709, p3d65, bt2020
     code_max: int = 1023
 
+    def __post_init__(self) -> None:
+        if self.code_max <= 0:
+            raise ValueError(f"code_max must be positive, got {self.code_max}")
+
 
 @dataclass
 class LLMConfig:

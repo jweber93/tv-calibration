@@ -18,6 +18,9 @@ def target_xyz_for_patch(
     measured_peak_y: Optional[float],
     measured_black_y: float,
 ) -> Tuple[float, float, float]:
+    if code_max <= 0:
+        raise ValueError(f"Invalid code_max: {code_max}, must be a positive integer")
+
     target_rgb = (
         patch.r_target / code_max,
         patch.g_target / code_max,
