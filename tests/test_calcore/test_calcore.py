@@ -15,6 +15,7 @@ from calcore import (
     determine_phase,
     parse_measurement_csv,
 )
+from calcore.targets import target_xyz_for_patch
 from calcore.llm import _resolve_endpoint, parse_adjustment_plan, build_llm_prompt
 from calcore.phase import check_cms_regression
 
@@ -111,6 +112,28 @@ class AnalyzeTests(unittest.TestCase):
     def test_analyze_raises_for_empty_patch_list(self):
         with self.assertRaisesRegex(ValueError, "No valid patches found"):
             analyze([], AnalysisConfig())
+
+    def test_analyze_raises_for_invalid_code_max_zero(self):
+        with self.assertRaisesRegex(ValueError, "code_max must be positive"):
+            AnalysisConfig(code_max=0)
+
+    def test_analyze_raises_for_invalid_code_max_negative(self):
+        with self.assertRaisesRegex(ValueError, "code_max must be positive"):
+            AnalysisConfig(code_max=-100)
+
+    def test_analyze_raises_for_invalid_code_max_none(self):
+        with self.assertRaisesRegex(ValueError, "code_max must be positive"):
+            AnalysisConfig(code_max=0)
+
+    def test_target_xyz_for_patch_raises_for_invalid_code_max(self):
+        patch = Patch("512,512,512", 512, 512, 512, (19.609, 20.633, 22.469), kind="grayscale")
+        cfg = AnalysisConfig(mode="sdr", eotf="gamma22", target_space="bt709")
+        
+        with self.assertRaisesRegex(ValueError, "Invalid code_max"):
+            target_xyz_for_patch(patch, 0, cfg, 100.0, 0.0)
+        
+        with self.assertRaisesRegex(ValueError, "Invalid code_max"):
+            target_xyz_for_patch(patch, -100, cfg, 100.0, 0.0)
 
     def test_analyze_skips_gamma_log_when_relative_luminance_is_zero(self):
         patches = [
