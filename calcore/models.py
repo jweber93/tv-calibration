@@ -195,7 +195,9 @@ class Measurement:
     def cct(self) -> Optional[float]:
         if self.Y <= 0 or (self.x == 0.0 and self.y == 0.0):
             return None
-        n = (self.x - 0.3320) / (0.1858 - self.y) if self.y != 0.1858 else 0
+        if math.isclose(self.y, 0.1858, rel_tol=1e-9):
+            return None
+        n = (self.x - 0.3320) / (0.1858 - self.y)
         return 449 * n**3 + 3525 * n**2 + 6823.3 * n + 5520.33
 
     @property

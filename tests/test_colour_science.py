@@ -268,3 +268,70 @@ class TestDeltaUv:
         for x, y in [(0.3127, 0.3290), (0.3200, 0.3300), (0.2800, 0.2900)]:
             m = Measurement(x=x, y=y)
             assert abs(m.delta_uv) < 0.05
+
+
+# ---------------------------------------------------------------------------
+# Measurement.cct (Correlated Color Temperature)
+# ---------------------------------------------------------------------------
+
+class TestCCT:
+    def test_normal_cct_calculation(self):
+        """D65 should give a CCT around 6500K."""
+        m = Measurement(x=0.3127, y=0.3290, Y=100.0)
+        assert m.cct is not None
+        assert 6400 < m.cct < 6700
+
+    def test_zero_luminance_returns_none(self):
+        m = Measurement(x=0.3127, y=0.3290, Y=0.0)
+        assert m.cct is None
+
+    def test_zero_chromaticity_returns_none(self):
+        m = Measurement(x=0.0, y=0.0, Y=100.0)
+        assert m.cct is None
+
+    def test_y_near_boundary_returns_none(self):
+        """y values extremely close to 0.1858 should return None to avoid division issues."""
+        m = Measurement(x=0.32, y=0.1858, Y=100.0)
+        assert m.cct is None
+
+    def test_y_slightly_below_boundary(self):
+        """y = 0.1857 should be safe and return a valid CCT."""
+        m = Measurement(x=0.32, y=0.1857, Y=100.0)
+        assert m.cct is not None
+
+    def test_y_slightly_above_boundary(self):
+        """y = 0.1859 should be safe and return a valid CCT."""
+        m = Measurement(x=0.32, y=0.1859, Y=100.0)
+        assert m.cct is not None
+
+    def test_ieee754_precision_edge_case(self):
+        """Test values that could arise from IEEE 754 floating-point arithmetic.
+
+        A value computed as 0.1858 in code might actually be:
+        - 0.18579999999999997 (slightly below)
+        - 0.18580000000000002 (slightly above)
+
+        Both should be handled gracefully by math.isclose().
+        """
+        # Simulate floating-point representation error
+        y_below = 0.18579999999999997
+        y_above = 0.18580000000000002
+
+        m_below = Measurement(x=0.32, y=y_below, Y=100.0)
+        m_above = Measurement(x=0.32, y=y_above, Y=100.0)
+
+        # Both should return None since they're within tolerance of 0.1858
+        assert m_below.cct is None
+        assert m_above.cct is None
+
+    def test_cct_stability_across_range(self):
+        """CCT should produce stable values for typical white points."""
+        test_cases = [
+            (0.3127, 0.3290),  # D65
+            (0.345, 0.359),    # warmer
+            (0.295, 0.315),    # cooler
+        ]
+        for x, y in test_cases:
+            m = Measurement(x=x, y=y, Y=100.0)
+            assert m.cct is not None
+            assert 1000 < m.cct < 25000  # Reasonable CCT range
