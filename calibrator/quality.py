@@ -103,17 +103,22 @@ def step_quality(session: Dict[str, Any], tv: Optional[TVProfile]) -> Dict[str, 
                 latest_per_colour[colour] = measurement
         if latest_per_colour:
             de_map = {c: m_to_dict(m, target, signal_range, code_scale)["delta_e"] for c, m in latest_per_colour.items()}
-            worst_de = max(de_map.values())
-            worst_colour = max(de_map, key=de_map.__getitem__)
-            all_present = expected_colours == set(de_map)
-            gates["color_tuner"] = {
-                "passed": all_present and worst_de < QG_CMS_DE_THRESHOLD,
-                "score": round(worst_de, 2),
-                "threshold": QG_CMS_DE_THRESHOLD,
-                "unit": "ΔE",
-                "label": f"All ΔE < {QG_CMS_DE_THRESHOLD:.1f}",
-                "detail": f"Worst: {worst_colour} ΔE {worst_de:.2f}" + ("" if all_present else f" ({len(de_map)}/{len(expected_colours)} colors)"),
-            }
+            # Drop colours whose latest reading was invalid (ΔE is None) before
+            # aggregating; comparing None against floats raises TypeError in
+            # max() and would 500 the whole session view (cf. WB gate above).
+            valid_de_map = {c: de for c, de in de_map.items() if de is not None}
+            if valid_de_map:
+                worst_de = max(valid_de_map.values())
+                worst_colour = max(valid_de_map, key=valid_de_map.__getitem__)
+                all_present = expected_colours == set(valid_de_map)
+                gates["color_tuner"] = {
+                    "passed": all_present and worst_de < QG_CMS_DE_THRESHOLD,
+                    "score": round(worst_de, 2),
+                    "threshold": QG_CMS_DE_THRESHOLD,
+                    "unit": "ΔE",
+                    "label": f"All ΔE < {QG_CMS_DE_THRESHOLD:.1f}",
+                    "detail": f"Worst: {worst_colour} ΔE {worst_de:.2f}" + ("" if all_present else f" ({len(valid_de_map)}/{len(expected_colours)} colors)"),
+                }
 
     for phase, key in (("pre_grayscale", "pre_measurements"), ("post_grayscale", "post_measurements")):
         measurements = session.get(key, [])
