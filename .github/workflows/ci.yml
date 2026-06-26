@@ -1,6 +1,5 @@
 name: CI
 
-# Replaces tests.yml once proven stable.
 # Stages: Lint → Test → Scan → (Build on main/tags)
 
 on:
