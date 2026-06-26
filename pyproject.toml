@@ -16,7 +16,14 @@ markers = [
     "hardware: tests requiring real hardware (ADB device, ZRO bridge, colorimeter)",
     "slow: tests taking >5 seconds",
     "integration: tests exercising multiple components together",
+    "flaky(reruns, reruns_delay): timing-sensitive tests that may fail intermittently in CI (file watcher debounce, polling)",
 ]
+
+# Rerun tests marked with @pytest.mark.flaky up to 2 times with a 1s delay.
+# Requires pytest-rerunfailures (see requirements.txt).
+[tool.pytest_rerunfailures]
+reruns = 2
+reruns_delay = 1
 
 [tool.coverage.run]
 branch = true
