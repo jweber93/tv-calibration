@@ -1,7 +1,16 @@
-"""Tests for calibrator/session.py deserialization functions."""
+"""Tests for calibrator/session.py deserialization and thread-safety."""
+
+import threading
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
-from calibrator.session import deserialize_session, deserialize_measurement
+from calibrator.session import (
+    SessionStore,
+    deserialize_session,
+    deserialize_measurement,
+)
 
 
 class TestDeserializeMeasurement:
@@ -176,3 +185,117 @@ class TestDeserializeSession:
         sess = deserialize_session(data)
         assert sess["pre_measurements"] == []
         assert sess["wb_measurements"] == []
+
+
+class TestSessionStoreThreadSafety:
+    """Verify that SessionStore serializes concurrent access to self.sessions."""
+
+    @pytest.fixture
+    def store(self, tmp_path):
+        return SessionStore(
+            session_dir_getter=lambda: tmp_path,
+            ttl_getter=lambda: timedelta(days=7),
+            watched_session_id_getter=lambda: None,
+        )
+
+    def test_concurrent_create_and_get(self, store):
+        """create_session and get should not corrupt state under concurrent access."""
+        errors = []
+
+        def create_sessions(n):
+            for _ in range(n):
+                try:
+                    s = store.create_session("u8g")
+                    store.get(s["id"])
+                except Exception as e:
+                    errors.append(e)
+
+        threads = [threading.Thread(target=create_sessions, args=(50,)) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors, f"Errors during concurrent access: {errors}"
+        # Every session created should be retrievable
+        assert len(store.sessions) == 400
+
+    def test_concurrent_get_and_evict(self, store):
+        """get() calling evict_expired_sessions() must not race with manual eviction."""
+        # Seed with sessions that will expire
+        store.create_session("u8g")
+        store.create_session("u8g")
+
+        barrier = threading.Barrier(2)
+        errors = []
+
+        def getter():
+            try:
+                barrier.wait()
+                for _ in range(100):
+                    for sid in list(store.sessions.keys()):
+                        try:
+                            store.get(sid)
+                        except Exception:
+                            pass  # 404 is fine if evicted
+            except Exception as e:
+                errors.append(e)
+
+        def evictor():
+            try:
+                barrier.wait()
+                for _ in range(100):
+                    store.evict_expired_sessions()
+            except Exception as e:
+                errors.append(e)
+
+        t1 = threading.Thread(target=getter)
+        t2 = threading.Thread(target=evictor)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        assert not errors, f"Errors during concurrent get/evict: {errors}"
+
+    def test_concurrent_delete_and_get(self, store):
+        """delete() must not race with get() causing dict-modify-during-iteration."""
+        for _ in range(50):
+            store.create_session("u8g")
+
+        sids = list(store.sessions.keys())
+        errors = []
+
+        def deleter():
+            try:
+                for sid in sids[:25]:
+                    store.delete(sid)
+            except Exception as e:
+                errors.append(e)
+
+        def getter():
+            try:
+                for sid in sids[25:]:
+                    try:
+                        store.get(sid)
+                    except Exception:
+                        pass
+            except Exception as e:
+                errors.append(e)
+
+        t1 = threading.Thread(target=deleter)
+        t2 = threading.Thread(target=getter)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        assert not errors, f"Errors during concurrent delete/get: {errors}"
+        assert len(store.sessions) == 25
+
+    def test_rlock_is_reentrant(self, store):
+        """RLock must allow nested acquisition (e.g. get -> evict_expired_sessions)."""
+        store.create_session("u8g")
+        # get() calls evict_expired_sessions() internally — should not deadlock
+        session = store.get(list(store.sessions.keys())[0])
+        assert session is not None
