@@ -1112,6 +1112,15 @@ def bucket_map_for_session_step(
     return bucket_map
 
 
+def _gray_bucket_for_step(session_step):
+    """Return the grayscale session bucket that the current step writes to."""
+    if session_step == "pre_grayscale":
+        return "pre_measurements"
+    if session_step == "post_grayscale":
+        return "post_measurements"
+    return None
+
+
 def latest_gamma_pass(
     measurements: List[Measurement],
     levels: Tuple[int, ...] = GAMMA_TRACKING_LEVELS,
@@ -2058,8 +2067,9 @@ class SessionStore:
         bucket_map = bucket_map_for_session_step(result, session.get("step"))
         step_warnings = warnings_for_session_step(result, session.get("step"))
         counts: Dict[str, int] = {}
+        target_gray_bucket = _gray_bucket_for_step(session.get("step"))
         for key, meas_dicts in bucket_map.items():
-            if key in ("pre_measurements", "post_measurements") and meas_dicts:
+            if key == target_gray_bucket and meas_dicts:
                 session[key] = []
             for item in meas_dicts:
                 session[key].append(deserialize_measurement(item))
@@ -2107,8 +2117,9 @@ class SessionStore:
         bucket_map = patches_to_session_buckets(patches, session["target"], session.get("step"))
         step_warnings = []
         counts: Dict[str, int] = {}
+        target_gray_bucket = _gray_bucket_for_step(session.get("step"))
         for key, meas_dicts in bucket_map.items():
-            if key in ("pre_measurements", "post_measurements") and meas_dicts:
+            if key == target_gray_bucket and meas_dicts:
                 session[key] = []
             for item in meas_dicts:
                 session[key].append(deserialize_measurement(item))
