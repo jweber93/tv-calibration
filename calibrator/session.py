@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import threading
 import uuid
 from dataclasses import asdict, replace as dc_replace
 from datetime import datetime, timedelta, timezone
@@ -1602,6 +1603,7 @@ class SessionStore:
         watched_session_id_getter: Callable[[], Optional[str]],
     ) -> None:
         self.sessions: Dict[str, Dict[str, Any]] = {}
+        self._lock = threading.RLock()
         self._session_dir_getter = session_dir_getter
         self._ttl_getter = ttl_getter
         self._watched_session_id_getter = watched_session_id_getter
@@ -1648,72 +1650,78 @@ class SessionStore:
         self, *, current_time: Optional[datetime] = None
     ) -> List[str]:
         active_time = current_time or now()
-        expired_ids = [
-            sid
-            for sid, session in list(self.sessions.items())
-            if self.is_session_expired(session, current_time=active_time)
-        ]
-        for sid in expired_ids:
-            self.sessions.pop(sid, None)
-            self.delete_session_persisted_file(sid)
-        return expired_ids
+        with self._lock:
+            expired_ids = [
+                sid
+                for sid, session in list(self.sessions.items())
+                if self.is_session_expired(session, current_time=active_time)
+            ]
+            for sid in expired_ids:
+                self.sessions.pop(sid, None)
+                self.delete_session_persisted_file(sid)
+            return expired_ids
 
     def save_session(self, sid: str) -> None:
-        if sid not in self.sessions:
-            return
-        try:
-            self.session_dir.mkdir(exist_ok=True)
-            self.touch_session(self.sessions[sid])
-            path = self.session_dir / f"{sid}.json"
-            path.write_text(json.dumps(serialize_session(self.sessions[sid]), indent=2))
-        except Exception:
-            logger.exception("Failed to save session %s to disk", sid)
+        with self._lock:
+            if sid not in self.sessions:
+                return
+            try:
+                self.session_dir.mkdir(exist_ok=True)
+                self.touch_session(self.sessions[sid])
+                path = self.session_dir / f"{sid}.json"
+                path.write_text(json.dumps(serialize_session(self.sessions[sid]), indent=2))
+            except Exception:
+                logger.exception("Failed to save session %s to disk", sid)
 
     def load_sessions(self) -> None:
         if not self.session_dir.exists():
             return
-        for path in self.session_dir.glob("*.json"):
-            try:
-                data = json.loads(path.read_text())
-                sid = data.get("id", path.stem)
-                if sid not in self.sessions and data.get("tv_key") in TV_PROFILES:
-                    session = deserialize_session(data)
-                    if self.is_session_expired(session):
-                        self.delete_session_persisted_file(sid)
-                        continue
-                    self.sessions[sid] = session
-            except Exception:
-                logger.warning(
-                    "Could not load session from %s — file may be corrupt", path
-                )
+        with self._lock:
+            for path in self.session_dir.glob("*.json"):
+                try:
+                    data = json.loads(path.read_text())
+                    sid = data.get("id", path.stem)
+                    if sid not in self.sessions and data.get("tv_key") in TV_PROFILES:
+                        session = deserialize_session(data)
+                        if self.is_session_expired(session):
+                            self.delete_session_persisted_file(sid)
+                            continue
+                        self.sessions[sid] = session
+                except Exception:
+                    logger.warning(
+                        "Could not load session from %s — file may be corrupt", path
+                    )
 
     def get(self, sid: str) -> Dict[str, Any]:
-        self.evict_expired_sessions()
-        if sid not in self.sessions:
-            raise HTTPException(404, "Session not found")
-        session = self.sessions[sid]
-        self.touch_session(session)
-        return session
+        with self._lock:
+            self.evict_expired_sessions()
+            if sid not in self.sessions:
+                raise HTTPException(404, "Session not found")
+            session = self.sessions[sid]
+            self.touch_session(session)
+            return session
 
     def latest_session(self) -> Optional[Dict[str, Any]]:
-        self.evict_expired_sessions()
-        if not self.sessions:
-            return None
-        return max(
-            self.sessions.values(),
-            key=lambda s: s.get("last_accessed_at", s.get("created_at", "")),
-        )
+        with self._lock:
+            self.evict_expired_sessions()
+            if not self.sessions:
+                return None
+            return max(
+                self.sessions.values(),
+                key=lambda s: s.get("last_accessed_at", s.get("created_at", "")),
+            )
 
     def create_session(
         self, tv_key: str, sdr_peak_nits: Optional[float] = None
     ) -> Dict[str, Any]:
-        self.evict_expired_sessions()
-        if tv_key not in TV_PROFILES:
-            raise HTTPException(400, f"Unknown TV profile: {tv_key}")
-        sid = str(uuid.uuid4())[:8]
-        tv = TV_PROFILES[tv_key]
-        created_at = now().isoformat()
-        self.sessions[sid] = {
+        with self._lock:
+            self.evict_expired_sessions()
+            if tv_key not in TV_PROFILES:
+                raise HTTPException(400, f"Unknown TV profile: {tv_key}")
+            sid = str(uuid.uuid4())[:8]
+            tv = TV_PROFILES[tv_key]
+            created_at = now().isoformat()
+            self.sessions[sid] = {
             "id": sid,
             "tv_key": tv_key,
             "tv_name": tv.name,
@@ -1746,12 +1754,13 @@ class SessionStore:
             },
             "repass_count": 0,
         }
-        return self.sessions[sid]
+            return self.sessions[sid]
 
     def delete(self, sid: str) -> None:
-        self.get(sid)
-        self.sessions.pop(sid, None)
-        self.delete_session_persisted_file(sid)
+        with self._lock:
+            self.get(sid)
+            self.sessions.pop(sid, None)
+            self.delete_session_persisted_file(sid)
 
     def select_mode(
         self, sid: str, mode: str, sdr_peak_nits: Optional[float] = None
