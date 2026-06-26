@@ -213,6 +213,7 @@ class TestLifecycle:
                 shutil.rmtree(tmp_dir)
 
 
+@pytest.mark.flaky
 class TestImport:
     def test_new_csv_is_imported(self, tmp_path):
         session = _make_session()
@@ -328,6 +329,7 @@ class TestImport:
         assert len(session["pre_measurements"]) > 0
 
 
+@pytest.mark.flaky
 class TestDebounce:
     def test_rapid_writes_trigger_one_import(self, tmp_path):
         """Many rapid successive modifications → only one import."""

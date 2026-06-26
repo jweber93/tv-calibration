@@ -1,6 +1,5 @@
 name: CI
 
-# Replaces tests.yml once proven stable.
 # Stages: Lint → Test → Scan → (Build on main/tags)
 
 on:
@@ -69,7 +68,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13"]
 
     env:
       # Empty values → all hardware calls are mocked in the test suite.
