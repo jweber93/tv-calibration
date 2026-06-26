@@ -848,7 +848,14 @@ class TestMergeDedupAgainstExistingSession:
         assert len(session["zro_imports"]) == 2
 
 
-def test_pre_grayscale_import_does_not_clear_post_measurements(self, client, session_id):
+# ── Grayscale bucket isolation tests (issue #271) ──────────────────────────
+
+
+class TestGrayscaleBucketIsolation:
+    """Regression tests for issue #271: import must not clear the other
+    step's grayscale bucket."""
+
+    def test_pre_grayscale_import_does_not_clear_post_measurements(self, client, session_id):
         """Importing on pre_grayscale must not wipe existing post_measurements.
 
         Regression: issue #271 — import_zro_bytes() unconditionally cleared
@@ -860,19 +867,16 @@ def test_pre_grayscale_import_does_not_clear_post_measurements(self, client, ses
         # Manually set step to post_grayscale and seed post_measurements
         _sessions[session_id]["step"] = "post_grayscale"
         _upload(client, session_id, CLEAN_GRAYSCALE_CSV)
-        session_before = client.get(f"/api/session/{session_id}").json()
-        assert len(session_before["post_measurements"]) == 11
+        assert len(_sessions[session_id]["post_measurements"]) == 11
 
         # Switch back to pre_grayscale and import pre-cal grayscale
         _sessions[session_id]["step"] = "pre_grayscale"
         _upload(client, session_id, CLEAN_GRAYSCALE_CSV)
-        session_after = client.get(f"/api/session/{session_id}").json()
-        assert len(session_after["pre_measurements"]) == 11
+        assert len(_sessions[session_id]["pre_measurements"]) == 11
         # post_measurements must be untouched
-        assert len(session_after["post_measurements"]) == 11
+        assert len(_sessions[session_id]["post_measurements"]) == 11
 
-
-def test_post_grayscale_import_does_not_clear_pre_measurements(self, client, session_id):
+    def test_post_grayscale_import_does_not_clear_pre_measurements(self, client, session_id):
         """Importing on post_grayscale must not wipe existing pre_measurements.
 
         Symmetric case from issue #271 — the previous test covers pre→post;
@@ -880,13 +884,11 @@ def test_post_grayscale_import_does_not_clear_pre_measurements(self, client, ses
         """
         # Seed pre_measurements (session starts on pre_grayscale)
         _upload(client, session_id, CLEAN_GRAYSCALE_CSV)
-        session_before = client.get(f"/api/session/{session_id}").json()
-        assert len(session_before["pre_measurements"]) == 11
+        assert len(_sessions[session_id]["pre_measurements"]) == 11
 
         # Switch to post_grayscale and import post-cal grayscale
         _sessions[session_id]["step"] = "post_grayscale"
         _upload(client, session_id, CLEAN_GRAYSCALE_CSV)
-        session_after = client.get(f"/api/session/{session_id}").json()
-        assert len(session_after["post_measurements"]) == 11
+        assert len(_sessions[session_id]["post_measurements"]) == 11
         # pre_measurements must be untouched
-        assert len(session_after["pre_measurements"]) == 11
+        assert len(_sessions[session_id]["pre_measurements"]) == 11
