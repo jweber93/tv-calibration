@@ -187,6 +187,158 @@ class TestComparisonPayloadSessionIds:
         assert data["session_id_a"] == sid_a
         assert data["session_id_b"] == sid_b
 
+
+# ── Edge-case comparison tests (issue #277) ───────────────────────────────────
+
+class TestComparisonEdgeCases:
+    def test_comparison_session_a_no_pre_cal(self, client):
+        sid_a = _make_session_with_measurements(client)
+        sid_b = _make_session_with_measurements(client)
+        _sessions[sid_a]["pre_measurements"] = []
+
+        result = comparison_payload(_sessions[sid_a], _sessions[sid_b])
+        deltas = result["deltas"]
+
+        assert deltas["pre_cal_avg_de"] is None
+        assert deltas["pre_cal_max_de"] is None
+        assert result["session_a"]["report"]["pre_cal"]["avg_de"] is None
+
+    def test_comparison_session_b_no_post_cal(self, client):
+        sid_a = _make_session_with_measurements(client)
+        sid_b = _make_session_with_measurements(client)
+        _sessions[sid_b]["post_measurements"] = []
+
+        result = comparison_payload(_sessions[sid_a], _sessions[sid_b])
+        deltas = result["deltas"]
+
+        assert deltas["post_cal_avg_de"] is None
+        assert deltas["post_cal_max_de"] is None
+        assert result["session_b"]["report"]["post_cal"]["avg_de"] is None
+
+    def test_comparison_both_sessions_zero_delta_e(self, client):
+        from calibrator.reports import report_payload
+        from calibrator.utils import stimulus_pct_from_code_value
+
+        sid = _make_session_with_measurements(client)
+        sess = _sessions[sid]
+        target = sess["target"]
+        signal_range = sess.get("signal_range", "full")
+
+        perfect_measurements = [
+            Measurement(
+                x=target.white_point_xy[0],
+                y=target.white_point_xy[1],
+                Y=target.peak_luminance_nits * (stimulus_pct_from_code_value(pct * 2, signal_range) / 100.0) ** target.gamma,
+                X=0.0, Z=0.0,
+                label=f"{pct}% Gray",
+                stimulus_rgb=(pct * 2, pct * 2, pct * 2),
+            )
+            for pct in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        ]
+        sess["pre_measurements"] = perfect_measurements
+        sess["post_measurements"] = perfect_measurements
+
+        report = report_payload(sess)
+        assert report["pre_cal"]["avg_de"] == 0.0
+        assert report["improvement_pct"] is None
+
+        result = comparison_payload(sess, sess)
+        assert result["deltas"]["improvement_pct"] is None
+
+    def test_comparison_one_session_empty_one_complete(self, client):
+        sid_a = _make_session_with_measurements(client)
+        sid_b = _make_session_with_measurements(client)
+        _sessions[sid_a]["pre_measurements"] = []
+        _sessions[sid_a]["post_measurements"] = []
+
+        result = comparison_payload(_sessions[sid_a], _sessions[sid_b])
+        deltas = result["deltas"]
+
+        assert deltas["pre_cal_avg_de"] is None
+        assert deltas["post_cal_avg_de"] is None
+        assert deltas["pre_cal_max_de"] is None
+        assert deltas["post_cal_max_de"] is None
+
+    def test_comparison_only_invalid_measurements(self, client):
+        sid_a = _make_session_with_measurements(client)
+        sid_b = _make_session_with_measurements(client)
+
+        invalid_measurements = [
+            Measurement(
+                x=float("nan"), y=float("nan"),
+                Y=float("nan"),
+                X=float("nan"),
+                Z=float("nan"),
+                label="Invalid",
+                stimulus_rgb=(128, 128, 128),
+            )
+        ]
+        _sessions[sid_a]["pre_measurements"] = invalid_measurements
+        _sessions[sid_a]["post_measurements"] = invalid_measurements
+
+        result = comparison_payload(_sessions[sid_a], _sessions[sid_b])
+        report_a = result["session_a"]["report"]
+
+        assert report_a["pre_cal"]["avg_de"] is None
+        assert report_a["pre_cal"]["invalid_count"] == 1
+        assert report_a["improvement_pct"] is None
+
+
+class TestReportPayloadEdgeCases:
+    def test_report_payload_empty_measurements_no_crash(self, client):
+        from calibrator.reports import report_payload
+        sid = _make_session_with_measurements(client)
+        sess = _sessions[sid]
+        sess["pre_measurements"] = []
+        sess["post_measurements"] = []
+        sess["wb_measurements"] = []
+        sess["gamma_measurements"] = []
+        sess["cms_measurements"] = []
+
+        result = report_payload(sess)
+
+        assert result["pre_cal"]["avg_de"] is None
+        assert result["pre_cal"]["max_de"] is None
+        assert result["pre_cal"]["measurements"] == []
+        assert result["post_cal"]["avg_de"] is None
+        assert result["improvement_pct"] is None
+        assert result["white_balance"]["avg_de"] is None
+        assert result["color_tuner"]["avg_de"] is None
+        assert result["gamma"]["avg_gamma"] is None
+
+    def test_report_payload_pre_zero_post_nonzero_improvement_none(self, client):
+        from calibrator.reports import report_payload
+        from calibrator.utils import stimulus_pct_from_code_value
+
+        sid = _make_session_with_measurements(client)
+        sess = _sessions[sid]
+        target = sess["target"]
+        signal_range = sess.get("signal_range", "full")
+
+        perfect = Measurement(
+            x=target.white_point_xy[0],
+            y=target.white_point_xy[1],
+            Y=target.peak_luminance_nits * (stimulus_pct_from_code_value(100, signal_range) / 100.0) ** target.gamma,
+            X=0.0, Z=0.0,
+            label="50% Gray",
+            stimulus_rgb=(100, 100, 100),
+        )
+        slightly_off = Measurement(
+            x=target.white_point_xy[0] + 0.01,
+            y=target.white_point_xy[1] + 0.01,
+            Y=target.peak_luminance_nits * (stimulus_pct_from_code_value(102, signal_range) / 100.0) ** target.gamma,
+            X=0.0, Z=0.0,
+            label="51% Gray",
+            stimulus_rgb=(102, 102, 102),
+        )
+
+        sess["pre_measurements"] = [perfect]
+        sess["post_measurements"] = [slightly_off]
+
+        result = report_payload(sess)
+        assert result["pre_cal"]["avg_de"] == 0.0
+        assert result["improvement_pct"] is None
+
 # ── GET /api/report/compare ────────────────────────────────────────────────────
 
 class TestCompareEndpoint:
@@ -244,6 +396,19 @@ class TestCompareEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert data["summary"] is None
+
+    def test_compare_empty_session_returns_200_with_none_deltas(self, client):
+        sid_a = _make_session_with_measurements(client)
+        sid_b = _make_session_with_measurements(client)
+        _sessions[sid_a]["pre_measurements"] = []
+        _sessions[sid_a]["post_measurements"] = []
+
+        resp = client.get(f"/api/report/compare?a={sid_a}&b={sid_b}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["deltas"]["pre_cal_avg_de"] is None
+        assert data["deltas"]["post_cal_avg_de"] is None
+        assert data["session_a"]["report"]["pre_cal"]["avg_de"] is None
 
 
 # ── GET /api/session/{sid}/suggested-patches ──────────────────────────────────
