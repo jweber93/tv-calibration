@@ -309,15 +309,23 @@ jobs:
             -e ZRO_BRIDGE_URL= \
             -e DOGEGEN_PATH= \
             tv-calibration/calcore-server:ci-${{ github.run_id }}
-          # Wait for the server to become healthy
+          # Wait for the server to become healthy and verify frontend is served
           for _ in $(seq 1 30); do
+            API_OK=false
+            FRONTEND_OK=false
             if curl -sf http://localhost:8000/api/profiles > /dev/null 2>&1; then
-              echo "Server is healthy"
+              API_OK=true
+            fi
+            if curl -sf http://localhost:8000/ | grep -q '<!DOCTYPE\|<html'; then
+              FRONTEND_OK=true
+            fi
+            if $API_OK && $FRONTEND_OK; then
+              echo "Server is healthy (API + frontend verified)"
               exit 0
             fi
             sleep 2
           done
-          echo "Server failed to start within 60s"
+          echo "Server failed to start or serve frontend within 60s"
           docker logs calcore-test
           exit 1
 
