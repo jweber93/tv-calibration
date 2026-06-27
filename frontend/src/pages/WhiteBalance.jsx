@@ -43,7 +43,7 @@ export function WhiteBalance({ session, onNext, onPrev }) {
         <DeMeasCard label="30% Gray (Offset)" measurement={wd.offset_measurement} hasFlag={wd.has_offset_measurement} />
       </div>
 
-      <ActionPlan plan={plan} title={`WB Control Plan (${wd.menu_path || ''})`} />
+      <ActionPlan plan={plan} menuPath={wd.menu_path} />
 
       {hints && (
         <Card title="White Point Analysis">
