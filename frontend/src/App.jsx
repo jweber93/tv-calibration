@@ -45,6 +45,7 @@ import { ConfirmModal }  from './components/ConfirmModal';
 import { LlmInsightCard } from './components/LlmInsightCard';
 import { TvSettingsInput } from './components/TvSettingsInput';
 import { LogsPanel }     from './components/LogsPanel';
+import { AppShell }     from './components/AppShell';
 
 function QualityDot({ gate }) {
   if (!gate) return null;
@@ -162,7 +163,7 @@ export default function App() {
   const dogegenConfigured = dogegenStatus?.configured;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', paddingBottom: 28 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       {showStartOver && (
         <ConfirmModal
           title="Discard this calibration session?"
@@ -221,7 +222,7 @@ export default function App() {
       <ProgressBar session={session} onJump={sess.jumpToStep} />
 
       {/* Main content */}
-      <main className="main">
+      <AppShell session={session}>
         {showComparison ? (
           <ComparisonPage profiles={profiles} />
         ) : (
@@ -240,7 +241,7 @@ export default function App() {
             </StepErrorBoundary>
           </>
         )}
-      </main>
+      </AppShell>
       <LogsPanel />
     </div>
   );
