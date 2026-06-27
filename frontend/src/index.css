@@ -93,8 +93,38 @@ body {
 .step-tab.active .step-num { background: var(--accent); border-color: var(--accent); color: #000; }
 .step-tab.done  .step-num  { background: var(--green);  border-color: var(--green);  color: #000; }
 
-/* ── Main container ─────────────────────────────────────────────────────────── */
-.main { flex: 1; padding: 28px 24px; max-width: 980px; margin: 0 auto; width: 100%; }
+/* ── 3-zone workspace (#289) ────────────────────────────────────────────────── */
+.workspace {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  max-width: calc(236px + 920px + 296px + 48px);
+  margin: 0 auto;
+  padding-bottom: 28px;
+}
+.workspace-rail {
+  width: 236px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 89px; /* header 52px + progress-bar ~37px */
+  align-self: flex-start;
+  padding: 20px 0 20px 24px;
+}
+.workspace-main {
+  flex: 1;
+  min-width: 0;
+  max-width: 920px;
+  padding: 28px 24px;
+}
+.workspace-instrument {
+  width: 296px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 89px;
+  align-self: flex-start;
+  padding: 20px 24px 20px 0;
+}
 
 /* ── Cards ──────────────────────────────────────────────────────────────────── */
 .card {
