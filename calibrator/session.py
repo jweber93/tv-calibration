@@ -2075,8 +2075,11 @@ class SessionStore:
                 session[key].append(deserialize_measurement(item))
             if meas_dicts:
                 counts[key] = len(meas_dicts)
-        if counts.get("lum_measurements"):
-            session["peak_luminance"] = round(session["lum_measurements"][-1].Y, 2)
+        if session.get("lum_measurements"):
+            last_lum = session["lum_measurements"][-1]
+            y_val = getattr(last_lum, "Y", last_lum.get("Y") if isinstance(last_lum, dict) else None)
+            if y_val is not None:
+                session["peak_luminance"] = round(y_val, 2)
         imported_at = now().isoformat()
         import_meta: Dict[str, Any] = {
             "filename": filename or "unknown",
@@ -2125,8 +2128,11 @@ class SessionStore:
                 session[key].append(deserialize_measurement(item))
             if meas_dicts:
                 counts[key] = len(meas_dicts)
-        if counts.get("lum_measurements"):
-            session["peak_luminance"] = round(session["lum_measurements"][-1].Y, 2)
+        if session.get("lum_measurements"):
+            last_lum = session["lum_measurements"][-1]
+            y_val = getattr(last_lum, "Y", last_lum.get("Y") if isinstance(last_lum, dict) else None)
+            if y_val is not None:
+                session["peak_luminance"] = round(y_val, 2)
         imported_at = now().isoformat()
         import_meta: Dict[str, Any] = {
             "filename": filename or "unknown",
