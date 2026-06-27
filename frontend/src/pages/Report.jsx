@@ -35,14 +35,14 @@ export function Report({ session, onPrev }) {
 
   return (
     <>
-      <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '28px 24px', marginBottom: 20, textAlign: 'center' }}>
-        <div style={{ fontSize: '0.7rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6 }}>
+      <div style={{ background: 'var(--panel2)', border: '1px solid var(--line)', borderRadius: 'var(--radius-lg)', padding: '28px 24px', marginBottom: 20, textAlign: 'center' }}>
+        <div style={{ fontSize: '0.7rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink2)', marginBottom: 6 }}>
           Calibration Complete
         </div>
         <div style={{ fontSize: '1.4rem', fontWeight: 700, marginBottom: 4 }}>
           {session.tv} — {session.mode}
         </div>
-        <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
+        <div style={{ fontSize: '0.8rem', color: 'var(--ink2)' }}>
           Session {sid} · {session.date ? new Date(session.date).toLocaleDateString() : ''}
         </div>
       </div>

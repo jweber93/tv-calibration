@@ -99,18 +99,18 @@ export function ComparisonPage({ profiles }) {
     if (val == null) return null;
     if (val < 0) return lowerIsBetter ? 'var(--green)' : 'var(--red)';
     if (val > 0) return lowerIsBetter ? 'var(--red)' : 'var(--green)';
-    return 'var(--muted)';
+    return 'var(--ink2)';
   }
 
   return (
     <div>
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginBottom: 20 }}>
-        <div style={{ fontSize: '0.72rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginBottom: 20 }}>
+        <div style={{ fontSize: '0.72rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink2)', marginBottom: 12 }}>
           Session Comparison
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 200px' }}>
-            <label style={{ fontSize: '0.72rem', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>TV Model</label>
+            <label style={{ fontSize: '0.72rem', color: 'var(--ink2)', display: 'block', marginBottom: 4 }}>TV Model</label>
             <select value={tvKey} onChange={handleTvChange}>
               <option value="">Select a TV…</option>
               {profiles.map(p => (
@@ -119,7 +119,7 @@ export function ComparisonPage({ profiles }) {
             </select>
           </div>
           <div style={{ flex: '1 1 180px' }}>
-            <label style={{ fontSize: '0.72rem', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
+            <label style={{ fontSize: '0.72rem', color: 'var(--ink2)', display: 'block', marginBottom: 4 }}>
               Session A (before)
               <Tooltip text="The baseline or earlier calibration session" />
             </label>
@@ -137,7 +137,7 @@ export function ComparisonPage({ profiles }) {
             </select>
           </div>
           <div style={{ flex: '1 1 180px' }}>
-            <label style={{ fontSize: '0.72rem', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
+            <label style={{ fontSize: '0.72rem', color: 'var(--ink2)', display: 'block', marginBottom: 4 }}>
               Session B (after)
               <Tooltip text="The more recent calibration session" />
             </label>
@@ -163,7 +163,7 @@ export function ComparisonPage({ profiles }) {
         </div>
       </div>
 
-      {error && <div className="red text-sm" style={{ padding: 16, background: 'var(--red-dim)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>Error: {error}</div>}
+      {error && <div className="red text-sm" style={{ padding: 16, background: 'var(--red-dim)', borderRadius: 'var(--radius)', border: '1px solid var(--line)' }}>Error: {error}</div>}
 
       {historyLoading && !history && (
         <div className="muted text-sm" style={{ padding: 16 }}>
@@ -194,15 +194,15 @@ export function ComparisonPage({ profiles }) {
           <Card title="Key Metrics">
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
               <thead>
-                <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', color: 'var(--muted)', fontWeight: 600, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Metric</th>
+                <tr style={{ borderBottom: '1px solid var(--line)' }}>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', color: 'var(--ink2)', fontWeight: 600, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Metric</th>
                   <th style={{ textAlign: 'right', padding: '8px 10px', color: '#e74c3c', fontWeight: 600, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                    Session A <br /><span style={{ color: 'var(--muted)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>{sessA?.date ? new Date(sessA.date).toLocaleDateString() : ''}</span>
+                    Session A <br /><span style={{ color: 'var(--ink2)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>{sessA?.date ? new Date(sessA.date).toLocaleDateString() : ''}</span>
                   </th>
                   <th style={{ textAlign: 'right', padding: '8px 10px', color: '#22c987', fontWeight: 600, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                    Session B <br /><span style={{ color: 'var(--muted)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>{sessB?.date ? new Date(sessB.date).toLocaleDateString() : ''}</span>
+                    Session B <br /><span style={{ color: 'var(--ink2)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>{sessB?.date ? new Date(sessB.date).toLocaleDateString() : ''}</span>
                   </th>
-                  <th style={{ textAlign: 'right', padding: '8px 10px', color: 'var(--muted)', fontWeight: 600, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Δ (B − A)</th>
+                  <th style={{ textAlign: 'right', padding: '8px 10px', color: 'var(--ink2)', fontWeight: 600, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Δ (B − A)</th>
                 </tr>
               </thead>
               <tbody>
@@ -217,7 +217,7 @@ export function ComparisonPage({ profiles }) {
                   { label: 'Peak Luminance', a: repA?.peak_luminance, b: repB?.peak_luminance, d: deltas?.peak_luminance, digits: 1, suffix: ' nits', lowerIsBetter: false },
                   { label: 'Improvement %', a: repA?.improvement_pct, b: repB?.improvement_pct, d: deltas?.improvement_pct, digits: 1, suffix: '%', lowerIsBetter: false },
                 ].map(row => (
-                  <tr key={row.label} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <tr key={row.label} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '8px 10px', fontWeight: 500 }}>{row.label}</td>
                     <td style={{ padding: '8px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtValue(row.a, row.digits || 2, row.suffix || '')}</td>
                     <td style={{ padding: '8px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtValue(row.b, row.digits || 2, row.suffix || '')}</td>
@@ -237,7 +237,7 @@ export function ComparisonPage({ profiles }) {
               <Button onClick={downloadComparePdf}>Download PDF</Button>
             </div>
             {deltaSummary?.summary ? (
-              <div style={{ fontSize: '0.85rem', lineHeight: 1.6, color: 'var(--text)', whiteSpace: 'pre-wrap' }}>
+              <div style={{ fontSize: '0.85rem', lineHeight: 1.6, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>
                 {deltaSummary.summary}
               </div>
             ) : deltaSummary?.reason ? (

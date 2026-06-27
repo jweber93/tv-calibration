@@ -49,7 +49,7 @@ function ActionPlanWithAdb({ plan, title, adbStatus, onAdbApply }) {
       {plan.map((step, i) => {
         const isHold = step.direction === 'hold';
         return (
-          <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+          <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
             <span style={{ fontSize: '1rem', width: 20, textAlign: 'center', flexShrink: 0 }}>
               {dirIcon(step.direction)}
             </span>
@@ -91,7 +91,7 @@ export function ColorTuner({ session, watchStatus, watchDefaultPath, bridgeStatu
             const [r, g, b] = c.rgb;
             const m = meas.find(x => x.label === c.name || x.label === c.name + ' 100%');
             return (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 8, background: 'var(--surface2)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 8, background: 'var(--panel2)', borderRadius: 'var(--radius)', border: '1px solid var(--line)' }}>
                 <div style={{ width: 18, height: 18, borderRadius: 3, background: `rgb(${r},${g},${b})`, flexShrink: 0 }} />
                 <div style={{ flex: 1, fontSize: '0.8rem' }}>{c.name}</div>
                 {m

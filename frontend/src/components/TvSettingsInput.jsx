@@ -56,7 +56,7 @@ export function TvSettingsInput({ onSave }) {
         style={{
           background: 'none',
           border: 'none',
-          color: 'var(--muted)',
+          color: 'var(--ink2)',
           cursor: 'pointer',
           fontSize: '0.75rem',
           padding: '2px 0',
@@ -73,12 +73,12 @@ export function TvSettingsInput({ onSave }) {
       {open && (
         <div style={{
           marginTop: 6,
-          background: 'var(--surface2)',
+          background: 'var(--panel2)',
           border: '1px solid var(--border-subtle, rgba(255,255,255,0.08))',
           borderRadius: 'var(--radius-md, 6px)',
           padding: '10px 12px',
         }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: 6, lineHeight: 1.5 }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--ink2)', marginBottom: 6, lineHeight: 1.5 }}>
             Paste your current WB / CMS slider values as JSON. The LLM will use these
             to compute specific "from → to" adjustment deltas.
           </div>
@@ -92,8 +92,8 @@ export function TvSettingsInput({ onSave }) {
               width: '100%',
               fontFamily: 'monospace',
               fontSize: '0.76rem',
-              background: 'var(--surface3, rgba(0,0,0,0.2))',
-              color: 'var(--text)',
+              background: 'var(--panel3, rgba(0,0,0,0.2))',
+              color: 'var(--ink)',
               border: `1px solid ${status === 'error' ? 'var(--red)' : 'var(--border-subtle, rgba(255,255,255,0.1))'}`,
               borderRadius: 4,
               padding: '6px 8px',

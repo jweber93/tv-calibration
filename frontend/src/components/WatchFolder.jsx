@@ -67,7 +67,7 @@ export function WatchFolder({ watchStatus, onStart, onStop, defaultPath }) {
         <button
           className="text-sm muted"
           onClick={() => setDiagOpen(o => !o)}
-          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--muted)', fontFamily: 'inherit' }}
+          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--ink2)', fontFamily: 'inherit' }}
         >
           {diagOpen ? '▾' : '▸'} Watcher diagnostics
         </button>

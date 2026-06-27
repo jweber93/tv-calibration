@@ -78,7 +78,7 @@ function AdbPictureControls({ adbStatus, onAdbSetPicture, onAdbGetPicture, onDep
               value={values[key]}
               onChange={e => setValues(v => ({ ...v, [key]: Number(e.target.value) }))}
               disabled={!connected}
-              style={{ width: 60, padding: '4px 6px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text)', fontSize: '0.85rem' }}
+              style={{ width: 60, padding: '4px 6px', background: 'var(--panel2)', border: '1px solid var(--line)', borderRadius: 4, color: 'var(--ink)', fontSize: '0.85rem' }}
             />
             <Button small disabled={!connected || pending[key] === 'get'} onClick={() => handleGet(key)}>
               {pending[key] === 'get' ? '…' : 'Get'}

@@ -45,8 +45,8 @@ function StepItem({ step, onToggle }) {
           minWidth: 24,
           height: 24,
           borderRadius: '50%',
-          background: checked ? 'var(--accent-dim)' : 'var(--surface3)',
-          color: checked ? 'var(--accent)' : 'var(--muted)',
+          background: checked ? 'var(--accent-dim)' : 'var(--panel3)',
+          color: checked ? 'var(--accent)' : 'var(--ink2)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -64,7 +64,7 @@ function StepItem({ step, onToggle }) {
           style={{
             fontWeight: 600,
             fontSize: '0.83rem',
-            color: checked ? 'var(--muted)' : 'var(--text)',
+            color: checked ? 'var(--ink2)' : 'var(--ink)',
           }}
         >
           {step.menu_path}
@@ -85,7 +85,7 @@ function StepItem({ step, onToggle }) {
           <div
             style={{
               fontSize: '0.78rem',
-              color: checked ? 'var(--muted)' : 'var(--muted)',
+              color: checked ? 'var(--ink2)' : 'var(--ink2)',
               marginTop: 3,
               lineHeight: 1.45,
             }}
@@ -127,7 +127,7 @@ export function OSDStepList({ steps, title = 'OSD Navigation', usesAdb, adbInstr
           <span
             style={{
               fontSize: '0.72rem',
-              color: 'var(--muted)',
+              color: 'var(--ink2)',
               marginLeft: 'auto',
             }}
           >
@@ -230,7 +230,7 @@ export function CombinedInsightCard({ insight, streaming, error, onDismiss, sid 
               style={{
                 padding: '10px 14px',
                 fontSize: '0.82rem',
-                color: 'var(--muted)',
+                color: 'var(--ink2)',
               }}
             >
               Generating OSD navigation steps...

@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 
 const LEVEL_COLOR = {
-  DEBUG:    'var(--muted)',
-  INFO:     'var(--text)',
+  DEBUG:    'var(--ink2)',
+  INFO:     'var(--ink)',
   WARNING:  '#e6a817',
   ERROR:    'var(--red)',
   CRITICAL: 'var(--red)',
@@ -52,7 +52,7 @@ export function LogsPanel() {
     <div style={{
       position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 1000,
       fontFamily: 'monospace', fontSize: '0.75rem',
-      background: 'var(--surface)', borderTop: '1px solid var(--border)',
+      background: 'var(--panel)', borderTop: '1px solid var(--line)',
       boxShadow: open ? '0 -4px 24px rgba(0,0,0,0.4)' : 'none',
     }}>
       {/* Toggle bar */}
@@ -61,17 +61,17 @@ export function LogsPanel() {
         style={{
           display: 'flex', alignItems: 'center', gap: 10, padding: '4px 14px',
           cursor: 'pointer', userSelect: 'none',
-          background: 'var(--surface2)',
+          background: 'var(--panel2)',
         }}
       >
-        <span style={{ color: connected ? 'var(--green)' : 'var(--muted)', fontSize: '0.65rem' }}>●</span>
-        <span style={{ color: 'var(--muted)', fontWeight: 600, letterSpacing: '0.05em' }}>SERVER LOGS</span>
+        <span style={{ color: connected ? 'var(--green)' : 'var(--ink2)', fontSize: '0.65rem' }}>●</span>
+        <span style={{ color: 'var(--ink2)', fontWeight: 600, letterSpacing: '0.05em' }}>SERVER LOGS</span>
         {errorCount > 0 && (
           <span style={{ background: 'var(--red)', color: '#fff', borderRadius: 3, padding: '0 5px', fontSize: '0.65rem' }}>
             {errorCount} error{errorCount !== 1 ? 's' : ''}
           </span>
         )}
-        <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontSize: '0.65rem' }}>
+        <span style={{ marginLeft: 'auto', color: 'var(--ink2)', fontSize: '0.65rem' }}>
           {open ? '▼' : '▲'}
         </span>
       </div>
@@ -80,7 +80,7 @@ export function LogsPanel() {
       {open && (
         <div style={{ height: 220, overflowY: 'auto', padding: '6px 14px' }}>
           {lines.length === 0 ? (
-            <div style={{ color: 'var(--muted)', padding: '20px 0', textAlign: 'center' }}>No log lines yet.</div>
+            <div style={{ color: 'var(--ink2)', padding: '20px 0', textAlign: 'center' }}>No log lines yet.</div>
           ) : (
             lines.map((line, i) => (
               <div key={i} style={{ color: LEVEL_COLOR[levelOf(line)], whiteSpace: 'pre-wrap', wordBreak: 'break-all', lineHeight: 1.5 }}>
