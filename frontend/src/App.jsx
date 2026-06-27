@@ -47,43 +47,6 @@ import { TvSettingsInput } from './components/TvSettingsInput';
 import { LogsPanel }     from './components/LogsPanel';
 import { AppShell }     from './components/AppShell';
 
-function QualityDot({ gate }) {
-  if (!gate) return null;
-  const color = gate.passed ? 'var(--green)' : 'var(--red)';
-  const title = gate.passed ? `✓ ${gate.detail}` : `✗ ${gate.detail}`;
-  return (
-    <span
-      title={title}
-      style={{ width: 6, height: 6, borderRadius: '50%', background: color, display: 'inline-block', marginLeft: 4, flexShrink: 0, verticalAlign: 'middle' }}
-    />
-  );
-}
-
-function ProgressBar({ session, onJump }) {
-  if (!session?.steps) return null;
-  const gates = session.quality_gates || {};
-  return (
-    <div className="progress-bar">
-      {session.steps.map((step, i) => {
-        const done = i < session.step_index;
-        const cls = done ? 'done' : i === session.step_index ? 'active' : '';
-        const icon = done ? '✓' : i + 1;
-        return (
-          <div
-            className={`step-tab ${cls}${done ? ' step-tab-clickable' : ''}`}
-            key={step.id || i}
-            onClick={done ? () => onJump(i) : undefined}
-            title={done ? `Go back to ${step.label}` : undefined}
-          >
-            <span className="step-num">{icon}</span>
-            {step.label}
-            {done && <QualityDot gate={gates[step.id]} />}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 function scrollToCard(id) {
   const el = document.getElementById(id);
@@ -218,11 +181,8 @@ export default function App() {
         </div>
       </header>
 
-      {/* Step progress bar */}
-      <ProgressBar session={session} onJump={sess.jumpToStep} />
-
       {/* Main content */}
-      <AppShell session={session}>
+      <AppShell session={session} onJump={sess.jumpToStep}>
         {showComparison ? (
           <ComparisonPage profiles={profiles} />
         ) : (
