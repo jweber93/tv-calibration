@@ -91,7 +91,7 @@ export function ColorTuner({ session, adbStatus, onAdbApply, onAdbReset, onAdbDe
         <Card title="Programmatic Control (ADB)">
           <AdbStatusPanel adbStatus={adbStatus} onDeploy={onAdbDeploy} onRefresh={onRefreshAdb} />
           <div style={{ marginTop: 10 }}>
-            <Button small disabled={!ready} onClick={onAdbReset}>
+            <Button small disabled={!(adbStatus?.connected && adbStatus?.cms_tool_deployed)} onClick={onAdbReset}>
               Reset All CMS to 0
             </Button>
             <span className="muted text-sm" style={{ marginLeft: 8 }}>Calls setColorTunerReset() on the TV</span>
