@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { fmtDateTime, measurementTimeSummary } from '../utils/fmt';
 import { Button } from './Button';
+import { DogegenCard } from './DogegenCard';
 
 function StatusDot({ ok, configured }) {
   return (
@@ -40,25 +41,9 @@ export function InstrumentPanel({
   const [uploadStatus, setUploadStatus] = useState('');
   const [dragging, setDragging] = useState(false);
 
-  const [showDogegenSettings, setShowDogegenSettings] = useState(false);
-  const [dogegenPath, setDogegenPath] = useState(dogegenStatus?.path || '');
-  const [dogegenResolveHost, setDogegenResolveHost] = useState(dogegenStatus?.resolve_host || '');
-  const [dogegenWindowPct, setDogegenWindowPct] = useState(dogegenStatus?.window_pct || 10);
-  const [dogegenMaxcll, setDogegenMaxcll] = useState(dogegenStatus?.maxcll || 1000);
-  const [dogegenBusy, setDogegenBusy] = useState(false);
-  const [dogegenMsg, setDogegenMsg] = useState('');
-  useEffect(() => {
-    setDogegenPath(dogegenStatus?.path || '');
-    setDogegenResolveHost(dogegenStatus?.resolve_host || '');
-    setDogegenWindowPct(dogegenStatus?.window_pct || 10);
-    setDogegenMaxcll(dogegenStatus?.maxcll || 1000);
-  }, [dogegenStatus?.path, dogegenStatus?.resolve_host, dogegenStatus?.window_pct, dogegenStatus?.maxcll]);
-
   const bridgeOk = bridgeStatus?.ok;
   const dogegenSelected = session?.pattern_generator === 'dogegen';
-  const dogegenRunning = dogegenStatus?.running;
-  const dogegenReady = dogegenStatus?.ready;
-  const dogegenBlocked = dogegenSelected && dogegenRunning && !dogegenReady;
+  const dogegenBlocked = dogegenSelected && dogegenStatus?.running && !dogegenStatus?.ready;
 
   const ws = watchStatus || {};
   const watchDotCls = ws.watching ? 'dot-active' : ws.error ? 'dot-error' : 'dot-inactive';
@@ -94,48 +79,6 @@ export function InstrumentPanel({
       setUploadStatus(`Error: ${e.message}`);
     } finally {
       setUploadBusy(false);
-    }
-  }
-
-  async function handleDogegenStart() {
-    setDogegenBusy(true);
-    setDogegenMsg('');
-    try {
-      await onStartDogegen();
-    } catch (e) {
-      setDogegenMsg(`Error: ${e.message}`);
-    } finally {
-      setDogegenBusy(false);
-    }
-  }
-
-  async function handleDogegenStop() {
-    setDogegenBusy(true);
-    setDogegenMsg('');
-    try {
-      await onStopDogegen();
-    } catch (e) {
-      setDogegenMsg(`Error: ${e.message}`);
-    } finally {
-      setDogegenBusy(false);
-    }
-  }
-
-  async function handleDogegenSave() {
-    setDogegenBusy(true);
-    setDogegenMsg('');
-    try {
-      await onSaveDogegenConfig({
-        path: dogegenPath,
-        resolve_host: dogegenResolveHost,
-        window_pct: Number(dogegenWindowPct),
-        maxcll: Number(dogegenMaxcll),
-      });
-      setShowDogegenSettings(false);
-    } catch (e) {
-      setDogegenMsg(`Error: ${e.message}`);
-    } finally {
-      setDogegenBusy(false);
     }
   }
 
@@ -197,69 +140,13 @@ export function InstrumentPanel({
         {/* Dogegen */}
         {dogegenSelected && (
           <div style={{ marginTop: 10 }}>
-            <div className="ip-chain-row">
-              <StatusDot ok={dogegenRunning} configured={dogegenStatus?.configured} />
-              <span className="text-sm" style={{ flex: 1 }}>
-                Dogegen&nbsp;
-                {dogegenRunning
-                  ? <span className="green">running</span>
-                  : dogegenStatus?.configured
-                    ? <span className="muted">ready</span>
-                    : <span className="muted">not configured</span>
-                }
-              </span>
-              <button className="btn btn-sm" onClick={() => setShowDogegenSettings(s => !s)}>
-                {showDogegenSettings ? 'Hide' : 'Settings'}
-              </button>
-            </div>
-            <div className="ip-chain-row" style={{ marginTop: 6, paddingLeft: 14, gap: 6 }}>
-              <Button small primary={!dogegenRunning} disabled={dogegenBusy} onClick={handleDogegenStart}>
-                {dogegenRunning ? 'Running' : 'Start'}
-              </Button>
-              <Button small disabled={dogegenBusy || !dogegenRunning} onClick={handleDogegenStop}>Stop</Button>
-            </div>
-            {showDogegenSettings && (
-              <div className="ip-settings-body">
-                <div className="text-sm muted" style={{ marginBottom: 4 }}>Executable path</div>
-                <div className="bridge-url-row" style={{ marginBottom: 8 }}>
-                  <input
-                    type="text"
-                    value={dogegenPath}
-                    onChange={e => setDogegenPath(e.target.value)}
-                    placeholder="C:\...\Dogegen.exe"
-                  />
-                </div>
-                <div className="text-sm muted" style={{ marginBottom: 4 }}>Resolve host</div>
-                <div className="bridge-url-row" style={{ marginBottom: 8 }}>
-                  <input
-                    type="text"
-                    value={dogegenResolveHost}
-                    onChange={e => setDogegenResolveHost(e.target.value)}
-                    placeholder="127.0.0.1"
-                  />
-                </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                  <input
-                    type="number"
-                    min={1} max={100}
-                    value={dogegenWindowPct}
-                    onChange={e => setDogegenWindowPct(Number(e.target.value))}
-                    style={{ width: 60, padding: '4px 6px', background: 'var(--bg)', border: '1px solid var(--line2)', borderRadius: 'var(--radius)', color: 'var(--ink)', fontSize: '0.79rem' }}
-                  />
-                  <span className="text-sm muted">Window %</span>
-                  <input
-                    type="number"
-                    min={1}
-                    value={dogegenMaxcll}
-                    onChange={e => setDogegenMaxcll(Number(e.target.value))}
-                    style={{ width: 80, padding: '4px 6px', background: 'var(--bg)', border: '1px solid var(--line2)', borderRadius: 'var(--radius)', color: 'var(--ink)', fontSize: '0.79rem' }}
-                  />
-                  <span className="text-sm muted">MaxCLL</span>
-                </div>
-                <Button small onClick={handleDogegenSave} disabled={dogegenBusy}>Save</Button>
-              </div>
-            )}
-            {dogegenMsg && <div className="text-sm muted mt-2">{dogegenMsg}</div>}
+            <DogegenCard
+              dogegenStatus={dogegenStatus}
+              session={session}
+              onSaveConfig={onSaveDogegenConfig}
+              onStart={onStartDogegen}
+              onStop={onStopDogegen}
+            />
           </div>
         )}
 

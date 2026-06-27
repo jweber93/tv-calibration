@@ -15,7 +15,7 @@ export function DogegenCard({ dogegenStatus, session, onSaveConfig, onStart, onS
     setResolveHost(dogegenStatus?.resolve_host || '');
     setWindowPct(dogegenStatus?.window_pct || 10);
     setMaxcll(dogegenStatus?.maxcll || 1000);
-  }, [dogegenStatus?.path, dogegenStatus?.resolve_host, dogegenStatus?.window_pct, dogegenStatus?.maxcll]);
+  }, [dogegenStatus]);
 
   const running = dogegenStatus?.running;
   const configured = dogegenStatus?.configured;
