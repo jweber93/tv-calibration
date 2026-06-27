@@ -397,6 +397,19 @@ class TestCompareEndpoint:
         data = resp.json()
         assert data["summary"] is None
 
+    def test_compare_empty_session_returns_200_with_none_deltas(self, client):
+        sid_a = _make_session_with_measurements(client)
+        sid_b = _make_session_with_measurements(client)
+        _sessions[sid_a]["pre_measurements"] = []
+        _sessions[sid_a]["post_measurements"] = []
+
+        resp = client.get(f"/api/report/compare?a={sid_a}&b={sid_b}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["deltas"]["pre_cal_avg_de"] is None
+        assert data["deltas"]["post_cal_avg_de"] is None
+        assert data["session_a"]["report"]["pre_cal"]["avg_de"] is None
+
 
 # ── GET /api/session/{sid}/suggested-patches ──────────────────────────────────
 
