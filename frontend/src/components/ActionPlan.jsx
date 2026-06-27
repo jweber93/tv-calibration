@@ -4,7 +4,7 @@ import { Button } from './Button';
 export function ActionPlan({ plan, menuPath, adbStatus, onApply }) {
   if (!plan?.length) return null;
   const ready = adbStatus?.connected && adbStatus?.cms_tool_deployed && !!onApply;
-  const applyableSteps = ready ? plan.filter(s => s.direction !== 'hold' && s.amount) : [];
+  const applicableSteps = ready ? plan.filter(s => s.direction !== 'hold' && s.amount) : [];
   const maxAmount = Math.max(...plan.map(s => s.amount || 0), 1);
 
   return (
@@ -20,10 +20,10 @@ export function ActionPlan({ plan, menuPath, adbStatus, onApply }) {
             </div>
           )}
         </div>
-        {applyableSteps.length > 0 && (
+        {applicableSteps.length > 0 && (
           <Button
             small
-            onClick={() => applyableSteps.forEach(s => onApply(s.control, s.amount, s.direction))}
+            onClick={() => applicableSteps.forEach(s => onApply(s.control, s.amount, s.direction))}
           >
             Apply all
           </Button>
@@ -53,6 +53,7 @@ export function ActionPlan({ plan, menuPath, adbStatus, onApply }) {
             <div
               className={`action-icon ${dirClass(step.direction)}`}
               style={{ width: 38, height: 38, fontSize: '1.25rem', flexShrink: 0, marginTop: 1 }}
+              aria-label={step.direction === 'up' ? 'increase' : step.direction === 'down' ? 'decrease' : step.direction === 'hold' ? 'hold' : 'ok'}
             >
               {dirIcon(step.direction)}
             </div>
