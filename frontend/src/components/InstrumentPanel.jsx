@@ -3,11 +3,11 @@ import { fmtDateTime, measurementTimeSummary } from '../utils/fmt';
 import { Button } from './Button';
 import { DogegenCard } from './DogegenCard';
 
-function StatusDot({ ok, configured }) {
+function StatusDot({ ok }) {
   return (
     <span style={{
       width: 7, height: 7, borderRadius: '50%', flexShrink: 0, display: 'inline-block',
-      background: ok ? 'var(--green)' : configured ? 'var(--ink3)' : 'var(--ink3)',
+      background: ok ? 'var(--green)' : 'var(--ink3)',
       boxShadow: ok ? '0 0 5px var(--green)' : 'none',
     }} />
   );
@@ -110,7 +110,7 @@ export function InstrumentPanel({
 
         {/* ZRO Bridge */}
         <div className="ip-chain-row">
-          <StatusDot ok={bridgeOk} configured={bridgeStatus?.configured} />
+          <StatusDot ok={bridgeOk} />
           <span className="text-sm" style={{ flex: 1 }}>
             ZRO Bridge&nbsp;
             {bridgeOk
@@ -153,7 +153,7 @@ export function InstrumentPanel({
         {/* ADB */}
         {adbStatus && (
           <div className="ip-chain-row" style={{ marginTop: 10 }}>
-            <StatusDot ok={adbStatus.connected} configured />
+            <StatusDot ok={adbStatus.connected} />
             <span className="text-sm" style={{ flex: 1 }}>
               ADB&nbsp;
               {adbStatus.connected
