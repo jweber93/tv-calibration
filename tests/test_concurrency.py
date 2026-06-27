@@ -18,6 +18,7 @@ FastAPI processes requests sequentially per worker.
 from __future__ import annotations
 
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -91,6 +92,20 @@ def store_with_session(store):
     return store, sid
 
 
+@pytest.fixture
+def session_at_luminance(store):
+    """A session seeded with enough measurements to reach luminance."""
+    sid = store.create_session("u8g")["id"]
+    _seed_session(store, sid, "luminance")
+    # Needs one lum_measurement for the threshold check
+    session = store.get(sid)
+    session["lum_measurements"].append(
+        deserialize_measurement(_make_lum_row(120.0))
+    )
+    store.save_session(sid)
+    return store, sid
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Import races — concurrent imports into the same session
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -100,7 +115,11 @@ class TestConcurrentImport:
     """Two simultaneous CSV imports for the same session must not lose data."""
 
     def test_parallel_imports_no_corruption(self, store_with_session):
-        """Two threads importing into the same session — no rows lost."""
+        """Two threads importing into the same session — no rows lost.
+
+        time.sleep(0) forces GIL release between get and save, increasing
+        the chance of interleaving between threads.
+        """
         store, sid = store_with_session
         errors = []
         barrier = threading.Barrier(2)
@@ -109,11 +128,13 @@ class TestConcurrentImport:
             try:
                 barrier.wait()
                 session = store.get(sid)
+                time.sleep(0)  # force GIL release
                 step = session.get("step", "pre_grayscale")
                 bucket_map = {"pre_measurements": measurements}
                 for key, items in bucket_map.items():
                     for item in items:
                         session[key].append(deserialize_measurement(item))
+                time.sleep(0)  # force GIL release before save
                 store.save_session(sid)
             except Exception as e:
                 errors.append(f"{label_prefix}: {e}")
@@ -187,6 +208,43 @@ class TestConcurrentImport:
         assert len(meas_r_vals) >= 2, (
             f"Expected at least 2 measurements, got {len(meas_r_vals)}: {meas_r_vals}"
         )
+
+    def test_concurrent_import_generic_bytes(self, store_with_session):
+        """Concurrent import_generic_bytes — same clear-then-append race.
+
+        import_generic_bytes shares the same pattern: clears target gray
+        bucket before appending.  This test verifies crash-free behavior
+        under concurrent access.
+        """
+        store, sid = store_with_session
+        errors = []
+        barrier = threading.Barrier(2)
+
+        def generic_importer(patches, label):
+            # Build a minimal generic CSV with y_measured/x_measured headers
+            lines = ["label,R,G,B,y_measured,x_measured,y_measured_2"]
+            for r, g, b, Y in patches:
+                lines.append(f"patch,{r},{g},{b},{Y:.2f},0.3127,0.3290")
+            csv_bytes = "\n".join(lines).encode()
+            try:
+                barrier.wait()
+                store.import_generic_bytes(sid, f"{label}.csv", csv_bytes)
+            except Exception as e:
+                errors.append(f"{label}: {e}")
+
+        t1 = threading.Thread(target=generic_importer, args=([(50, 50, 50, 1.0), (100, 100, 100, 2.0)], "A"))
+        t2 = threading.Thread(target=generic_importer, args=([(0, 0, 0, 0.0), (30, 30, 30, 0.5)], "B"))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        # Both should complete without crashing.  Due to the clear-then-append
+        # pattern, one import may overwrite the other's data.
+        assert not errors, f"Import errors: {errors}"
+        final = store.get(sid)
+        # Session is consistent — at least one import's data survived.
+        assert len(final["pre_measurements"]) >= 2
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -293,19 +351,6 @@ class TestConcurrentEviction:
 
 class TestConcurrentNextStep:
     """next_step called twice concurrently — only one step advances."""
-
-    @pytest.fixture
-    def session_at_luminance(self, store):
-        """A session seeded with enough measurements to reach luminance."""
-        sid = store.create_session("u8g")["id"]
-        _seed_session(store, sid, "luminance")
-        # Needs one lum_measurement for the threshold check
-        session = store.get(sid)
-        session["lum_measurements"].append(
-            deserialize_measurement(_make_lum_row(120.0))
-        )
-        store.save_session(sid)
-        return store, sid
 
     def test_concurrent_next_step_only_one_advances(
         self, session_at_luminance
