@@ -902,10 +902,52 @@ class TestGrayscaleBucketIsolation:
         or AttributeError if the list ended up empty or contained dicts.
         """
         # A CSV with only colour rows — no grayscale, so lum_measurements stays empty
-        colours_only = b"""Date and time\t R\t G\t B\t Y\t x\t y\t msec
-15/03/2026 10:46:10\t235\t16\t16\t32.5\t0.6249\t0.3299\t 863ms
-15/03/2026 10:46:13\t16\t235\t16\t88.5\t0.2955\t0.5931\t 363ms
-15/03/2026 10:46:15\t16\t16\t235\t10.2\t0.1629\t0.062\t 361ms"""
+        colours_only = b"Date and time\t R\t G\t B\t Y\t x\t y\t msec\n15/03/2026 10:46:10\t235\t16\t16\t32.5\t0.6249\t0.3299\t 863ms\n15/03/2026 10:46:13\t16\t235\t16\t88.5\t0.2955\t0.5931\t 363ms\n15/03/2026 10:46:15\t16\t16\t235\t10.2\t0.1629\t0.062\t 361ms"
+        resp = _upload(client, session_id, colours_only)
+        assert resp.status_code == 200
+        # peak_luminance should remain at the default (not crash)
+        assert resp.json()["session"]["peak_luminance"] is not None
+
+    def test_peak_luminance_handles_dict_measurements(self, client, session_id):
+        """Regression: issue #269 — peak_luminance should not raise AttributeError
+
+        when lum_measurements contains raw dicts instead of Measurement objects
+        (e.g. from a legacy serialized session).
+        """
+        # Seed lum_measurements with a raw dict to simulate legacy data
+        _sessions[session_id]["lum_measurements"] = [
+            {"Y": 100.5, "x": 0.313, "y": 0.329}
+        ]
+        # Import a grayscale CSV — should not crash on the dict in lum_measurements
+        resp = _upload(client, session_id, CLEAN_GRAYSCALE_CSV)
+        assert resp.status_code == 200
+
+
+class TestPeakLuminanceGuard:
+
+    @pytest.fixture
+    def client(self):
+        return TestClient(app)
+
+    @pytest.fixture
+    def session_id(self, client):
+        resp = client.post("/api/session", json={"tv_key": "u8g", "simulate": True})
+        assert resp.status_code == 200
+        sid = resp.json()["id"]
+        client.post(f"/api/session/{sid}/mode", json={"mode": "SDR"})
+        client.post(f"/api/session/{sid}/prepared")
+        return sid
+
+    def test_peak_luminance_not_set_when_lum_measurements_empty(self, client, session_id):
+        """Regression: issue #269 — import_zro_bytes should not crash when
+
+        lum_measurements is empty after bucket mapping.  Previously the code
+        accessed session["lum_measurements"][-1].Y unconditionally when
+        counts.get("lum_measurements") was truthy, which could raise IndexError
+        or AttributeError if the list ended up empty or contained dicts.
+        """
+        # A CSV with only colour rows — no grayscale, so lum_measurements stays empty
+        colours_only = b"Date and time\t R\t G\t B\t Y\t x\t y\t msec\n15/03/2026 10:46:10\t235\t16\t16\t32.5\t0.6249\t0.3299\t 863ms\n15/03/2026 10:46:13\t16\t235\t16\t88.5\t0.2955\t0.5931\t 363ms\n15/03/2026 10:46:15\t16\t16\t235\t10.2\t0.1629\t0.062\t 361ms"
         resp = _upload(client, session_id, colours_only)
         assert resp.status_code == 200
         # peak_luminance should remain at the default (not crash)
