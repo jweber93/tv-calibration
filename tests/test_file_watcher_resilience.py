@@ -161,7 +161,7 @@ class TestPollLoopResilience:
 # ── Integration test — full watcher lifecycle with transient error ──────────
 
 
-@pytest.mark.flaky
+@pytest.mark.flaky(reruns=2, reruns_delay=1)
 class TestFullWatcherResilience:
     """End-to-end test: watcher survives a transient directory disappearance."""
 

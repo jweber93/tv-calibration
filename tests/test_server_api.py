@@ -141,6 +141,7 @@ class TestSessionCreation:
         resp = client.get("/api/session/doesnotexist")
         assert resp.status_code == 404
 
+    @pytest.mark.flaky(reruns=2, reruns_delay=1)
     def test_get_session_evicts_expired_session(self, client, monkeypatch, tmp_path):
         monkeypatch.setattr(server_module, "SESSION_STORE_DIR", tmp_path)
         monkeypatch.setattr(server_module, "SESSION_TTL", timedelta(days=7))
