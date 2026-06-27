@@ -182,7 +182,24 @@ export default function App() {
       </header>
 
       {/* Main content */}
-      <AppShell session={session} onJump={sess.jumpToStep}>
+      <AppShell
+        session={session}
+        onJump={sess.jumpToStep}
+        watchStatus={watchStatus}
+        watchDefaultPath={watchDefaultPath}
+        bridgeStatus={bridgeStatus}
+        bridgeUrl={bridgeUrl}
+        dogegenStatus={dogegenStatus}
+        adbStatus={adbStatus}
+        onMeasure={sess.triggerMeasure}
+        onSaveBridgeUrl={sess.saveBridgeUrl}
+        onStartWatch={sess.startWatch}
+        onStopWatch={sess.stopWatch}
+        onUpload={sess.uploadCsv}
+        onSaveDogegenConfig={sess.saveDogegenConfig}
+        onStartDogegen={sess.startDogegen}
+        onStopDogegen={sess.stopDogegen}
+      >
         {showComparison ? (
           <ComparisonPage profiles={profiles} />
         ) : (

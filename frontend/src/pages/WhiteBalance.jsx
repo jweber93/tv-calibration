@@ -2,9 +2,6 @@ import { Card, StatCard } from '../components/Card';
 import { Button } from '../components/Button';
 import { ActionPlan } from '../components/ActionPlan';
 import { MeasurementTable } from '../components/MeasurementTable';
-import { UploadZone } from '../components/UploadZone';
-import { WatchFolder } from '../components/WatchFolder';
-import { BridgeCard } from '../components/BridgeCard';
 import { ZroInstructions } from '../components/ZroInstructions';
 import { CIEScatter } from '../charts/CIEScatter';
 import { fmtDe, fmtDateTime } from '../utils/fmt';
@@ -29,7 +26,7 @@ function DeMeasCard({ label, measurement, hasFlag }) {
   );
 }
 
-export function WhiteBalance({ session, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, dogegenStatus, onUpload, onStartWatch, onStopWatch, onSaveBridgeUrl, onMeasure, onNext, onPrev }) {
+export function WhiteBalance({ session, onNext, onPrev }) {
   const wd = session.wb_data || {};
   const plan   = wd.control_plan || [];
   const hints  = wd.hints || null;
@@ -71,19 +68,6 @@ export function WhiteBalance({ session, watchStatus, watchDefaultPath, bridgeSta
           </div>
         </Card>
       )}
-
-      <Card title="ZRO Bridge" id="bridge-card">
-        <BridgeCard bridgeStatus={bridgeStatus} bridgeUrl={bridgeUrl} session={session} dogegenStatus={dogegenStatus} onSaveUrl={onSaveBridgeUrl} onMeasure={onMeasure} />
-      </Card>
-
-      <div className="two-col">
-        <Card title="Auto-Watch Path" id="watch-folder">
-          <WatchFolder watchStatus={watchStatus} defaultPath={watchStatus.path || watchDefaultPath} onStart={onStartWatch} onStop={onStopWatch} />
-        </Card>
-        <Card title="Import ZRO CSV">
-          <UploadZone onUpload={onUpload} />
-        </Card>
-      </div>
 
       <Card title="Menu Path">
         <div className="text-sm accent">{wd.menu_path || ''}</div>

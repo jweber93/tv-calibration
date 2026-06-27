@@ -1,9 +1,6 @@
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { MeasurementTable } from '../components/MeasurementTable';
-import { UploadZone } from '../components/UploadZone';
-import { WatchFolder } from '../components/WatchFolder';
-import { BridgeCard } from '../components/BridgeCard';
 import { ZroInstructions } from '../components/ZroInstructions';
 import { fmtDe, dirIcon } from '../utils/fmt';
 import { QualityGate } from '../components/QualityGate';
@@ -71,7 +68,7 @@ function ActionPlanWithAdb({ plan, title, adbStatus, onAdbApply }) {
   );
 }
 
-export function ColorTuner({ session, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, dogegenStatus, adbStatus, onUpload, onStartWatch, onStopWatch, onSaveBridgeUrl, onMeasure, onAdbApply, onAdbReset, onAdbDeploy, onRefreshAdb, onNext, onPrev }) {
+export function ColorTuner({ session, adbStatus, onAdbApply, onAdbReset, onAdbDeploy, onRefreshAdb, onNext, onPrev }) {
   const cd = session.cms_data || {};
   const plan = cd.control_plan || [];
   const meas = cd.measurements || [];
@@ -133,19 +130,6 @@ export function ColorTuner({ session, watchStatus, watchDefaultPath, bridgeStatu
           </div>
         </Card>
       </AdbErrorBoundary>
-
-      <Card title="ZRO Bridge" id="bridge-card">
-        <BridgeCard bridgeStatus={bridgeStatus} bridgeUrl={bridgeUrl} session={session} dogegenStatus={dogegenStatus} onSaveUrl={onSaveBridgeUrl} onMeasure={onMeasure} />
-      </Card>
-
-      <div className="two-col">
-        <Card title="Auto-Watch Path" id="watch-folder">
-          <WatchFolder watchStatus={watchStatus} defaultPath={watchStatus.path || watchDefaultPath} onStart={onStartWatch} onStop={onStopWatch} />
-        </Card>
-        <Card title="Import ZRO CSV">
-          <UploadZone onUpload={onUpload} />
-        </Card>
-      </div>
 
       <div className="btn-group">
         <Button onClick={onPrev}>← Back</Button>

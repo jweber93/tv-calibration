@@ -2,14 +2,11 @@ import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { ActionPlan } from '../components/ActionPlan';
 import { MeasurementTable } from '../components/MeasurementTable';
-import { UploadZone } from '../components/UploadZone';
-import { WatchFolder } from '../components/WatchFolder';
-import { BridgeCard } from '../components/BridgeCard';
 import { ZroInstructions } from '../components/ZroInstructions';
 import { GammaChart } from '../charts/GammaChart';
 import { QualityGate } from '../components/QualityGate';
 
-export function Gamma({ session, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, dogegenStatus, onUpload, onStartWatch, onStopWatch, onSaveBridgeUrl, onMeasure, onSetGammaWorkflow, onNext, onPrev }) {
+export function Gamma({ session, onSetGammaWorkflow, onNext, onPrev }) {
   const gd = session.gamma_data || {};
   const plan      = gd.control_plan || [];
   const meas      = gd.measurements || [];
@@ -58,19 +55,6 @@ export function Gamma({ session, watchStatus, watchDefaultPath, bridgeStatus, br
           </ul>
         </Card>
       )}
-
-      <Card title="ZRO Bridge" id="bridge-card">
-        <BridgeCard bridgeStatus={bridgeStatus} bridgeUrl={bridgeUrl} session={session} dogegenStatus={dogegenStatus} onSaveUrl={onSaveBridgeUrl} onMeasure={onMeasure} />
-      </Card>
-
-      <div className="two-col">
-        <Card title="Auto-Watch Path" id="watch-folder">
-          <WatchFolder watchStatus={watchStatus} defaultPath={watchStatus.path || watchDefaultPath} onStart={onStartWatch} onStop={onStopWatch} />
-        </Card>
-        <Card title="Import ZRO CSV">
-          <UploadZone onUpload={onUpload} />
-        </Card>
-      </div>
 
       <div className="btn-group">
         <Button onClick={onPrev}>← Back</Button>
