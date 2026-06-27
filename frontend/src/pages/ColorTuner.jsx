@@ -1,8 +1,9 @@
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
+import { ActionPlan } from '../components/ActionPlan';
 import { MeasurementTable } from '../components/MeasurementTable';
 import { ZroInstructions } from '../components/ZroInstructions';
-import { fmtDe, dirIcon } from '../utils/fmt';
+import { fmtDe } from '../utils/fmt';
 import { QualityGate } from '../components/QualityGate';
 import { AdbErrorBoundary } from '../components/AdbErrorBoundary';
 
@@ -37,45 +38,12 @@ function AdbStatusPanel({ adbStatus, onDeploy, onRefresh }) {
   );
 }
 
-function ActionPlanWithAdb({ plan, title, adbStatus, onAdbApply }) {
-  if (!plan?.length) return null;
-  const ready = adbStatus?.connected && adbStatus?.cms_tool_deployed;
-
-  return (
-    <Card title={title}>
-      {plan.map((step, i) => {
-        const isHold = step.direction === 'hold';
-        return (
-          <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
-            <span style={{ fontSize: '1rem', width: 20, textAlign: 'center', flexShrink: 0 }}>
-              {dirIcon(step.direction)}
-            </span>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>
-                {step.summary}
-                {!isHold && ready && step.amount && (
-                  <Button small onClick={() => onAdbApply(step.control, step.amount, step.direction)} style={{ marginLeft: 8 }}>
-                    Apply
-                  </Button>
-                )}
-              </div>
-              <div className="muted text-sm">{step.reason || ''}</div>
-            </div>
-          </div>
-        );
-      })}
-    </Card>
-  );
-}
-
 export function ColorTuner({ session, adbStatus, onAdbApply, onAdbReset, onAdbDeploy, onRefreshAdb, onNext, onPrev }) {
   const cd = session.cms_data || {};
   const plan = cd.control_plan || [];
   const meas = cd.measurements || [];
   const lastMeasLabel  = meas.length ? meas[meas.length - 1].label : '';
   const activeColour   = lastMeasLabel.replace(/ 100%$/, '');
-
-  const ready = adbStatus?.connected && adbStatus?.cms_tool_deployed;
 
   return (
     <>
@@ -102,11 +70,11 @@ export function ColorTuner({ session, adbStatus, onAdbApply, onAdbReset, onAdbDe
       </Card>
 
       {cd.latest_hint && (
-        <ActionPlanWithAdb
+        <ActionPlan
           plan={plan}
-          title={`${lastMeasLabel || 'Latest'} — Control Plan (${cd.menu_path || ''})`}
+          menuPath={cd.menu_path}
           adbStatus={adbStatus}
-          onAdbApply={(control, amount, direction) => {
+          onApply={(control, amount, direction) => {
             const delta = direction === 'up' ? amount : -amount;
             onAdbApply(activeColour, control, delta);
           }}
@@ -123,7 +91,7 @@ export function ColorTuner({ session, adbStatus, onAdbApply, onAdbReset, onAdbDe
         <Card title="Programmatic Control (ADB)">
           <AdbStatusPanel adbStatus={adbStatus} onDeploy={onAdbDeploy} onRefresh={onRefreshAdb} />
           <div style={{ marginTop: 10 }}>
-            <Button small disabled={!ready} onClick={onAdbReset}>
+            <Button small disabled={!(adbStatus?.connected && adbStatus?.cms_tool_deployed)} onClick={onAdbReset}>
               Reset All CMS to 0
             </Button>
             <span className="muted text-sm" style={{ marginLeft: 8 }}>Calls setColorTunerReset() on the TV</span>

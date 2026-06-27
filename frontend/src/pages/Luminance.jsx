@@ -118,7 +118,7 @@ export function Luminance({ session, adbStatus, onAdbSetPicture, onAdbGetPicture
         <StatCard value={readings.length} label="Readings" color="accent" />
       </div>
 
-      <ActionPlan plan={plan} title="Backlight Control Plan" />
+      <ActionPlan plan={plan} />
 
       {onAdbSetPicture && (
         <AdbErrorBoundary>

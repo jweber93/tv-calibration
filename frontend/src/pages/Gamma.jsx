@@ -33,7 +33,7 @@ export function Gamma({ session, onSetGammaWorkflow, onNext, onPrev }) {
         </Card>
       )}
 
-      <ActionPlan plan={plan} title={`Gamma Control Plan (${gd.menu_path || ''})`} />
+      <ActionPlan plan={plan} menuPath={gd.menu_path} />
 
       {gd.gamma_note && (
         <Card title="Note">
