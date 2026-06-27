@@ -70,7 +70,7 @@ export function SuggestedPatches({ session, getSuggestedPatches, runSuggestedPat
               <span style={{ fontSize: '0.85rem' }}>
                 {optimization.patch_count} patches recommended
               </span>
-              <span style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>
+              <span style={{ fontSize: '0.85rem', color: 'var(--ink2)' }}>
                 Confidence: {(optimization.confidence * 100).toFixed(0)}%
               </span>
               {optimization.auto_apply && (
@@ -90,7 +90,7 @@ export function SuggestedPatches({ session, getSuggestedPatches, runSuggestedPat
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                 <thead>
-                  <tr style={{ borderBottom: '2px solid var(--border)' }}>
+                  <tr style={{ borderBottom: '2px solid var(--line)' }}>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>#</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>Label</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>Color</th>
@@ -101,8 +101,8 @@ export function SuggestedPatches({ session, getSuggestedPatches, runSuggestedPat
                 </thead>
                 <tbody>
                   {optimization.patches.map((p, i) => (
-                    <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ padding: '5px 8px', color: 'var(--muted)' }}>{i + 1}</td>
+                    <tr key={i} style={{ borderBottom: '1px solid var(--line)' }}>
+                      <td style={{ padding: '5px 8px', color: 'var(--ink2)' }}>{i + 1}</td>
                       <td style={{ padding: '5px 8px' }}>
                         <div>{p.label || `Patch ${i + 1}`}</div>
                         {p.rationale && (
@@ -115,7 +115,7 @@ export function SuggestedPatches({ session, getSuggestedPatches, runSuggestedPat
                         <div style={{
                           width: 20, height: 20, borderRadius: 3,
                           background: patchColor(p.r, p.g, p.b),
-                          border: '1px solid var(--border)',
+                          border: '1px solid var(--line)',
                         }} />
                       </td>
                       <td style={{ padding: '5px 8px', fontFamily: 'monospace', textAlign: 'right' }}>
@@ -143,7 +143,7 @@ export function SuggestedPatches({ session, getSuggestedPatches, runSuggestedPat
             </div>
 
             {runResult && (
-              <div style={{ marginTop: 12, padding: 10, background: 'var(--surface2)', borderRadius: 6, fontSize: '0.85rem' }}>
+              <div style={{ marginTop: 12, padding: 10, background: 'var(--panel2)', borderRadius: 6, fontSize: '0.85rem' }}>
                 <div style={{ fontWeight: 600, marginBottom: 4 }}>
                   {runResult.succeeded}/{runResult.accepted} patches measured successfully
                 </div>

@@ -13,8 +13,8 @@ class StepErrorBoundary extends Component {
     if (this.state.error) {
       return (
         <div style={{ padding: 32, maxWidth: 520, margin: '60px auto', textAlign: 'center' }}>
-          <div style={{ fontSize: '1.4rem', fontWeight: 700, marginBottom: 12, color: 'var(--text)' }}>Something went wrong</div>
-          <div style={{ color: 'var(--muted)', fontSize: '0.9rem', marginBottom: 24, fontFamily: 'monospace', background: 'var(--surface2)', padding: '10px 14px', borderRadius: 6, textAlign: 'left', wordBreak: 'break-all' }}>
+          <div style={{ fontSize: '1.4rem', fontWeight: 700, marginBottom: 12, color: 'var(--ink)' }}>Something went wrong</div>
+          <div style={{ color: 'var(--ink2)', fontSize: '0.9rem', marginBottom: 24, fontFamily: 'monospace', background: 'var(--panel2)', padding: '10px 14px', borderRadius: 6, textAlign: 'left', wordBreak: 'break-all' }}>
             {this.state.error.message}
           </div>
           <button
@@ -187,7 +187,7 @@ export default function App() {
               <div className="session-badge" title={`Session ${session.id}`}>{session.tv} — {session.mode}</div>
               <button
                 onClick={handleStartOver}
-                style={{ fontSize: '0.72rem', padding: '3px 10px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--muted)', cursor: 'pointer' }}
+                style={{ fontSize: '0.72rem', padding: '3px 10px', background: 'transparent', border: '1px solid var(--line)', borderRadius: 4, color: 'var(--ink2)', cursor: 'pointer' }}
               >
                 Start Over
               </button>
@@ -198,19 +198,19 @@ export default function App() {
           )}
           {(bridgeOk || bridgeConfigured) && (
             <button onClick={() => scrollToCard('bridge-card')} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', color: bridgeOk ? 'var(--green)' : 'var(--red)', cursor: 'pointer', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit' }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: bridgeOk ? 'var(--green)' : 'var(--muted)', flexShrink: 0 }} />
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: bridgeOk ? 'var(--green)' : 'var(--ink2)', flexShrink: 0 }} />
               Bridge
             </button>
           )}
           {(dogegenRunning || dogegenConfigured) && (
             <button onClick={() => scrollToCard('dogegen-card')} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', color: dogegenRunning ? 'var(--green)' : 'var(--red)', cursor: 'pointer', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit' }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: dogegenRunning ? 'var(--green)' : 'var(--muted)', flexShrink: 0 }} />
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: dogegenRunning ? 'var(--green)' : 'var(--ink2)', flexShrink: 0 }} />
               Dogegen
             </button>
           )}
           <button
             onClick={handleToggleComparison}
-            style={{ fontSize: '0.72rem', padding: '3px 10px', background: showComparison ? 'var(--accent-dim)' : 'transparent', border: `1px solid ${showComparison ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 4, color: showComparison ? 'var(--accent)' : 'var(--muted)', cursor: 'pointer' }}
+            style={{ fontSize: '0.72rem', padding: '3px 10px', background: showComparison ? 'var(--accent-dim)' : 'transparent', border: `1px solid ${showComparison ? 'var(--accent)' : 'var(--line)'}`, borderRadius: 4, color: showComparison ? 'var(--accent)' : 'var(--ink2)', cursor: 'pointer' }}
           >
             {showComparison ? '↑ Comparison' : 'Compare'}
           </button>

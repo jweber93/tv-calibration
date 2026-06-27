@@ -71,7 +71,7 @@ export function DogegenCard({ dogegenStatus, session, onSaveConfig, onStart, onS
         <span
           style={{
             width: 8, height: 8, borderRadius: '50%',
-            background: running ? 'var(--green)' : 'var(--muted)',
+            background: running ? 'var(--green)' : 'var(--ink2)',
             boxShadow: running ? '0 0 6px var(--green)' : 'none',
             flexShrink: 0,
           }}

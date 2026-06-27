@@ -34,7 +34,7 @@ export function PostGrayscale({ session, watchStatus, watchDefaultPath, bridgeSt
 
       <Card title="Post-Calibration Grayscale Progress">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-          <div style={{ flex: 1, background: 'var(--surface2)', height: 8, borderRadius: 4, overflow: 'hidden' }}>
+          <div style={{ flex: 1, background: 'var(--panel2)', height: 8, borderRadius: 4, overflow: 'hidden' }}>
             <div style={{
               height: '100%', width: `${pct}%`,
               background: pct === 100 ? 'var(--green)' : 'var(--accent)',

@@ -17,11 +17,11 @@ export class AdbErrorBoundary extends Component {
   render() {
     if (this.state.error) {
       return (
-        <div style={{ padding: 16, border: '1px solid var(--red)', borderRadius: 6, background: 'var(--surface2)' }}>
+        <div style={{ padding: 16, border: '1px solid var(--red)', borderRadius: 6, background: 'var(--panel2)' }}>
           <div style={{ color: 'var(--red)', fontWeight: 600, marginBottom: 8 }}>
             ADB Control Error
           </div>
-          <div style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: 12 }}>
+          <div style={{ color: 'var(--ink2)', fontSize: '0.85rem', marginBottom: 12 }}>
             {this.state.error.message}
           </div>
           <button

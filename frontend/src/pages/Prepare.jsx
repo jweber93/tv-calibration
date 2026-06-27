@@ -430,7 +430,7 @@ export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onS
           {llmEnabled && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--ink2)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                   Endpoint URL
                 </label>
                 <input
@@ -442,11 +442,11 @@ export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onS
                   autoComplete="off"
                   spellCheck={false}
                   disabled={settingsLoading}
-                  style={{ background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: 'var(--radius)', color: 'var(--text)', fontSize: '0.84rem', padding: '7px 10px', width: '100%', maxWidth: 480, outline: 'none', fontFamily: 'inherit' }}
+                  style={{ background: 'var(--panel2)', border: '1px solid var(--line2)', borderRadius: 'var(--radius)', color: 'var(--ink)', fontSize: '0.84rem', padding: '7px 10px', width: '100%', maxWidth: 480, outline: 'none', fontFamily: 'inherit' }}
                 />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--ink2)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                   Model name
                 </label>
                 <input
@@ -458,13 +458,13 @@ export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onS
                   autoComplete="off"
                   spellCheck={false}
                   disabled={settingsLoading}
-                  style={{ background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: 'var(--radius)', color: 'var(--text)', fontSize: '0.84rem', padding: '7px 10px', width: '100%', maxWidth: 480, outline: 'none', fontFamily: 'inherit' }}
+                  style={{ background: 'var(--panel2)', border: '1px solid var(--line2)', borderRadius: 'var(--radius)', color: 'var(--ink)', fontSize: '0.84rem', padding: '7px 10px', width: '100%', maxWidth: 480, outline: 'none', fontFamily: 'inherit' }}
                 />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--ink2)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                   API key{' '}
-                  <span style={{ fontSize: '0.72rem', fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--border2)' }}>
+                  <span style={{ fontSize: '0.72rem', fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--line2)' }}>
                     (optional — never shown)
                   </span>
                 </label>
@@ -476,13 +476,13 @@ export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onS
                   placeholder="sk-…"
                   autoComplete="new-password"
                   disabled={settingsLoading}
-                  style={{ background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: 'var(--radius)', color: 'var(--text)', fontSize: '0.84rem', padding: '7px 10px', width: '100%', maxWidth: 480, outline: 'none', fontFamily: 'inherit' }}
+                  style={{ background: 'var(--panel2)', border: '1px solid var(--line2)', borderRadius: 'var(--radius)', color: 'var(--ink)', fontSize: '0.84rem', padding: '7px 10px', width: '100%', maxWidth: 480, outline: 'none', fontFamily: 'inherit' }}
                 />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 2 }}>
                 <div className="btn-group">
                   <Button small onClick={handleTestConnection}>Test Connection</Button>
-                  {llmTestStatus === 'testing'    && <span style={{ fontSize: '0.8rem', fontWeight: 600, padding: '5px 10px', borderRadius: 'var(--radius)', color: 'var(--muted)', background: 'var(--surface2)', border: '1px solid var(--border)' }}>Testing…</span>}
+                  {llmTestStatus === 'testing'    && <span style={{ fontSize: '0.8rem', fontWeight: 600, padding: '5px 10px', borderRadius: 'var(--radius)', color: 'var(--ink2)', background: 'var(--panel2)', border: '1px solid var(--line)' }}>Testing…</span>}
                   {llmTestStatus === 'ok'         && <span style={{ fontSize: '0.8rem', fontWeight: 600, padding: '5px 10px', borderRadius: 'var(--radius)', color: 'var(--green)', background: 'var(--green-dim)', border: '1px solid #22c98759' }}>✓ Connected</span>}
                   {llmTestStatus === 'unreachable'&& <span style={{ fontSize: '0.8rem', fontWeight: 600, padding: '5px 10px', borderRadius: 'var(--radius)', color: 'var(--red)',   background: 'var(--red-dim)',   border: '1px solid #e74c3c4d' }}>✗ Unreachable</span>}
                   {llmTestStatus === 'error'      && <span style={{ fontSize: '0.8rem', fontWeight: 600, padding: '5px 10px', borderRadius: 'var(--radius)', color: 'var(--red)',   background: 'var(--red-dim)',   border: '1px solid #e74c3c4d' }}>✗ Error</span>}

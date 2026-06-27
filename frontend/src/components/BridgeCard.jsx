@@ -38,7 +38,7 @@ export function BridgeCard({ bridgeStatus, bridgeUrl, session, dogegenStatus, on
         <span
           style={{
             width: 8, height: 8, borderRadius: '50%',
-            background: ok ? 'var(--green)' : 'var(--muted)',
+            background: ok ? 'var(--green)' : 'var(--ink2)',
             boxShadow: ok ? '0 0 6px var(--green)' : 'none',
             flexShrink: 0,
           }}
