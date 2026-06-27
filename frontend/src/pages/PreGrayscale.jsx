@@ -2,14 +2,10 @@ import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { MeasurementTable } from '../components/MeasurementTable';
 import { ImportLog } from '../components/ImportLog';
-import { UploadZone } from '../components/UploadZone';
-import { WatchFolder } from '../components/WatchFolder';
-import { BridgeCard } from '../components/BridgeCard';
-import { DogegenCard } from '../components/DogegenCard';
 import { ZroInstructions } from '../components/ZroInstructions';
 import { DeChart } from '../charts/DeChart';
 
-export function PreGrayscale({ session, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, dogegenStatus, onUpload, onStartWatch, onStopWatch, onSaveBridgeUrl, onSaveDogegenConfig, onStartDogegen, onStopDogegen, onMeasure, onNext, onPrev }) {
+export function PreGrayscale({ session, onNext, onPrev }) {
   const gd = session.grayscale_data || {};
   const done  = gd.done || 0;
   const total = gd.total || 11;
@@ -19,37 +15,6 @@ export function PreGrayscale({ session, watchStatus, watchDefaultPath, bridgeSta
   return (
     <>
       <ZroInstructions instructions={session.zro_instructions} />
-
-      <Card title="ZRO Bridge" id="bridge-card">
-        <BridgeCard
-          bridgeStatus={bridgeStatus} bridgeUrl={bridgeUrl}
-          session={session} dogegenStatus={dogegenStatus}
-          onSaveUrl={onSaveBridgeUrl} onMeasure={onMeasure}
-        />
-      </Card>
-
-      {session.pattern_generator === 'dogegen' && (
-        <Card title="Dogegen Companion" id="dogegen-card">
-          <DogegenCard
-            dogegenStatus={dogegenStatus}
-            session={session}
-            onSaveConfig={onSaveDogegenConfig}
-            onStart={onStartDogegen}
-            onStop={onStopDogegen}
-          />
-        </Card>
-      )}
-
-      <Card title="Auto-Watch Path" id="watch-folder">
-        <WatchFolder
-          watchStatus={watchStatus} defaultPath={watchStatus.path || watchDefaultPath}
-          onStart={onStartWatch} onStop={onStopWatch}
-        />
-      </Card>
-
-      <Card title="Import ZRO CSV">
-        <UploadZone onUpload={onUpload} />
-      </Card>
 
       <Card title="Pre-Calibration Grayscale Progress">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>

@@ -2,9 +2,6 @@ import { useState } from 'react';
 import { Card, StatCard } from '../components/Card';
 import { Button } from '../components/Button';
 import { ActionPlan } from '../components/ActionPlan';
-import { UploadZone } from '../components/UploadZone';
-import { WatchFolder } from '../components/WatchFolder';
-import { BridgeCard } from '../components/BridgeCard';
 import { ZroInstructions } from '../components/ZroInstructions';
 import { fmtDateTime, fmtNits } from '../utils/fmt';
 import { QualityGate } from '../components/QualityGate';
@@ -94,7 +91,7 @@ function AdbPictureControls({ adbStatus, onAdbSetPicture, onAdbGetPicture, onDep
   );
 }
 
-export function Luminance({ session, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, adbStatus, dogegenStatus, onUpload, onStartWatch, onStopWatch, onSaveBridgeUrl, onMeasure, onAdbSetPicture, onAdbGetPicture, onAdbDeploy, onRefreshAdb, onNext, onPrev }) {
+export function Luminance({ session, adbStatus, onAdbSetPicture, onAdbGetPicture, onAdbDeploy, onRefreshAdb, onNext, onPrev }) {
   const ld = session.luminance_data || {};
   const plan     = ld.control_plan || [];
   const readings = ld.readings || [];
@@ -134,19 +131,6 @@ export function Luminance({ session, watchStatus, watchDefaultPath, bridgeStatus
           />
         </AdbErrorBoundary>
       )}
-
-      <Card title="ZRO Bridge" id="bridge-card">
-        <BridgeCard bridgeStatus={bridgeStatus} bridgeUrl={bridgeUrl} session={session} dogegenStatus={dogegenStatus} onSaveUrl={onSaveBridgeUrl} onMeasure={onMeasure} />
-      </Card>
-
-      <div className="two-col">
-        <Card title="Auto-Watch Path" id="watch-folder">
-          <WatchFolder watchStatus={watchStatus} defaultPath={watchStatus.path || watchDefaultPath} onStart={onStartWatch} onStop={onStopWatch} />
-        </Card>
-        <Card title="Import ZRO CSV">
-          <UploadZone onUpload={onUpload} />
-        </Card>
-      </div>
 
       {readings.length > 0 && (
         <Card title="Luminance History">

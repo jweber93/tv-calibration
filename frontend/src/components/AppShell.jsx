@@ -1,10 +1,20 @@
 import { PhaseRail } from './PhaseRail';
+import { InstrumentPanel } from './InstrumentPanel';
 
 const MEASUREMENT_STEPS = new Set([
   'pre_grayscale', 'luminance', 'white_balance', 'gamma', 'color_tuner', 'post_grayscale',
 ]);
 
-export function AppShell({ session, onJump, children }) {
+export function AppShell({
+  session, onJump, children,
+  watchStatus, watchDefaultPath,
+  bridgeStatus, bridgeUrl,
+  dogegenStatus, adbStatus,
+  onMeasure, onSaveBridgeUrl,
+  onStartWatch, onStopWatch,
+  onUpload,
+  onSaveDogegenConfig, onStartDogegen, onStopDogegen,
+}) {
   const showInstrument = session != null && MEASUREMENT_STEPS.has(session.step);
 
   return (
@@ -17,7 +27,23 @@ export function AppShell({ session, onJump, children }) {
       </main>
       {showInstrument && (
         <aside className="workspace-instrument">
-          {/* InstrumentPanel — issue #4 */}
+          <InstrumentPanel
+            session={session}
+            watchStatus={watchStatus}
+            watchDefaultPath={watchDefaultPath}
+            bridgeStatus={bridgeStatus}
+            bridgeUrl={bridgeUrl}
+            dogegenStatus={dogegenStatus}
+            adbStatus={adbStatus}
+            onMeasure={onMeasure}
+            onSaveBridgeUrl={onSaveBridgeUrl}
+            onStartWatch={onStartWatch}
+            onStopWatch={onStopWatch}
+            onUpload={onUpload}
+            onSaveDogegenConfig={onSaveDogegenConfig}
+            onStartDogegen={onStartDogegen}
+            onStopDogegen={onStopDogegen}
+          />
         </aside>
       )}
     </div>
