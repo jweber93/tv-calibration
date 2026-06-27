@@ -11,11 +11,12 @@ export function DogegenCard({ dogegenStatus, session, onSaveConfig, onStart, onS
   const [msg, setMsg] = useState('');
 
   useEffect(() => {
+    setMsg('');
     setPath(dogegenStatus?.path || '');
     setResolveHost(dogegenStatus?.resolve_host || '');
     setWindowPct(dogegenStatus?.window_pct || 10);
     setMaxcll(dogegenStatus?.maxcll || 1000);
-  }, [dogegenStatus?.path, dogegenStatus?.resolve_host, dogegenStatus?.window_pct, dogegenStatus?.maxcll]);
+  }, [dogegenStatus]);
 
   const running = dogegenStatus?.running;
   const configured = dogegenStatus?.configured;
@@ -140,7 +141,7 @@ export function DogegenCard({ dogegenStatus, session, onSaveConfig, onStart, onS
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
-        <Button small primary disabled={busy} onClick={handleStart}>
+        <Button small primary={!running} disabled={busy || running} onClick={handleStart}>
           {busy ? <span className="spinner" /> : (running ? 'Dogegen Running' : 'Start Dogegen')}
         </Button>
         <Button small disabled={busy || !running} onClick={handleStop}>Stop</Button>
