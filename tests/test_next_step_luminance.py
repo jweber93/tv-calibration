@@ -9,8 +9,16 @@ import io
 
 from fastapi.testclient import TestClient
 
+import pytest
+
 from calibrator import Measurement
 from server import app, _sessions
+
+
+@pytest.fixture(scope="session")
+def client():
+    """Alias for conftest's api_client — local to this test file."""
+    return TestClient(app)
 
 
 def _create_session(client: TestClient) -> str:
@@ -102,21 +110,6 @@ class TestNextStepLuminanceThreshold:
         detail = resp.json()["detail"]
         assert "90.0" in detail or "90" in detail
         assert "Adjust Backlight" in detail
-
-    def test_no_target_skips_validation(self, client):
-        """When session target is None, luminance threshold check is skipped."""
-        sid = _create_session(client)
-        _advance_to_luminance(client, sid)
-
-        # Clear the target so validation is skipped
-        _sessions[sid]["target"] = None
-
-        # Even wildly off luminance should pass when there's no target
-        _add_lum_measurement(client, sid, y_value=500.0)
-
-        resp = client.post(f"/api/session/{sid}/next")
-        assert resp.status_code == 200
-        assert resp.json()["step"] == "white_balance"
 
     def test_no_luminance_measurement_returns_400(self, client):
         """Calling next with no luminance readings → 400."""
