@@ -2050,6 +2050,7 @@ def watch_config(body: WatchConfigBody):
                 _grayscale_levels_for_ramp(session.get("grayscale_ramp_steps", 11))
             ),
             post_import_hook=lambda sess: _maybe_trigger_llm(sid, sess),
+            session_lock=store._lock,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
