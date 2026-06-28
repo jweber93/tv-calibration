@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Card, StatCard } from '../components/Card';
 import { Button } from '../components/Button';
 import { MeasurementTable } from '../components/MeasurementTable';
-import { Tooltip } from '../components/Tooltip';
 import { DeChart } from '../charts/DeChart';
 import { GammaChart } from '../charts/GammaChart';
 import { api } from '../api/client';
@@ -33,17 +32,44 @@ export function Report({ session, onPrev }) {
   const preMeas  = pre.measurements  || [];
   const postMeas = post.measurements || [];
 
+  const improvementPct = report?.improvement_pct;
+  const improvementPositive = improvementPct != null && improvementPct > 0;
+
   return (
     <>
-      <div style={{ background: 'var(--panel2)', border: '1px solid var(--line)', borderRadius: 'var(--radius-lg)', padding: '28px 24px', marginBottom: 20, textAlign: 'center' }}>
-        <div style={{ fontSize: '0.7rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink2)', marginBottom: 6 }}>
-          Calibration Complete
+      {/* Result Hero */}
+      <div style={{ background: 'var(--panel2)', border: '1px solid var(--line)', borderRadius: 'var(--radius-lg)', padding: '36px 24px 28px', marginBottom: 16, textAlign: 'center' }}>
+        <div style={{ fontSize: '0.65rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--ink3)', marginBottom: 10 }}>
+          Calibration Complete — {session.tv} · {session.mode}
         </div>
-        <div style={{ fontSize: '1.4rem', fontWeight: 700, marginBottom: 4 }}>
-          {session.tv} — {session.mode}
+
+        {/* Big improvement number */}
+        <div style={{ fontSize: '3.5rem', fontWeight: 700, lineHeight: 1, color: improvementPositive ? 'var(--green)' : 'var(--ink)', marginBottom: 4 }}>
+          {improvementPct != null ? `${improvementPct > 0 ? '+' : ''}${improvementPct.toFixed(1)}%` : '—'}
         </div>
-        <div style={{ fontSize: '0.8rem', color: 'var(--ink2)' }}>
-          Session {sid} · {session.date ? new Date(session.date).toLocaleDateString() : ''}
+        <div style={{ fontSize: '0.75rem', color: 'var(--ink2)', marginBottom: 24 }}>
+          accuracy improvement
+        </div>
+
+        {/* Before → After ΔE bar */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0, maxWidth: 440, margin: '0 auto' }}>
+          <div style={{ flex: 1, textAlign: 'right' }}>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--red)' }}>
+              {pre.avg_de != null ? pre.avg_de.toFixed(2) : '—'}
+            </div>
+            <div style={{ fontSize: '0.65rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink3)', marginTop: 2 }}>
+              Pre-Cal ΔE
+            </div>
+          </div>
+          <div style={{ padding: '0 20px', color: 'var(--ink3)', fontSize: '1.2rem', userSelect: 'none' }}>→</div>
+          <div style={{ flex: 1, textAlign: 'left' }}>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--green)' }}>
+              {post.avg_de != null ? post.avg_de.toFixed(2) : '—'}
+            </div>
+            <div style={{ fontSize: '0.65rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink3)', marginTop: 2 }}>
+              Post-Cal ΔE
+            </div>
+          </div>
         </div>
       </div>
 
@@ -57,14 +83,29 @@ export function Report({ session, onPrev }) {
 
       {report && (
         <>
+          {/* Compact stat grid */}
           <div className="four-col" style={{ marginBottom: 16 }}>
-            <StatCard value={pre.avg_de != null ? pre.avg_de.toFixed(2) : '—'} label="Pre-Cal Avg ΔE" color="red" tooltip="Average Delta E before calibration. ΔE < 2 is invisible to most viewers." />
-            <StatCard value={post.avg_de != null ? post.avg_de.toFixed(2) : '—'} label="Post-Cal Avg ΔE" color="green" tooltip="Average Delta E after calibration. ΔE < 1 is excellent." />
-            <StatCard value={fmtNits(report.peak_luminance)} label="Peak Luminance" color="accent" tooltip="Maximum brightness measured in cd/m² (nits). HDR10 content typically targets 1000 nits." />
             <StatCard
-              value={report.improvement_pct != null ? report.improvement_pct.toFixed(1) + '%' : '—'}
-              label="Improvement"
-              color={report.improvement_pct != null && report.improvement_pct > 0 ? 'green' : ''}
+              value={post.avg_de != null ? post.avg_de.toFixed(2) : '—'}
+              label="Post-Cal Avg ΔE"
+              color="green"
+              tooltip="Average Delta E after calibration. ΔE < 1 is excellent."
+            />
+            <StatCard
+              value={fmtNits(report.peak_luminance)}
+              label="Peak Luminance"
+              color="accent"
+              tooltip="Maximum brightness measured in cd/m² (nits)."
+            />
+            <StatCard
+              value={report.tracking_gamma != null ? report.tracking_gamma.toFixed(2) : '—'}
+              label="Tracking Gamma"
+              tooltip="Measured gamma exponent. Target is typically 2.2 or BT.1886."
+            />
+            <StatCard
+              value={report.white_point_cct != null ? `${Math.round(report.white_point_cct)}K` : '—'}
+              label="White Point CCT"
+              tooltip="Correlated Color Temperature of the white point. D65 is ~6500 K."
             />
           </div>
 
