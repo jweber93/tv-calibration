@@ -28,7 +28,7 @@ import queue
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Set
 
 try:
     from watchdog.events import FileSystemEvent, FileSystemEventHandler
@@ -280,6 +280,8 @@ class _ZROHandler(FileSystemEventHandler):
         self._timers: Dict[str, threading.Timer] = {}
         # path → mtime already imported
         self._imported: Dict[str, float] = {}
+        # paths currently being imported (prevents concurrent timers)
+        self._importing: Set[str] = set()
         self._timer_lock = threading.Lock()
         self._stopped = False
 
@@ -318,6 +320,11 @@ class _ZROHandler(FileSystemEventHandler):
         with self._timer_lock:
             if self._stopped:
                 return
+            # Skip scheduling if an import is already in-flight for this path.
+            # The in-flight import will handle the file; a new write event after
+            # it completes will trigger a fresh timer with an updated mtime.
+            if src_path in self._importing:
+                return
             # Cancel any pending timer for this path.
             existing = self._timers.get(src_path)
             if existing is not None:
@@ -339,13 +346,21 @@ class _ZROHandler(FileSystemEventHandler):
 
     def _import_file(self, src_path: str) -> None:
         """Called by the debounce timer — run the actual import."""
-        global _last_import, _watcher_error, _last_attempt
-
         if self._stopped:
             return
 
         with self._timer_lock:
             self._timers.pop(src_path, None)
+            self._importing.add(src_path)
+
+        try:
+            self._do_import_file(src_path)
+        finally:
+            self._importing.discard(src_path)
+
+    def _do_import_file(self, src_path: str) -> None:
+        """Inner import logic — called from ``_import_file`` under the ``_importing`` guard."""
+        global _last_import, _watcher_error, _last_attempt
 
         # ── mtime dedup ───────────────────────────────────────────────────
         try:
@@ -363,6 +378,8 @@ class _ZROHandler(FileSystemEventHandler):
                         "status": "locked",
                         "detail": str(exc),
                     }
+                with self._timer_lock:
+                    self._importing.discard(src_path)
                 self._schedule_timer(src_path, LOCKED_FILE_RETRY_SECONDS)
                 return
             logger.warning("OSError accessing mtime for %s: %s", src_path, exc)
@@ -421,6 +438,7 @@ class _ZROHandler(FileSystemEventHandler):
             # Release the optimistic claim so the retry timer can proceed.
             with self._timer_lock:
                 self._imported.pop(src_path, None)
+                self._importing.discard(src_path)
             self._schedule_timer(src_path, LOCKED_FILE_RETRY_SECONDS)
             return
         except Exception as exc:
