@@ -33,3 +33,18 @@ frontend/test-results/
 
 # opencode
 .prefs.json
+
+# Claude Code
+.claude/settings.local.json
+
+# Python build artifacts
+dist/
+build/
+*.egg-info/
+
+# Type checker and linter caches
+.mypy_cache/
+.hypothesis/
+
+# Coverage reports
+htmlcov/
