@@ -1,4 +1,4 @@
-import { Card, StatCard } from '../components/Card';
+import { Card, StatCard, Readout } from '../components/Card';
 import { Button } from '../components/Button';
 import { ActionPlan } from '../components/ActionPlan';
 import { MeasurementTable } from '../components/MeasurementTable';
@@ -7,22 +7,15 @@ import { CIEScatter } from '../charts/CIEScatter';
 import { fmtDe, fmtDateTime } from '../utils/fmt';
 import { QualityGate } from '../components/QualityGate';
 
-function DeMeasCard({ label, measurement, hasFlag }) {
+function wbSub(measurement) {
+  if (!measurement) return null;
   return (
-    <div className={`stat-card ${hasFlag ? 'green-top' : ''}`}>
-      <div className="stat-value"
-        dangerouslySetInnerHTML={{ __html: measurement ? fmtDe(measurement.delta_e) : '—' }}
-      />
-      <div className="stat-label">{label}</div>
-      {measurement && (
-        <div className="text-sm muted mt-2">
-          x={measurement.x?.toFixed(4)} y={measurement.y?.toFixed(4)}
-        </div>
+    <>
+      {(measurement.x != null || measurement.y != null) && (
+        <div>x={measurement.x?.toFixed(4)} y={measurement.y?.toFixed(4)}</div>
       )}
-      {measurement?.timestamp && (
-        <div className="text-sm muted">Measured {fmtDateTime(measurement.timestamp)}</div>
-      )}
-    </div>
+      {measurement.timestamp && <div>Measured {fmtDateTime(measurement.timestamp)}</div>}
+    </>
   );
 }
 
@@ -39,8 +32,18 @@ export function WhiteBalance({ session, onNext, onPrev }) {
       <QualityGate gate={(session.quality_gates || {}).white_balance} />
 
       <div className="two-col" style={{ marginBottom: 16 }}>
-        <DeMeasCard label="80% Gray (Gain)"   measurement={wd.gain_measurement}   hasFlag={wd.has_gain_measurement} />
-        <DeMeasCard label="30% Gray (Offset)" measurement={wd.offset_measurement} hasFlag={wd.has_offset_measurement} />
+        <Readout
+          label="80% Gray (Gain)"
+          value={<span dangerouslySetInnerHTML={{ __html: wd.gain_measurement ? fmtDe(wd.gain_measurement.delta_e) : '—' }} />}
+          tone={wd.has_gain_measurement ? 'green' : null}
+          sub={wbSub(wd.gain_measurement)}
+        />
+        <Readout
+          label="30% Gray (Offset)"
+          value={<span dangerouslySetInnerHTML={{ __html: wd.offset_measurement ? fmtDe(wd.offset_measurement.delta_e) : '—' }} />}
+          tone={wd.has_offset_measurement ? 'green' : null}
+          sub={wbSub(wd.offset_measurement)}
+        />
       </div>
 
       <ActionPlan plan={plan} menuPath={wd.menu_path} />

@@ -17,3 +17,16 @@ export function StatCard({ value, label, color = '', tooltip }) {
     </div>
   );
 }
+
+export function Readout({ label, value, unit, sub, tone }) {
+  return (
+    <div className={`readout-card${tone ? ` tone-${tone}` : ''}`}>
+      <div className="readout-value">
+        {value}
+        {unit && <span className="readout-unit">{unit}</span>}
+      </div>
+      <div className="readout-label">{label}</div>
+      {sub && <div className="readout-sub">{sub}</div>}
+    </div>
+  );
+}
