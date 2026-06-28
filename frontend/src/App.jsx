@@ -99,7 +99,7 @@ export default function App() {
 
   function renderStep() {
     if (!session) {
-      return <Setup profiles={profiles} onCreateSession={sess.createSession} />;
+      return <Setup profiles={profiles} onCreateSession={sess.createSession} onConfirmMode={sess.confirmMode} />;
     }
     switch (session.step) {
       case 'select_mode':    return <SelectMode    {...stepProps} onConfirmMode={sess.confirmMode} />;
