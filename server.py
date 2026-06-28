@@ -1737,6 +1737,8 @@ def get_predicted_settings(sid: str, phase: Optional[str] = None):
     Returns {"predicted": {...} | null, "reason": "<string when null>"}.
     """
     session = store.get(sid)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
 
     llm_cfg_dict = session.get("llm_config", {})
     if not (llm_cfg_dict.get("endpoint") and llm_cfg_dict.get("model")):

@@ -195,6 +195,146 @@ class TestPredictInitialSettings(unittest.TestCase):
 
         self.assertIsNone(result)
 
+    def test_confidence_clamped_to_range(self):
+        """Confidence values outside [0, 1] are clamped."""
+        llm = self._make_llm()
+
+        for raw_conf, expected in [(1.5, 1.0), (-0.3, 0.0), (2.0, 1.0), (-1.0, 0.0)]:
+            canned_body = json.dumps({
+                "choices": [{
+                    "message": {
+                        "content": json.dumps({
+                            "settings": [],
+                            "confidence": raw_conf,
+                        })
+                    }
+                }]
+            }).encode("utf-8")
+
+            mock_response = MagicMock()
+            def read_side_effect():
+                return canned_body
+            mock_response.read = read_side_effect
+
+            with patch("urllib.request.urlopen") as mock_urlopen:
+                mock_urlopen.return_value.__enter__.return_value = mock_response
+                result = predict_initial_settings(
+                    phase="white_balance",
+                    history=[{"date": "2024-01-01"}],
+                    baseline=None,
+                    tv_schema=None,
+                    llm=llm,
+                )
+
+            self.assertEqual(result.confidence, expected)
+
+    def test_empty_choices_returns_none(self):
+        """LLM response with empty choices array returns None."""
+        llm = self._make_llm()
+
+        canned_body = json.dumps({"choices": []}).encode("utf-8")
+        mock_response = MagicMock()
+        def read_side_effect():
+            return canned_body
+        mock_response.read = read_side_effect
+
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__.return_value = mock_response
+            result = predict_initial_settings(
+                phase="white_balance",
+                history=[{"date": "2024-01-01"}],
+                baseline=None,
+                tv_schema=None,
+                llm=llm,
+            )
+
+        self.assertIsNone(result)
+
+    def test_missing_message_key_returns_none(self):
+        """LLM response where choices[0] lacks 'message' key returns None."""
+        llm = self._make_llm()
+
+        canned_body = json.dumps({"choices": [{"text": "no message key"}]}).encode("utf-8")
+        mock_response = MagicMock()
+        def read_side_effect():
+            return canned_body
+        mock_response.read = read_side_effect
+
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__.return_value = mock_response
+            result = predict_initial_settings(
+                phase="white_balance",
+                history=[{"date": "2024-01-01"}],
+                baseline=None,
+                tv_schema=None,
+                llm=llm,
+            )
+
+        self.assertIsNone(result)
+
+    def test_markdown_fenced_json_parsed(self):
+        """LLM response with JSON wrapped in markdown code fences is parsed."""
+        llm = self._make_llm()
+
+        inner_json = json.dumps({
+            "settings": [{"menu": "Picture", "setting": "Brightness", "value": 50, "scope": "global", "reason": "test"}],
+            "confidence": 0.7,
+        })
+        fenced = f"```json\n{inner_json}\n```"
+
+        canned_body = json.dumps({
+            "choices": [{"message": {"content": fenced}}]
+        }).encode("utf-8")
+
+        mock_response = MagicMock()
+        def read_side_effect():
+            return canned_body
+        mock_response.read = read_side_effect
+
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__.return_value = mock_response
+            result = predict_initial_settings(
+                phase="white_balance",
+                history=[{"date": "2024-01-01"}],
+                baseline=None,
+                tv_schema=None,
+                llm=llm,
+            )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result.settings), 1)
+
+    def test_prose_wrapped_json_parsed(self):
+        """LLM response with leading/trailing prose around JSON is parsed."""
+        llm = self._make_llm()
+
+        inner_json = json.dumps({
+            "settings": [],
+            "confidence": 0.5,
+        })
+        with_prose = f"Here is the result: {inner_json} Hope this helps!"
+
+        canned_body = json.dumps({
+            "choices": [{"message": {"content": with_prose}}]
+        }).encode("utf-8")
+
+        mock_response = MagicMock()
+        def read_side_effect():
+            return canned_body
+        mock_response.read = read_side_effect
+
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__.return_value = mock_response
+            result = predict_initial_settings(
+                phase="white_balance",
+                history=[{"date": "2024-01-01"}],
+                baseline=None,
+                tv_schema=None,
+                llm=llm,
+            )
+
+        self.assertIsNotNone(result)
+
 
 # ── Endpoint tests ─────────────────────────────────────────────────────────────
 

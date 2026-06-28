@@ -1244,7 +1244,7 @@ def predict_initial_settings(
 
         raw_settings = obj.get("settings") or []
         settings = [dict(s) for s in raw_settings]
-        confidence = float(obj.get("confidence", 0.5))
+        confidence = max(0.0, min(1.0, float(obj.get("confidence", 0.5))))
 
         return PredictedSettings(
             settings=settings,
