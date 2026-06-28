@@ -47,6 +47,12 @@ class AnalysisConfig:
             raise ValueError(f"code_max must be positive, got {self.code_max}")
 
 
+# Known providers with a fixed default endpoint, used when the user omits one.
+_PROVIDER_ENDPOINTS = {
+    "openrouter": "https://openrouter.ai/api/v1",
+}
+
+
 @dataclass
 class LLMConfig:
     endpoint: str = ""
@@ -54,6 +60,15 @@ class LLMConfig:
     api_key: str = ""
     temperature: float = 0.2
     timeout: float = 120.0
+    provider: str = ""          # "openrouter" | "litellm" | "" (generic)
+    http_referer: str = ""      # sent as HTTP-Referer when provider == "openrouter"
+    app_title: str = "tv-calibration"  # sent as X-Title when provider == "openrouter"
+
+    def __post_init__(self) -> None:
+        self.provider = (self.provider or "").strip().lower()
+        # Auto-fill the endpoint for known providers when the user omits it.
+        if not self.endpoint and self.provider in _PROVIDER_ENDPOINTS:
+            self.endpoint = _PROVIDER_ENDPOINTS[self.provider]
 
     @classmethod
     def from_dict(cls, d: dict, default_timeout: float = 120.0, default_temperature: float = 0.2) -> "LLMConfig":
@@ -63,6 +78,9 @@ class LLMConfig:
             api_key=d.get("api_key", ""),
             temperature=float(d.get("temperature", default_temperature)),
             timeout=float(d.get("timeout", default_timeout)),
+            provider=d.get("provider", ""),
+            http_referer=d.get("http_referer", ""),
+            app_title=d.get("app_title", "tv-calibration"),
         )
 
 
