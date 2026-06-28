@@ -1420,11 +1420,19 @@ def get_report(sid: str):
     )
     if not session.get("_history_recorded") and session.get("step") in completed_steps and has_measurements:
         try:
+            tv_settings = session.get("tv_settings") or {}
+            wb_final = {
+                "two_point": tv_settings.get("two_point_wb") or {},
+                "multipoint": tv_settings.get("multipoint_wb") or {},
+            }
+            cms_final = tv_settings.get("cms_sliders") or {}
             _record_session(
                 tv_key=session.get("tv_key", "unknown"),
                 session_id=sid,
                 mode=session.get("mode", ""),
                 report=report,
+                wb_final=wb_final,
+                cms_final=cms_final,
             )
             session["_history_recorded"] = True
             store.save_session(sid)

@@ -1981,6 +1981,43 @@ class TestHistoryGuardedByCompletion:
         client.get(f"/api/session/{session_id}/report")
         assert len(recorded) == 1
 
+    def test_record_session_passes_wb_cms_from_tv_settings(self, client, session_id, monkeypatch):
+        """#334: history records wb_final/cms_final from session tv_settings."""
+        recorded = []
+        def mock_record(*a, **kw):
+            recorded.append((a, kw))
+        monkeypatch.setattr(server_module, "_record_session", mock_record)
+
+        _sessions[session_id]["step"] = "report"
+        _sessions[session_id]["target"] = type("T", (), {
+            "gamut": "bt709", "eotf": "bt1886",
+            "peak_luminance_nits": 500, "white_point_xy": (0.3127, 0.3290),
+            "gamma": 2.4,
+        })()
+        _sessions[session_id]["pre_measurements"] = [
+            Measurement(x=0.3127, y=0.3290, Y=50.0, X=48.3, Z=55.1,
+                        stimulus_rgb=(128, 128, 128), label="50% Gray"),
+        ]
+        _sessions[session_id]["post_measurements"] = [
+            Measurement(x=0.3127, y=0.3290, Y=50.0, X=48.3, Z=55.1,
+                        stimulus_rgb=(128, 128, 128), label="50% Gray"),
+        ]
+        _sessions[session_id]["wb_measurements"] = []
+        _sessions[session_id]["gamma_measurements"] = []
+        _sessions[session_id]["cms_measurements"] = []
+        _sessions[session_id]["lum_measurements"] = []
+        _sessions[session_id]["peak_luminance"] = 200.0
+        _sessions[session_id]["tv_settings"] = {
+            "two_point_wb": {"r_gain": -2},
+            "cms_sliders": {"red_sat": 3},
+        }
+
+        resp = client.get(f"/api/session/{session_id}/report")
+        assert resp.status_code == 200
+        assert len(recorded) == 1
+        assert recorded[0][1]["wb_final"] == {"two_point": {"r_gain": -2}, "multipoint": {}}
+        assert recorded[0][1]["cms_final"] == {"red_sat": 3}
+
 
 # ── Bug fix: #217 invalid measurements with delta_e=None don't crash reports ────
 
