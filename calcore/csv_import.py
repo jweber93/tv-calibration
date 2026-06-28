@@ -45,7 +45,7 @@ def _classify_headerless_row(
 def parse_measurement_csv(
     source: str | bytes | io.IOBase,
     *,
-    format: Literal["xyY", "XYZ", None] = None,
+    format: Literal["xyY", "XYZ"] = None,  # type: ignore[assignment]
 ) -> List[Patch]:
     patches: List[Patch] = []
     # Normalize input to raw string lines

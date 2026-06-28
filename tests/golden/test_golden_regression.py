@@ -81,7 +81,7 @@ class TestSDRGrayscaleGolden:
     CFG = AnalysisConfig(mode="sdr", eotf="bt1886", target_space="bt709", code_max=235)
 
     def _run(self):
-        patches = parse_measurement_csv(_SDR_REFERENCE_CSV)
+        patches = parse_measurement_csv(_SDR_REFERENCE_CSV, format="xyY")
         return analyze(patches, self.CFG)
 
     def test_grayscale_avg_de_stable(self, golden_baseline, save_golden, update_golden):
@@ -136,7 +136,7 @@ class TestHDRGrayscaleGolden:
     CFG = AnalysisConfig(mode="hdr", eotf="pq", target_space="p3d65", code_max=1023)
 
     def _run(self):
-        patches = parse_measurement_csv(_HDR_REFERENCE_CSV)
+        patches = parse_measurement_csv(_HDR_REFERENCE_CSV, format="xyY")
         return analyze(patches, self.CFG)
 
     def test_hdr_golden_regression(self, golden_baseline, save_golden, update_golden):
@@ -179,7 +179,7 @@ class TestHDRGrayscaleGolden:
 ])
 def test_analyze_is_deterministic(csv_bytes, cfg, label):
     """analyze() must return identical results on repeated calls with identical input."""
-    patches = parse_measurement_csv(csv_bytes)
+    patches = parse_measurement_csv(csv_bytes, format="xyY")
     r1 = analyze(patches, cfg)
     r2 = analyze(patches, cfg)
     assert r1.grayscale_avg_de == pytest.approx(r2.grayscale_avg_de, abs=1e-9), (

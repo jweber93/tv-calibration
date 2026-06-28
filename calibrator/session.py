@@ -2114,7 +2114,7 @@ class SessionStore:
                 400, "Select a calibration mode before importing measurements."
             )
         try:
-            patches = parse_measurement_csv(contents)
+            patches = parse_measurement_csv(contents, format="xyY")
         except Exception as exc:
             raise HTTPException(400, f"Generic CSV parse error: {exc}") from exc
         bucket_map = patches_to_session_buckets(patches, session["target"], session.get("step"))

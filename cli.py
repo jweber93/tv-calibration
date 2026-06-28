@@ -175,7 +175,7 @@ def load_state(path: Path, default_cfg: AnalysisConfig) -> SessionState:
 
 
 def run_once(csv_path: Path, state: SessionState) -> SessionState:
-    patches = parse_measurement_csv(str(csv_path))
+    patches = parse_measurement_csv(str(csv_path), format="xyY")
     summary = analyze(patches, state.config)
     new_phase = determine_phase(summary, state.phase)
     state.phase = new_phase
