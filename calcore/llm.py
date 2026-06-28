@@ -254,6 +254,33 @@ def resolve_endpoint(endpoint: str) -> str:
     return endpoint
 
 
+def _build_request(url: str, body: Dict[str, Any], llm: LLMConfig) -> urllib.request.Request:
+    """Build a POST request to an OpenAI-compatible endpoint with provider headers.
+
+    Centralises the shared request-building boilerplate (JSON body, Bearer auth)
+    and injects provider-specific headers so every call site sends identical
+    headers — including the connection probe.  For ``provider == "openrouter"``
+    this adds:
+
+      - ``HTTP-Referer`` — per-app rate-limit attribution (only when set)
+      - ``X-Title`` — display name shown in OpenRouter's usage dashboard
+    """
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    if llm.api_key:
+        req.add_header("Authorization", f"Bearer {llm.api_key}")
+    if llm.provider == "openrouter":
+        if llm.http_referer:
+            req.add_header("HTTP-Referer", llm.http_referer)
+        req.add_header("X-Title", llm.app_title or "tv-calibration")
+    return req
+
+
 _SYSTEM_PROMPT = (
     "You are an expert Display Calibration Engine. "
     "Identify the highest-dE errors and produce precise hardware adjustment deltas. "
@@ -309,16 +336,7 @@ def call_llm(
         "temperature": 0.0,
     }
 
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    # LiteLLM supports Bearer tokens; pass the key when provided.
-    if llm.api_key:
-        req.add_header("Authorization", f"Bearer {llm.api_key}")
+    req = _build_request(url, body, llm)
 
     try:
         with urllib.request.urlopen(req, timeout=llm.timeout) as resp:
@@ -520,12 +538,7 @@ def query_next_patch_strategy(
         "temperature": 0.0,
     }
 
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
-    )
-    if llm.api_key:
-        req.add_header("Authorization", f"Bearer {llm.api_key}")
+    req = _build_request(url, body, llm)
 
     try:
         with urllib.request.urlopen(req, timeout=min(llm.timeout, 30.0)) as resp:
@@ -616,12 +629,7 @@ def query_remediation(
         "temperature": 0.0,
     }
 
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
-    )
-    if llm.api_key:
-        req.add_header("Authorization", f"Bearer {llm.api_key}")
+    req = _build_request(url, body, llm)
 
     try:
         with urllib.request.urlopen(req, timeout=min(llm.timeout, 20.0)) as resp:
@@ -689,12 +697,7 @@ def query_gamut_advice(
         "temperature": 0.2,
     }
 
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
-    )
-    if llm.api_key:
-        req.add_header("Authorization", f"Bearer {llm.api_key}")
+    req = _build_request(url, body, llm)
 
     try:
         with urllib.request.urlopen(req, timeout=min(llm.timeout, 30.0)) as resp:
@@ -724,24 +727,25 @@ def probe_llm(cfg: Dict[str, Any], timeout: float = 8.0) -> tuple[bool, str]:
     Unlike a bare TCP check, this catches invalid model names, wrong API keys, and
     misconfigured proxies that would otherwise only fail at analysis time.
     """
-    endpoint = cfg.get("endpoint", "")
-    model = cfg.get("model", "")
-    if not endpoint or not model:
+    # Build an LLMConfig so the probe sends the same provider headers
+    # (HTTP-Referer, X-Title) as a real call — otherwise the probe can pass
+    # while real calls fail (e.g. a bad HTTP-Referer hitting a blocklist).
+    # Imported locally: models.py is only a TYPE_CHECKING import at module
+    # level, and a top-level import here would create a circular dependency.
+    from .models import LLMConfig
+
+    llm = LLMConfig.from_dict(cfg)
+    if not llm.endpoint or not llm.model:
         return False, "endpoint and model are required"
 
-    url = resolve_endpoint(endpoint)
+    url = resolve_endpoint(llm.endpoint)
     body = {
-        "model": model,
+        "model": llm.model,
         "messages": [{"role": "user", "content": "hi"}],
         "max_tokens": 1,
         "temperature": 0,
     }
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
-    )
-    if cfg.get("api_key"):
-        req.add_header("Authorization", f"Bearer {cfg['api_key']}")
+    req = _build_request(url, body, llm)
 
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -826,12 +830,7 @@ def query_delta_summary(
         "temperature": 0.3,
     }
 
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
-    )
-    if llm.api_key:
-        req.add_header("Authorization", f"Bearer {llm.api_key}")
+    req = _build_request(url, body, llm)
 
     try:
         with urllib.request.urlopen(req, timeout=min(llm.timeout, 45.0)) as resp:
@@ -1010,12 +1009,7 @@ def query_pass_decision(
         "temperature": 0.0,
     }
 
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
-    )
-    if llm.api_key:
-        req.add_header("Authorization", f"Bearer {llm.api_key}")
+    req = _build_request(url, body, llm)
 
     try:
         with urllib.request.urlopen(req, timeout=min(llm.timeout, 45.0)) as resp:
@@ -1117,12 +1111,7 @@ def query_patch_optimization(
         "temperature": 0.0,
     }
 
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
-    )
-    if llm.api_key:
-        req.add_header("Authorization", f"Bearer {llm.api_key}")
+    req = _build_request(url, body, llm)
 
     try:
         with urllib.request.urlopen(req, timeout=min(llm.timeout, 60.0)) as resp:

@@ -438,6 +438,32 @@ The proxy routes to Claude Sonnet via OpenRouter by default and falls back to a 
 
 See `litellm_config.yaml` for available models and configuration options.
 
+#### Direct OpenRouter (no proxy)
+
+To route through [OpenRouter](https://openrouter.ai) without running a local
+proxy, set `provider` to `openrouter` in the LLM config. The endpoint defaults
+to `https://openrouter.ai/api/v1` automatically, so only `model` and `api_key`
+are required:
+
+```json
+{
+  "llm": {
+    "provider": "openrouter",
+    "model": "anthropic/claude-3-5-sonnet",
+    "api_key": "sk-or-...",
+    "http_referer": "https://github.com/jweber93/tv-calibration",
+    "app_title": "tv-calibration"
+  }
+}
+```
+
+`http_referer` and `app_title` are optional, but recommended: when `provider`
+is `openrouter`, requests carry two OpenRouter-specific headers built from them:
+`HTTP-Referer` (per-app rate-limit attribution; sent only when `http_referer`
+is set) and `X-Title` (display name shown in OpenRouter's usage dashboard,
+defaults to `tv-calibration`). The **Test Connection** probe sends the same
+headers as real calls, so a passing probe reflects a working configuration.
+
 ### ADB TV Control
 
 For supported TVs, the app can apply color management settings directly over Android Debug Bridge without navigating service menus:
