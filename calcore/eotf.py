@@ -35,7 +35,7 @@ def bt1886_eotf(v: float, lw: float, lb: float, gamma: float = 2.4) -> float:
             RuntimeWarning,
             stacklevel=2,
         )
-        return lw * (v ** (1 / gamma))
+        return lw * (v ** gamma)
     a = lw ** (1 / gamma) - lb ** (1 / gamma)
     base = a * v + lb ** (1 / gamma)
     return max(base, 0.0) ** gamma
