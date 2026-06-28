@@ -1,10 +1,6 @@
 import { PhaseRail } from './PhaseRail';
 import { InstrumentPanel } from './InstrumentPanel';
 
-const MEASUREMENT_STEPS = new Set([
-  'pre_grayscale', 'luminance', 'white_balance', 'gamma', 'color_tuner', 'post_grayscale',
-]);
-
 export function AppShell({
   session, onJump, children,
   watchStatus, watchDefaultPath,
@@ -15,7 +11,7 @@ export function AppShell({
   onUpload,
   onSaveDogegenConfig, onStartDogegen, onStopDogegen,
 }) {
-  const showInstrument = session != null && MEASUREMENT_STEPS.has(session.step);
+  const showInstrument = session != null;
 
   return (
     <div className="workspace">
