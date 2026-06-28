@@ -199,7 +199,7 @@ export function ComparisonPage({ profiles }) {
             {/* Big improvement delta */}
             {(() => {
               const impD = deltas?.improvement_pct;
-              const impPositive = impD != null && impD > 0;
+              const impPositive = impD > 0;
               return (
                 <>
                   <div style={{ fontSize: '3.5rem', fontWeight: 700, lineHeight: 1, fontFamily: 'var(--mono)', fontVariantNumeric: 'tabular-nums', color: impD == null ? 'var(--ink)' : deltaColor(impD, false), marginBottom: 4 }}>
@@ -215,7 +215,7 @@ export function ComparisonPage({ profiles }) {
             {/* Post-Cal ΔE A → B */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', maxWidth: 460, margin: '0 auto' }}>
               <div style={{ flex: 1, textAlign: 'right' }}>
-                <div style={{ fontSize: '1.5rem', fontWeight: 700, fontFamily: 'var(--mono)', color: '#e74c3c' }}>
+                <div style={{ fontSize: '1.5rem', fontWeight: 700, fontFamily: 'var(--mono)', color: 'var(--red)' }}>
                   {repA?.post_cal?.avg_de != null ? repA.post_cal.avg_de.toFixed(2) : '—'}
                 </div>
                 <div style={{ fontSize: '0.65rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink3)', marginTop: 2 }}>
@@ -224,7 +224,7 @@ export function ComparisonPage({ profiles }) {
               </div>
               <div style={{ padding: '0 20px', color: 'var(--ink3)', fontSize: '1.2rem', userSelect: 'none' }}>→</div>
               <div style={{ flex: 1, textAlign: 'left' }}>
-                <div style={{ fontSize: '1.5rem', fontWeight: 700, fontFamily: 'var(--mono)', color: '#22c987' }}>
+                <div style={{ fontSize: '1.5rem', fontWeight: 700, fontFamily: 'var(--mono)', color: 'var(--green)' }}>
                   {repB?.post_cal?.avg_de != null ? repB.post_cal.avg_de.toFixed(2) : '—'}
                 </div>
                 <div style={{ fontSize: '0.65rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink3)', marginTop: 2 }}>
@@ -240,10 +240,10 @@ export function ComparisonPage({ profiles }) {
               <thead>
                 <tr>
                   <th>Metric</th>
-                  <th style={{ textAlign: 'right', color: '#e74c3c' }}>
+                  <th style={{ textAlign: 'right', color: 'var(--red)' }}>
                     Session A <br /><span style={{ color: 'var(--ink3)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>{sessA?.date ? new Date(sessA.date).toLocaleDateString() : ''}</span>
                   </th>
-                  <th style={{ textAlign: 'right', color: '#22c987' }}>
+                  <th style={{ textAlign: 'right', color: 'var(--green)' }}>
                     Session B <br /><span style={{ color: 'var(--ink3)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>{sessB?.date ? new Date(sessB.date).toLocaleDateString() : ''}</span>
                   </th>
                   <th style={{ textAlign: 'right' }}>Δ (B − A)</th>
