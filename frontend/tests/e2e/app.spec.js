@@ -109,27 +109,30 @@ test.describe('Setup page — no session', () => {
     await expect(page.getByText('LG C3')).toBeVisible();
   });
 
-  test('shows Start Session card', async ({ page }) => {
+  test('shows Signal Mode card', async ({ page }) => {
     await mockApi(page);
     await page.goto('/');
-    await expect(page.getByText('Start Session')).toBeVisible();
+    await expect(page.getByText('Signal Mode')).toBeVisible();
   });
 
-  test('Start New Session button is enabled when a TV is auto-selected', async ({ page }) => {
+  test('Begin Calibration button is enabled when a TV and mode are both selected', async ({ page }) => {
     await mockApi(page);
     await page.goto('/');
-    // Setup auto-selects profiles[0] via useState(profiles[0]?.key || '')
-    const btn = page.getByRole('button', { name: 'Start New Session' });
+    const btn = page.getByRole('button', { name: 'Begin Calibration' });
     await expect(btn).toBeVisible();
+    // Button is disabled until a mode is chosen (TV is auto-selected)
+    await expect(btn).toBeDisabled();
+    // Select a mode to enable the button
+    await page.getByText('SDR').first().click();
     await expect(btn).not.toBeDisabled();
   });
 
   test('shows empty state gracefully when profiles list is empty', async ({ page }) => {
     await mockApi(page, { profiles: [] });
     await page.goto('/');
-    await expect(page.getByText('Start Session')).toBeVisible();
-    // Button is disabled because no TV can be selected
-    const btn = page.getByRole('button', { name: 'Start New Session' });
+    await expect(page.getByText('Signal Mode')).toBeVisible();
+    // Button is disabled because no TV can be selected and no mode chosen
+    const btn = page.getByRole('button', { name: 'Begin Calibration' });
     await expect(btn).toBeDisabled();
   });
 
