@@ -46,6 +46,7 @@ from calcore.llm import (
     call_llm as _call_llm,
     parse_adjustment_plan as _parse_adjustment_plan,
     predict_initial_settings as _predict_initial_settings,
+    predict_next_settings as _predict_next_settings,
     probe_llm as _probe_llm,
     query_delta_summary as _query_delta_summary,
     query_gamut_advice as _query_gamut_advice,
@@ -1951,6 +1952,96 @@ def post_pass_decision(sid: str, req: PassDecisionReq):
         "repass_count": decision.repass_count,
         "ceiling_reason": decision.ceiling_reason,
     }
+
+
+# ── Convergence-aware next-settings endpoint (#337) ────────────────────────────
+
+
+@app.post("/api/session/{sid}/next-settings")
+def post_next_settings(sid: str):
+    """Predict the next round of settings, aware of convergence trend and round cap.
+
+    Reads the adjustment rounds recorded on the session, assesses convergence
+    against the TV's quality-gate thresholds, and either short-circuits
+    (converged → ``verify``; round cap reached or stalled → ``ceiling``) or asks
+    the LLM for damped next-round deltas.  When the LLM produces new deltas, this
+    round's residual + suggestions are recorded so the next call can measure
+    whether they actually converged.
+
+    Returns {"next_settings": {...} | null, "reason": "<string when null>"}.
+    """
+    session = store.get(sid)
+
+    all_measurements = _get_all_measurements(session)
+    if not all_measurements:
+        raise HTTPException(400, "No measurements in session; import data first.")
+
+    llm_cfg_dict = session.get("llm_config", {})
+    if not (llm_cfg_dict.get("endpoint") and llm_cfg_dict.get("model")):
+        return {"next_settings": None, "reason": "LLM not configured"}
+
+    cfg = _session_to_analysis_config(session)
+    patches_core = [_measurement_to_patch(m) for m in all_measurements]
+    summary = _calcore_analyze(patches_core, cfg)
+
+    phase = session.get("step", "baseline")
+    target = session.get("target")
+    target_gamma = target.gamma if target else None
+
+    # Reuse the per-TV quality-gate thresholds as convergence targets (#166).
+    profile = _get_tv_profile(session.get("tv_key", ""))
+    thresholds: Optional[Dict[str, Any]] = None
+    tv_schema: Optional[Dict[str, Any]] = None
+    if profile:
+        if getattr(profile, "quality_gate_thresholds", None):
+            thresholds = profile.quality_gate_thresholds
+        if profile.llm_schema:
+            tv_schema = profile.llm_schema
+
+    # Reconstruct current TV slider values when supplied (#96).
+    tv_settings: Optional[TVSettings] = None
+    raw_tv_settings = session.get("tv_settings")
+    if raw_tv_settings:
+        tv_settings = TVSettings(
+            two_point_wb=raw_tv_settings.get("two_point_wb"),
+            multipoint_wb=raw_tv_settings.get("multipoint_wb"),
+            cms_sliders=raw_tv_settings.get("cms_sliders"),
+        )
+
+    prior_rounds = session.get("llm_adjustment_rounds", [])
+
+    llm_cfg = LLMConfig.from_dict(
+        llm_cfg_dict, default_timeout=45.0, default_temperature=0.0
+    )
+    prediction = _predict_next_settings(
+        summary,
+        cfg,
+        phase,
+        llm_cfg,
+        prior_rounds=prior_rounds,
+        thresholds=thresholds,
+        tv_settings=tv_settings,
+        tv_schema=tv_schema,
+        target_gamma=target_gamma,
+    )
+
+    if prediction is None:
+        return {"next_settings": None, "reason": "LLM returned no result"}
+
+    # Only a round that produced new deltas to apply advances the loop counter;
+    # converged/ceiling short-circuits have no deltas and end the loop.
+    if prediction.source == "llm":
+        store.record_adjustment_round(
+            sid,
+            residual={
+                "avg_de": prediction.convergence.get("avg_de"),
+                "max_de": prediction.convergence.get("max_de"),
+                "gamma": prediction.convergence.get("gamma_deviation"),
+            },
+            suggested=prediction.adjustments,
+        )
+
+    return {"next_settings": prediction.to_dict()}
 
 
 @app.get("/api/adb/status")

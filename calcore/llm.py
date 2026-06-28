@@ -1264,3 +1264,451 @@ def predict_initial_settings(
             "Unexpected error in predict_initial_settings: %s: %s", type(e).__name__, e
         )
         return None
+
+
+# ── Convergence-aware reactive next-settings prediction (#337) ─────────────────
+#
+# Design decisions (resolving the open questions in the issue):
+#
+#   1. "Converged" reuses the existing quality-gate constants. We pull per-phase
+#      thresholds from the TV profile's ``quality_gate_thresholds`` and fall back
+#      to ``_DEFAULT_CONVERGENCE_THRESHOLDS`` (which mirror the U8G profile and the
+#      ACCEPT rule baked into ``query_pass_decision``: grayscale avg ΔE ≤ 2.0,
+#      max ≤ 3.0). No new per-phase magic numbers are invented.
+#
+#   2. Overshoot/damping is fed to the model as explicit prior (suggested-delta →
+#      resulting-residual) pairs plus a trust-region instruction: if the last
+#      delta failed to reduce the residual (or flipped its sign), apply a damped
+#      fraction of the remaining correction rather than repeating the same delta.
+#      Rounds are tracked deterministically by the caller and capped here.
+#
+#   3. Auto-advance vs. confirm: when within tolerance we DO NOT mutate hardware.
+#      We surface a high-confidence ``next_step="verify"`` so the user accepts the
+#      proceed. The convergence short-circuit makes no network call.
+#
+#   4. Round cap + stall: reuse ``_REPATCH_MAX_PASSES``. When the cap is reached
+#      OR round-over-round improvement falls below ``_CONVERGENCE_STALL_EPSILON``
+#      while still out of tolerance, we emit a "diminishing returns / hardware
+#      ceiling" prediction (``next_step="ceiling"``) without a network call.
+
+# Round-over-round avg ΔE improvement below this counts as a stall (diminishing
+# returns). 0.3 ΔE is below the ~1.0 ΔE just-noticeable threshold, so further
+# rounds are not worth the measurement cost.
+_CONVERGENCE_STALL_EPSILON = 0.3
+
+# Per-phase convergence thresholds used when the TV profile omits them. These
+# mirror the Hisense U8G ``quality_gate_thresholds`` and the ACCEPT decision rule
+# in ``query_pass_decision`` so the reactive loop and the quality gate agree.
+_DEFAULT_CONVERGENCE_THRESHOLDS: Dict[str, Dict[str, float]] = {
+    "grayscale": {"avg_de": 2.0, "max_de": 3.0},
+    "white_balance": {"avg_de": 1.5, "max_de": 2.5},
+    "color_tuner": {"avg_de": 3.0, "max_de": 4.0},
+    "gamma": {"max_deviation": 0.05},
+}
+
+
+def _phase_threshold_key(phase: str) -> str:
+    """Map a calibration phase string to a ``quality_gate_thresholds`` key.
+
+    Phases seen in the codebase: ``pre_grayscale``, ``post_grayscale``,
+    ``white_balance``, ``gamma``, ``color_tuner``, ``baseline``. Grayscale is the
+    default so baseline/pre/post all gate on grayscale tracking.
+    """
+    p = (phase or "").lower()
+    if "color" in p or "cms" in p:
+        return "color_tuner"
+    if "gamma" in p:
+        return "gamma"
+    if "white" in p or "balance" in p or p == "wb":
+        return "white_balance"
+    return "grayscale"
+
+
+@dataclass
+class ConvergenceAssessment:
+    """Deterministic convergence verdict for the current measurement round."""
+
+    converged: bool
+    stalled: bool
+    rounds_used: int
+    rounds_remaining: int
+    metric_key: str  # which threshold group applied
+    avg_de: Optional[float]
+    max_de: Optional[float]
+    gamma_deviation: Optional[float]
+    detail: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "converged": self.converged,
+            "stalled": self.stalled,
+            "rounds_used": self.rounds_used,
+            "rounds_remaining": self.rounds_remaining,
+            "metric_key": self.metric_key,
+            "avg_de": self.avg_de,
+            "max_de": self.max_de,
+            "gamma_deviation": self.gamma_deviation,
+            "detail": self.detail,
+        }
+
+
+def assess_convergence(
+    summary: "Summary",
+    phase: str,
+    thresholds: Optional[Dict[str, Any]] = None,
+    rounds_used: int = 0,
+    round_cap: int = _REPATCH_MAX_PASSES,
+    prev_avg_de: Optional[float] = None,
+    target_gamma: Optional[float] = None,
+) -> ConvergenceAssessment:
+    """Decide — deterministically, no LLM — whether the current phase has converged.
+
+    ``prev_avg_de`` is the residual avg ΔE recorded one round earlier; when the
+    improvement since then is below ``_CONVERGENCE_STALL_EPSILON`` and we are
+    still out of tolerance, the phase is flagged ``stalled`` (diminishing
+    returns). ``rounds_remaining`` is the budget left before the round cap.
+    """
+    key = _phase_threshold_key(phase)
+    thr = (thresholds or {}).get(key) or _DEFAULT_CONVERGENCE_THRESHOLDS.get(key, {})
+
+    if key == "color_tuner":
+        avg_de = (
+            summary.color_100_avg_de
+            if summary.color_100_avg_de is not None
+            else summary.color_75_avg_de
+        )
+        max_de = (
+            summary.color_100_max_de
+            if summary.color_100_max_de is not None
+            else summary.color_75_max_de
+        )
+    else:
+        avg_de = summary.grayscale_avg_de
+        max_de = summary.grayscale_max_de
+
+    gamma_deviation: Optional[float] = None
+    if target_gamma is not None and summary.gamma_midtones is not None:
+        gamma_deviation = abs(summary.gamma_midtones - target_gamma)
+
+    avg_thr = thr.get("avg_de")
+    max_thr = thr.get("max_de")
+    gamma_thr = thr.get("max_deviation")
+
+    has_data = any(v is not None for v in (avg_de, max_de, gamma_deviation))
+    within = True
+    if avg_thr is not None:
+        within = within and (avg_de is not None and avg_de <= avg_thr)
+    if max_thr is not None:
+        within = within and (max_de is not None and max_de <= max_thr)
+    # Gamma is only a convergence gate during the gamma phase.
+    if key == "gamma" and gamma_thr is not None:
+        within = within and (gamma_deviation is not None and gamma_deviation <= gamma_thr)
+
+    converged = bool(within and has_data)
+
+    rounds_remaining = max(0, round_cap - rounds_used)
+
+    stalled = False
+    if (
+        not converged
+        and prev_avg_de is not None
+        and avg_de is not None
+        and rounds_used >= 1
+        and (prev_avg_de - avg_de) < _CONVERGENCE_STALL_EPSILON
+    ):
+        stalled = True
+
+    if converged:
+        detail = (
+            f"{key} within tolerance (avg ΔE={avg_de}, max ΔE={max_de}); proceed."
+        )
+    elif not has_data:
+        detail = f"No {key} residual data available to assess convergence."
+    elif stalled:
+        detail = (
+            f"{key} stalled at avg ΔE={avg_de} (prev {prev_avg_de}); "
+            f"improvement < {_CONVERGENCE_STALL_EPSILON} ΔE — diminishing returns."
+        )
+    else:
+        detail = (
+            f"{key} out of tolerance (avg ΔE={avg_de}, max ΔE={max_de}); "
+            f"{rounds_remaining} round(s) remaining."
+        )
+
+    return ConvergenceAssessment(
+        converged=converged,
+        stalled=stalled,
+        rounds_used=rounds_used,
+        rounds_remaining=rounds_remaining,
+        metric_key=key,
+        avg_de=round(avg_de, 2) if isinstance(avg_de, (int, float)) else avg_de,
+        max_de=round(max_de, 2) if isinstance(max_de, (int, float)) else max_de,
+        gamma_deviation=round(gamma_deviation, 3)
+        if isinstance(gamma_deviation, (int, float))
+        else gamma_deviation,
+        detail=detail,
+    )
+
+
+@dataclass
+class NextSettingsPrediction:
+    """Convergence-aware next-round prediction for the reactive settings loop."""
+
+    adjustments: List[Dict[str, Any]]  # same shape as AdjustmentPlan.adjustments
+    # "rerun_grayscale" | "rerun_wb" | "proceed_cms" | "verify" | "ceiling"
+    next_step: str
+    confidence: float
+    converged: bool
+    stalled: bool
+    rounds_used: int
+    rounds_remaining: int
+    convergence: Dict[str, Any]  # ConvergenceAssessment.to_dict()
+    message: str
+    source: str  # "converged" | "ceiling" | "llm"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "adjustments": self.adjustments,
+            "next_step": self.next_step,
+            "confidence": self.confidence,
+            "converged": self.converged,
+            "stalled": self.stalled,
+            "rounds_used": self.rounds_used,
+            "rounds_remaining": self.rounds_remaining,
+            "convergence": self.convergence,
+            "message": self.message,
+            "source": self.source,
+        }
+
+
+def _format_adjustment_rounds(prior_rounds: List[Dict[str, Any]]) -> str:
+    """Render prior (suggested-delta → resulting-residual) pairs for the prompt."""
+    lines: List[str] = []
+    for r in prior_rounds[-3:]:
+        res = r.get("residual") or {}
+        suggested = r.get("suggested") or []
+        sug_str = (
+            "; ".join(
+                f"{a.get('menu', '?')}/{a.get('setting', '?')}→{a.get('to')}"
+                for a in suggested
+            )
+            or "(none)"
+        )
+        lines.append(
+            f"Round {r.get('round')}: observed avg ΔE={res.get('avg_de')}, "
+            f"max ΔE={res.get('max_de')}"
+            + (
+                f", gamma={res.get('gamma')}"
+                if res.get("gamma") is not None
+                else ""
+            )
+            + f" → suggested {sug_str}"
+        )
+    return "\n".join(lines)
+
+
+def predict_next_settings(
+    summary: "Summary",
+    cfg: "AnalysisConfig",
+    phase: str,
+    llm: "LLMConfig",
+    prior_rounds: Optional[List[Dict[str, Any]]] = None,
+    thresholds: Optional[Dict[str, Any]] = None,
+    round_cap: int = _REPATCH_MAX_PASSES,
+    tv_settings: Optional["TVSettings"] = None,
+    tv_schema: Optional[Dict[str, Any]] = None,
+    target_gamma: Optional[float] = None,
+) -> Optional[NextSettingsPrediction]:
+    """Predict the next round of settings, aware of convergence trend and round cap.
+
+    Unlike ``call_llm`` (single-shot, stateless), this folds in prior adjustment
+    rounds and short-circuits — with no network call — when the phase has either
+    converged (``next_step="verify"``) or hit the round cap / stalled
+    (``next_step="ceiling"``). Otherwise it asks the LLM for the next deltas,
+    feeding it the suggested-vs-resulting residual history and a damping
+    instruction so it corrects rather than repeating an overshooting delta.
+    """
+    if not llm.endpoint or not llm.model:
+        return None
+
+    prior_rounds = prior_rounds or []
+    rounds_used = len(prior_rounds)
+    prev_avg_de: Optional[float] = None
+    if prior_rounds:
+        last_res = prior_rounds[-1].get("residual") or {}
+        prev_avg_de = last_res.get("avg_de")
+
+    assessment = assess_convergence(
+        summary,
+        phase,
+        thresholds=thresholds,
+        rounds_used=rounds_used,
+        round_cap=round_cap,
+        prev_avg_de=prev_avg_de,
+        target_gamma=target_gamma,
+    )
+
+    # Short-circuit 1 — converged: surface a high-confidence proceed, no network.
+    if assessment.converged:
+        return NextSettingsPrediction(
+            adjustments=[],
+            next_step="verify",
+            confidence=0.95,
+            converged=True,
+            stalled=False,
+            rounds_used=rounds_used,
+            rounds_remaining=assessment.rounds_remaining,
+            convergence=assessment.to_dict(),
+            message=(
+                f"Within tolerance after {rounds_used} round(s) — "
+                "no further adjustment needed. Proceed to verify."
+            ),
+            source="converged",
+        )
+
+    # Short-circuit 2 — round cap reached or stalled: diminishing-returns ceiling.
+    if rounds_used >= round_cap or assessment.stalled:
+        if rounds_used >= round_cap:
+            reason = (
+                f"Round cap ({round_cap}) reached without converging "
+                f"(avg ΔE={assessment.avg_de})."
+            )
+        else:
+            reason = (
+                f"Diminishing returns — avg ΔE stalled at {assessment.avg_de} "
+                f"(prev {prev_avg_de}). Likely hardware ceiling."
+            )
+        return NextSettingsPrediction(
+            adjustments=[],
+            next_step="ceiling",
+            confidence=0.6,
+            converged=False,
+            stalled=assessment.stalled,
+            rounds_used=rounds_used,
+            rounds_remaining=0,
+            convergence=assessment.to_dict(),
+            message=reason,
+            source="ceiling",
+        )
+
+    # Otherwise ask the LLM for the next round, with damping context.
+    summary_dict = {
+        k: v
+        for k, v in asdict(summary).items()
+        if k not in ("grayscale_rows", "color_rows")
+    }
+    top = _top_offenders(summary)
+    if top:
+        summary_dict["top_offenders"] = top
+
+    payload: Dict[str, Any] = {
+        "phase": phase,
+        "mode": cfg.mode,
+        "eotf": cfg.eotf,
+        "target_space": cfg.target_space,
+        "round": rounds_used + 1,
+        "rounds_remaining": assessment.rounds_remaining,
+        "convergence_targets": (thresholds or {}).get(assessment.metric_key)
+        or _DEFAULT_CONVERGENCE_THRESHOLDS.get(assessment.metric_key, {}),
+        "current_residual": {
+            "avg_de": assessment.avg_de,
+            "max_de": assessment.max_de,
+            "gamma_deviation": assessment.gamma_deviation,
+        },
+        "summary": summary_dict,
+    }
+    if tv_settings is not None:
+        ts_dict = {k: v for k, v in asdict(tv_settings).items() if v is not None}
+        if ts_dict:
+            payload["current_tv_settings"] = ts_dict
+    if tv_schema:
+        payload["tv_settings_schema"] = tv_schema
+
+    rounds_block = _format_adjustment_rounds(prior_rounds) or "(none yet)"
+
+    prompt = (
+        "You are converging a TV calibration loop in as few rounds as possible. "
+        f"This is round {rounds_used + 1} of at most {round_cap}. Predict the NEXT "
+        "hardware deltas so the residual drops below the convergence targets.\n\n"
+        "Damping / trust-region rules:\n"
+        "- Review the PRIOR ROUNDS below: each shows the residual you were "
+        "correcting and the delta you suggested.\n"
+        "- If a prior delta did NOT reduce the residual (or made it worse), do not "
+        "repeat it — apply a DAMPED fraction (about half) of the remaining "
+        "correction in the same direction, or reverse if you overshot.\n"
+        "- Prefer the smallest delta that reaches tolerance; avoid oscillation.\n"
+        "- If you are already within the convergence targets, return an empty "
+        '"adjustments" array with "next_step": "verify" and high confidence.\n\n'
+        "Respond with ONLY a valid JSON object matching this exact schema "
+        "(no markdown, no prose outside the JSON):\n"
+        "{\n"
+        '  "adjustments": [\n'
+        "    {\n"
+        '      "menu": "<TV menu name>",\n'
+        '      "setting": "<setting name>",\n'
+        '      "from": <current value or null>,\n'
+        '      "to": <target value>,\n'
+        '      "scope": "global" | "local",\n'
+        '      "reason": "<1-2 sentences, physics-based>"\n'
+        "    }\n"
+        "  ],\n"
+        '  "next_step": "rerun_grayscale" | "rerun_wb" | "proceed_cms" | "verify",\n'
+        '  "confidence": <0.0-1.0>\n'
+        "}\n\n"
+        f"PRIOR ROUNDS (suggested → resulting residual):\n{rounds_block}\n\n"
+        f"PAYLOAD:\n{json.dumps(payload, indent=2, default=str)}"
+    )
+
+    url = resolve_endpoint(llm.endpoint)
+    body = {
+        "model": llm.model,
+        "messages": [
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.0,
+    }
+
+    req = _build_request(url, body, llm)
+
+    try:
+        with urllib.request.urlopen(req, timeout=min(llm.timeout, 45.0)) as resp:
+            raw = resp.read().decode("utf-8")
+        parsed = json.loads(raw)
+        choices = parsed.get("choices") or []
+        if not choices:
+            raise ValueError(f"LLM returned empty choices array: {raw[:300]}")
+        content = choices[0]["message"]["content"].strip()
+        plan = parse_adjustment_plan(content)
+        if plan is None:
+            logger.warning(
+                "predict_next_settings: could not parse adjustment plan from: %s",
+                content[:500],
+            )
+            return None
+
+        return NextSettingsPrediction(
+            adjustments=plan.adjustments,
+            next_step=plan.next_step,
+            confidence=plan.confidence,
+            converged=False,
+            stalled=False,
+            rounds_used=rounds_used,
+            rounds_remaining=assessment.rounds_remaining,
+            convergence=assessment.to_dict(),
+            message=assessment.detail,
+            source="llm",
+        )
+    except urllib.error.HTTPError as e:
+        logger.error(
+            "LLM HTTP error in predict_next_settings: %s - %s", e.code, e.reason
+        )
+        return None
+    except json.JSONDecodeError as e:
+        logger.error("LLM response parsing failed in predict_next_settings: %s", e)
+        return None
+    except Exception as e:
+        logger.error(
+            "Unexpected error in predict_next_settings: %s: %s", type(e).__name__, e
+        )
+        return None

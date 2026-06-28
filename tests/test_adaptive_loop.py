@@ -10,7 +10,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from calcore.llm import PassDecision, query_pass_decision
+from calcore.llm import (
+    ConvergenceAssessment,
+    NextSettingsPrediction,
+    PassDecision,
+    _CONVERGENCE_STALL_EPSILON,
+    assess_convergence,
+    predict_next_settings,
+    query_pass_decision,
+)
+from calcore.models import Summary
 from calibrator.profiles import TV_PROFILES
 from calibrator.session import (
     REPATCH_MAX_PASSES,
@@ -694,6 +703,346 @@ class TestLabelToRgb:
         from server import _label_to_rgb
         rgb = _label_to_rgb("UnknownPatch", "full")
         assert rgb == [235, 235, 235]
+
+
+def _summary(
+    *,
+    avg_de=None,
+    max_de=None,
+    gamma=None,
+    color_avg=None,
+    color_max=None,
+) -> Summary:
+    """Build a Summary with the scalar residuals convergence logic reads."""
+    return Summary(
+        grayscale_avg_de=avg_de,
+        grayscale_max_de=max_de,
+        grayscale_over_3=0,
+        gamma_midtones=gamma,
+        pq_err_midtones=None,
+        color_75_avg_de=None,
+        color_75_max_de=None,
+        color_75_chroma_avg=None,
+        color_100_avg_de=color_avg,
+        color_100_max_de=color_max,
+        color_100_chroma_avg=None,
+        grayscale_rows=[],
+        color_rows=[],
+        meta={},
+        measured_patch_count=11,
+        expected_patch_count=11,
+    )
+
+
+def _llm_mock():
+    llm = MagicMock()
+    llm.endpoint = "http://localhost:4000"
+    llm.model = "test-model"
+    llm.api_key = ""
+    llm.timeout = 30.0
+    llm.provider = "openai"
+    return llm
+
+
+def _cfg_mock():
+    cfg = MagicMock()
+    cfg.mode = "SDR"
+    cfg.eotf = "gamma"
+    cfg.target_space = "bt709"
+    return cfg
+
+
+def _patch_urlopen(payload: Dict[str, Any]):
+    """Context manager patching urlopen to return a canned chat-completion body."""
+    mock_response = {"choices": [{"message": {"content": json.dumps(payload)}}]}
+    p = patch("urllib.request.urlopen")
+    mock_urlopen = p.start()
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = json.dumps(mock_response).encode()
+    mock_urlopen.return_value.__enter__ = lambda s: mock_resp
+    mock_urlopen.return_value.__exit__ = lambda s, *a: None
+    return p, mock_urlopen
+
+
+class TestAssessConvergence:
+    """Deterministic convergence assessment (#337)."""
+
+    def test_converged_within_default_grayscale_thresholds(self):
+        a = assess_convergence(_summary(avg_de=1.2, max_de=2.5), "post_grayscale")
+        assert a.converged is True
+        assert a.stalled is False
+        assert a.metric_key == "grayscale"
+
+    def test_not_converged_when_avg_exceeds(self):
+        a = assess_convergence(_summary(avg_de=3.0, max_de=2.0), "post_grayscale")
+        assert a.converged is False
+
+    def test_not_converged_when_max_exceeds(self):
+        a = assess_convergence(_summary(avg_de=1.0, max_de=4.0), "post_grayscale")
+        assert a.converged is False
+
+    def test_no_data_is_not_converged(self):
+        a = assess_convergence(_summary(), "post_grayscale")
+        assert a.converged is False
+        assert "No grayscale" in a.detail
+
+    def test_color_phase_uses_color_residuals(self):
+        a = assess_convergence(
+            _summary(avg_de=9.9, max_de=9.9, color_avg=2.0, color_max=3.5),
+            "color_tuner",
+        )
+        assert a.metric_key == "color_tuner"
+        assert a.converged is True
+
+    def test_stalled_when_improvement_below_epsilon(self):
+        a = assess_convergence(
+            _summary(avg_de=4.0, max_de=5.0),
+            "post_grayscale",
+            rounds_used=1,
+            prev_avg_de=4.0 + _CONVERGENCE_STALL_EPSILON / 2,
+        )
+        assert a.converged is False
+        assert a.stalled is True
+
+    def test_not_stalled_when_improving(self):
+        a = assess_convergence(
+            _summary(avg_de=3.0, max_de=4.0),
+            "post_grayscale",
+            rounds_used=1,
+            prev_avg_de=5.0,
+        )
+        assert a.stalled is False
+
+    def test_rounds_remaining_decrements_with_cap(self):
+        a = assess_convergence(
+            _summary(avg_de=3.0, max_de=4.0),
+            "post_grayscale",
+            rounds_used=2,
+            round_cap=3,
+        )
+        assert a.rounds_remaining == 1
+
+    def test_gamma_phase_gates_on_gamma_deviation(self):
+        # avg/max grayscale within tolerance but gamma off by 0.2 — not converged.
+        a = assess_convergence(
+            _summary(avg_de=1.0, max_de=2.0, gamma=2.0),
+            "gamma",
+            target_gamma=2.2,
+        )
+        assert a.metric_key == "gamma"
+        assert a.converged is False
+
+    def test_profile_thresholds_override_defaults(self):
+        thresholds = {"grayscale": {"avg_de": 0.5, "max_de": 1.0}}
+        a = assess_convergence(
+            _summary(avg_de=1.2, max_de=2.5),
+            "post_grayscale",
+            thresholds=thresholds,
+        )
+        assert a.converged is False  # tighter profile threshold fails
+
+
+class TestPredictNextSettings:
+    """Convergence-aware next-settings prediction (#337)."""
+
+    def test_returns_none_without_llm_config(self):
+        llm = MagicMock()
+        llm.endpoint = ""
+        llm.model = ""
+        result = predict_next_settings(
+            _summary(avg_de=1.0, max_de=2.0), _cfg_mock(), "post_grayscale", llm
+        )
+        assert result is None
+
+    def test_converged_short_circuits_without_network(self):
+        llm = _llm_mock()
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            result = predict_next_settings(
+                _summary(avg_de=1.2, max_de=2.5),
+                _cfg_mock(),
+                "post_grayscale",
+                llm,
+            )
+            mock_urlopen.assert_not_called()
+        assert result is not None
+        assert result.converged is True
+        assert result.next_step == "verify"
+        assert result.source == "converged"
+        assert result.adjustments == []
+        assert result.confidence >= 0.9
+
+    def test_round_cap_reached_returns_ceiling_without_network(self):
+        llm = _llm_mock()
+        prior = [
+            {"round": 1, "residual": {"avg_de": 5.0}, "suggested": []},
+            {"round": 2, "residual": {"avg_de": 4.5}, "suggested": []},
+            {"round": 3, "residual": {"avg_de": 4.2}, "suggested": []},
+        ]
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            result = predict_next_settings(
+                _summary(avg_de=4.0, max_de=5.0),
+                _cfg_mock(),
+                "post_grayscale",
+                llm,
+                prior_rounds=prior,
+                round_cap=3,
+            )
+            mock_urlopen.assert_not_called()
+        assert result is not None
+        assert result.next_step == "ceiling"
+        assert result.source == "ceiling"
+        assert result.rounds_remaining == 0
+
+    def test_stall_returns_ceiling_without_network(self):
+        llm = _llm_mock()
+        prior = [{"round": 1, "residual": {"avg_de": 4.1}, "suggested": []}]
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            result = predict_next_settings(
+                _summary(avg_de=4.0, max_de=5.0),
+                _cfg_mock(),
+                "post_grayscale",
+                llm,
+                prior_rounds=prior,
+                round_cap=3,
+            )
+            mock_urlopen.assert_not_called()
+        assert result is not None
+        assert result.next_step == "ceiling"
+        assert result.stalled is True
+
+    def test_out_of_tolerance_calls_llm_and_parses(self):
+        llm = _llm_mock()
+        plan = {
+            "adjustments": [
+                {
+                    "menu": "White Balance",
+                    "setting": "R Gain",
+                    "from": 0,
+                    "to": -3,
+                    "scope": "global",
+                    "reason": "Reduce red push in highlights.",
+                }
+            ],
+            "next_step": "rerun_grayscale",
+            "confidence": 0.8,
+        }
+        p, mock_urlopen = _patch_urlopen(plan)
+        try:
+            result = predict_next_settings(
+                _summary(avg_de=3.5, max_de=5.0),
+                _cfg_mock(),
+                "post_grayscale",
+                llm,
+                prior_rounds=[
+                    {
+                        "round": 1,
+                        "residual": {"avg_de": 5.0, "max_de": 7.0},
+                        "suggested": [
+                            {"menu": "White Balance", "setting": "R Gain", "to": -1}
+                        ],
+                    }
+                ],
+            )
+            mock_urlopen.assert_called_once()
+        finally:
+            p.stop()
+        assert result is not None
+        assert result.source == "llm"
+        assert result.converged is False
+        assert result.rounds_used == 1
+        assert len(result.adjustments) == 1
+        assert result.next_step == "rerun_grayscale"
+        assert result.confidence == 0.8
+
+    def test_unparseable_llm_response_returns_none(self):
+        llm = _llm_mock()
+        mock_response = {"choices": [{"message": {"content": "not json at all"}}]}
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps(mock_response).encode()
+            mock_urlopen.return_value.__enter__ = lambda s: mock_resp
+            mock_urlopen.return_value.__exit__ = lambda s, *a: None
+            result = predict_next_settings(
+                _summary(avg_de=3.5, max_de=5.0),
+                _cfg_mock(),
+                "post_grayscale",
+                llm,
+            )
+        assert result is None
+
+
+class TestNextSettingsPredictionDataclass:
+    """NextSettingsPrediction.to_dict contract."""
+
+    def test_to_dict_round_trips_fields(self):
+        pred = NextSettingsPrediction(
+            adjustments=[{"menu": "m", "setting": "s", "to": 1, "scope": "global"}],
+            next_step="verify",
+            confidence=0.95,
+            converged=True,
+            stalled=False,
+            rounds_used=2,
+            rounds_remaining=1,
+            convergence={"converged": True},
+            message="ok",
+            source="converged",
+        )
+        d = pred.to_dict()
+        assert d["next_step"] == "verify"
+        assert d["converged"] is True
+        assert d["rounds_used"] == 2
+        assert d["convergence"] == {"converged": True}
+        assert d["source"] == "converged"
+
+
+class TestRecordAdjustmentRound:
+    """SessionStore.record_adjustment_round (#337)."""
+
+    def _make_store(self, session_data: Dict[str, Any]) -> SessionStore:
+        from datetime import datetime, timezone
+
+        now_iso = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+        session_data["created_at"] = now_iso
+        session_data["last_accessed_at"] = now_iso
+        store = SessionStore(
+            session_dir_getter=lambda: MagicMock(),
+            ttl_getter=lambda: timedelta(days=7),
+            watched_session_id_getter=lambda: None,
+        )
+        store.sessions[session_data["id"]] = session_data
+        return store
+
+    def _session(self) -> Dict[str, Any]:
+        return {
+            "id": "rec12345",
+            "tv_key": "u8g",
+            "tv_name": "Hisense U8G",
+            "step": "post_grayscale",
+            "mode": "SDR",
+            "llm_config": {"endpoint": "", "model": ""},
+        }
+
+    def test_first_round_appended_with_index_one(self):
+        store = self._make_store(self._session())
+        with patch.object(store, "save_session"):
+            session = store.record_adjustment_round(
+                "rec12345",
+                residual={"avg_de": 3.5, "max_de": 5.0},
+                suggested=[{"menu": "WB", "setting": "R Gain", "to": -2}],
+            )
+        rounds = session["llm_adjustment_rounds"]
+        assert len(rounds) == 1
+        assert rounds[0]["round"] == 1
+        assert rounds[0]["residual"]["avg_de"] == 3.5
+        assert "timestamp" in rounds[0]
+
+    def test_rounds_accumulate_and_increment(self):
+        store = self._make_store(self._session())
+        with patch.object(store, "save_session"):
+            store.record_adjustment_round("rec12345", {"avg_de": 5.0}, [])
+            session = store.record_adjustment_round("rec12345", {"avg_de": 3.0}, [])
+        rounds = session["llm_adjustment_rounds"]
+        assert [r["round"] for r in rounds] == [1, 2]
 
 
 class TestReportPayloadRepashReason:
