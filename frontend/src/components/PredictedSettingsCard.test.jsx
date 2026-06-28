@@ -85,4 +85,14 @@ describe('PredictedSettingsCard', () => {
       expect(screen.getByText('Prediction unavailable.')).toBeInTheDocument();
     });
   });
+
+  it('handles non-Promise return (session not ready)', async () => {
+    const getPredictedSettings = vi.fn().mockReturnValue(null);
+    render(
+      <PredictedSettingsCard getPredictedSettings={getPredictedSettings} phase="white_balance" />,
+    );
+    await waitFor(() => {
+      expect(screen.getByText('Prediction unavailable.')).toBeInTheDocument();
+    });
+  });
 });

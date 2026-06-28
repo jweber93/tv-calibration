@@ -8,7 +8,7 @@ export function PredictedSettingsCard({ getPredictedSettings, phase }) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    getPredictedSettings(phase)
+    Promise.resolve(getPredictedSettings ? getPredictedSettings(phase) : null)
       .then((res) => {
         if (!cancelled) setData(res);
       })
@@ -75,8 +75,8 @@ export function PredictedSettingsCard({ getPredictedSettings, phase }) {
       </div>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
         <tbody>
-          {settings.map((s, i) => (
-            <tr key={i} style={{ borderBottom: '1px solid var(--border-subtle, rgba(255,255,255,0.06))' }}>
+          {settings.map((s) => (
+            <tr key={`${s.menu}:${s.setting}`} style={{ borderBottom: '1px solid var(--border-subtle, rgba(255,255,255,0.06))' }}>
               <td style={{ padding: '7px 0', color: 'var(--ink2)', whiteSpace: 'nowrap' }}>
                 {s.menu} › {s.setting}
               </td>
