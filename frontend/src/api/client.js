@@ -131,6 +131,13 @@ export const api = {
   runSuggestedPatches: (sid, patches) =>
     api.post(`/api/session/${sid}/suggested-patches/run`, { patches }),
 
+  // Predicted starting settings (#336)
+  getPredictedSettings: (sid, phase) => {
+    const url = new URL(`/api/session/${sid}/predicted-settings`, window.location.origin);
+    if (phase) url.searchParams.set('phase', phase);
+    return api.get(url.toString());
+  },
+
   // OSD Command Translator (#167)
   translateOsd: (sid, plan) =>
     api.post(`/api/session/${sid}/osd/translate`, { plan }),

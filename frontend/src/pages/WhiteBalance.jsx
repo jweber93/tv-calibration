@@ -7,6 +7,7 @@ import { CIEScatter } from '../charts/CIEScatter';
 import { fmtDe, fmtDateTime } from '../utils/fmt';
 import { QualityGate } from '../components/QualityGate';
 import { CollapsibleSection } from '../components/CollapsibleSection';
+import { PredictedSettingsCard } from '../components/PredictedSettingsCard';
 
 function wbSub(measurement) {
   if (!measurement) return null;
@@ -20,7 +21,7 @@ function wbSub(measurement) {
   );
 }
 
-export function WhiteBalance({ session, onNext, onPrev }) {
+export function WhiteBalance({ session, onNext, onPrev, getPredictedSettings }) {
   const wd = session.wb_data || {};
   const plan   = wd.control_plan || [];
   const hints  = wd.hints || null;
@@ -31,6 +32,7 @@ export function WhiteBalance({ session, onNext, onPrev }) {
     <>
       <ZroInstructions instructions={session.zro_instructions} />
       <QualityGate gate={(session.quality_gates || {}).white_balance} />
+      <PredictedSettingsCard getPredictedSettings={getPredictedSettings} phase="white_balance" />
 
       <div className="two-col" style={{ marginBottom: 16 }}>
         <Readout

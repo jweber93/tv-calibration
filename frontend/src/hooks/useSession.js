@@ -449,6 +449,11 @@ export function useSession() {
     return api.runSuggestedPatches(session.id, patches);
   }
 
+  async function getPredictedSettings(phase) {
+    if (!session?.id) return null;
+    return api.getPredictedSettings(session.id, phase);
+  }
+
   function dismissLlmInsight() {
     setLlmInsight(null);
     setLlmError(null);
@@ -463,7 +468,7 @@ export function useSession() {
     adbDeploy, adbApply, adbReset, adbSetPicture, adbGetPicture, refreshAdbStatus,
     configureLlm, getLlmStatus, saveTvSettings,
     llmInsight, llmStreaming, llmError, dismissLlmInsight,
-    getSuggestedPatches, runSuggestedPatches,
+    getSuggestedPatches, runSuggestedPatches, getPredictedSettings,
     reload,
   };
 }
