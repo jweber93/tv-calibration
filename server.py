@@ -61,6 +61,8 @@ from calibrator.history import (
     load_baseline as _load_baseline,
     load_history as _load_history,
     record_session as _record_session,
+    update_baseline as _update_baseline,
+    update_history_entry as _update_history_entry,
 )
 from calibrator.file_watcher import (
     get_status as _fw_status,
@@ -1506,6 +1508,14 @@ def get_report_compare(a: str, b: str, format: str = "json"):
     return comparison
 
 
+_HISTORY_COMPUTED_METRIC_KEYS = {
+    "post_grayscale_avg_de",
+    "gamma_avg",
+    "wb_avg_de",
+    "cms_avg_de",
+}
+
+
 def _compute_metrics_from_session(session_id: str) -> Dict[str, Optional[float]]:
     """Load a session and compute metrics from its report payload.
 
@@ -1522,6 +1532,9 @@ def _compute_metrics_from_session(session_id: str) -> Dict[str, Optional[float]]
             "peak_luminance": report.get("peak_luminance"),
         }
     except Exception:
+        logger.warning(
+            "Failed to compute metrics for session %s", session_id, exc_info=True
+        )
         return {
             "post_grayscale_avg_de": None,
             "gamma_avg": None,
@@ -1531,10 +1544,21 @@ def _compute_metrics_from_session(session_id: str) -> Dict[str, Optional[float]]
         }
 
 
-def _history_entry_metrics(entry: Dict[str, Any]) -> Dict[str, Optional[float]]:
+def _history_entry_metrics(
+    entry: Dict[str, Any], tv_key: str, is_baseline: bool = False
+) -> Dict[str, Optional[float]]:
     """Return computed metrics for a history entry.
 
-    Uses stored values if available; otherwise computes from the session's report payload.
+    Uses stored values if available; otherwise computes from the session's report payload
+    and writes back to the history store so recomputation is avoided on subsequent loads.
+
+    Args:
+        entry: History or baseline entry dict
+        tv_key: TV profile key for write-back
+        is_baseline: Whether this is a baseline entry (uses different write-back path)
+
+    Returns:
+        Dict of metric values, computed if necessary.
     """
     metrics = {
         "post_grayscale_avg_de": entry.get("post_grayscale_avg_de"),
@@ -1544,15 +1568,27 @@ def _history_entry_metrics(entry: Dict[str, Any]) -> Dict[str, Optional[float]]:
         "peak_luminance": entry.get("peak_luminance"),
     }
 
-    # If any metric is missing, compute all from report_payload
-    if any(v is None for v in metrics.values()):
+    # Only trigger recomputation for computed metrics, not peak_luminance
+    if any(metrics.get(k) is None for k in _HISTORY_COMPUTED_METRIC_KEYS):
         session_id = entry.get("session_id")
         if not session_id:
             return metrics
+
         computed = _compute_metrics_from_session(session_id)
         for key, value in computed.items():
             if metrics.get(key) is None:
                 metrics[key] = value
+
+        # Write-back computed values to history store (best effort)
+        try:
+            if is_baseline:
+                _update_baseline(tv_key, computed)
+            else:
+                _update_history_entry(tv_key, session_id, computed)
+        except Exception:
+            logger.warning(
+                "Failed to write-back metrics for session %s", session_id, exc_info=True
+            )
 
     return metrics
 
@@ -1573,7 +1609,7 @@ def get_report_history(tv_key: str, limit: int = 20):
 
     sessions = []
     if baseline:
-        metrics = _history_entry_metrics(baseline)
+        metrics = _history_entry_metrics(baseline, tv_key, is_baseline=True)
         sessions.append({
             "session_id": baseline.get("session_id"),
             "date": baseline.get("date"),
@@ -1587,7 +1623,7 @@ def get_report_history(tv_key: str, limit: int = 20):
         })
 
     for entry in history:
-        metrics = _history_entry_metrics(entry)
+        metrics = _history_entry_metrics(entry, tv_key)
         sessions.append({
             "session_id": entry.get("session_id"),
             "date": entry.get("date"),
