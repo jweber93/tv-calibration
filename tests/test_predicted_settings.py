@@ -212,9 +212,7 @@ class TestPredictInitialSettings(unittest.TestCase):
             }).encode("utf-8")
 
             mock_response = MagicMock()
-            def read_side_effect():
-                return canned_body
-            mock_response.read = read_side_effect
+            mock_response.read = lambda body=canned_body: body
 
             with patch("urllib.request.urlopen") as mock_urlopen:
                 mock_urlopen.return_value.__enter__.return_value = mock_response
