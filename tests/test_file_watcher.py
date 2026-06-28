@@ -696,7 +696,6 @@ class TestSessionLock:
         import threading
 
         session = _make_session()
-        lock = threading.Lock()
         held = threading.Event()
         release_gate = threading.Event()
 
@@ -736,8 +735,10 @@ class TestSessionLock:
         csv_file = tmp_path / "lock_test.csv"
         csv_file.write_text(MINIMAL_ZRO_CSV)
 
-        assert held.wait(timeout=5.0), "session_lock should be acquired during import"
-        release_gate.set()
+        try:
+            assert held.wait(timeout=5.0), "session_lock should be acquired during import"
+        finally:
+            release_gate.set()
 
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:
@@ -797,8 +798,8 @@ class TestSessionLock:
             log_snapshot = list(mutation_log)
 
         assert len(log_snapshot) >= 4, f"Expected at least 4 events (2 get+save pairs), got {log_snapshot}"
-        # Every save must be preceded by a get — no interleaving
-        for i in range(0, len(log_snapshot) - 1, 2):
+        assert len(log_snapshot) % 2 == 0, f"Expected even number of events, got {len(log_snapshot)}"
+        for i in range(0, len(log_snapshot), 2):
             assert log_snapshot[i] == "get" and log_snapshot[i + 1] == "save", (
                 f"Expected (get, save) pair at index {i}, got {log_snapshot[i:i+2]}"
             )

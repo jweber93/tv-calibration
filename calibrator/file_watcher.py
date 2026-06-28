@@ -265,7 +265,7 @@ class _ZROHandler(FileSystemEventHandler):
         grayscale_level_count: int = 11,
         watched_file: Optional[str] = None,
         post_import_hook: Optional[Callable[[Dict], None]] = None,
-        session_lock: Optional[threading.Lock] = None,
+        session_lock: Optional[threading.RLock] = None,
     ) -> None:
         super().__init__()
         self._session_getter = session_getter
@@ -661,7 +661,7 @@ def start_watching(
     measurement_deserializer: Optional[Callable[[Dict], object]] = None,
     grayscale_level_count: int = 11,
     post_import_hook: Optional[Callable[[Dict], None]] = None,
-    session_lock: Optional[threading.Lock] = None,
+    session_lock: Optional[threading.RLock] = None,
 ) -> None:
     """
     Start watching *path* for new or modified ``.csv`` files.
@@ -690,6 +690,10 @@ def start_watching(
         Optional threading lock held while the session is read, mutated,
         and saved.  Prevents race conditions with concurrent session
         access (e.g. HTTP handlers or multiple import threads).
+
+        Must be reentrant (``threading.RLock``) because ``session_saver``
+        re-acquires the same lock internally via ``SessionStore.save_session``.
+        A plain ``threading.Lock`` will deadlock.
     """
     global _observer, _handler, _watching_path, _watcher_error
 
