@@ -6,8 +6,9 @@ import { ZroInstructions } from '../components/ZroInstructions';
 import { GammaChart } from '../charts/GammaChart';
 import { QualityGate } from '../components/QualityGate';
 import { CollapsibleSection } from '../components/CollapsibleSection';
+import { PredictedSettingsCard } from '../components/PredictedSettingsCard';
 
-export function Gamma({ session, onSetGammaWorkflow, onNext, onPrev }) {
+export function Gamma({ session, onSetGammaWorkflow, onNext, onPrev, getPredictedSettings }) {
   const gd = session.gamma_data || {};
   const plan      = gd.control_plan || [];
   const meas      = gd.measurements || [];
@@ -17,6 +18,7 @@ export function Gamma({ session, onSetGammaWorkflow, onNext, onPrev }) {
     <>
       <ZroInstructions instructions={session.zro_instructions} />
       <QualityGate gate={(session.quality_gates || {}).gamma} />
+      <PredictedSettingsCard getPredictedSettings={getPredictedSettings} phase="gamma" />
 
       {workflows.length > 1 && (
         <Card title="Gamma Workflow">

@@ -6,9 +6,10 @@ import { ZroInstructions } from '../components/ZroInstructions';
 import { fmtDe } from '../utils/fmt';
 import { QualityGate } from '../components/QualityGate';
 import { AdbErrorBoundary } from '../components/AdbErrorBoundary';
+import { PredictedSettingsCard } from '../components/PredictedSettingsCard';
 import { CollapsibleSection } from '../components/CollapsibleSection';
 
-export function ColorTuner({ session, adbStatus, onAdbApply, onAdbReset, onAdbDeploy, onNext, onPrev }) {
+export function ColorTuner({ session, adbStatus, onAdbApply, onAdbReset, onAdbDeploy, onNext, onPrev, getPredictedSettings }) {
   const cd = session.cms_data || {};
   const plan = cd.control_plan || [];
   const meas = cd.measurements || [];
@@ -19,6 +20,7 @@ export function ColorTuner({ session, adbStatus, onAdbApply, onAdbReset, onAdbDe
     <>
       <ZroInstructions instructions={session.zro_instructions} />
       <QualityGate gate={(session.quality_gates || {}).color_tuner} />
+      <PredictedSettingsCard getPredictedSettings={getPredictedSettings} phase="color_tuner" />
 
       <Card title="Color Status">
         <div className="three-col">

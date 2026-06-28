@@ -51,7 +51,7 @@ import { AppShell }     from './components/AppShell';
 export default function App() {
   const sess = useSession();
   const { session, profiles, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, dogegenStatus, adbStatus, loading,
-          llmInsight, llmStreaming, llmError, dismissLlmInsight, saveTvSettings, getSuggestedPatches, runSuggestedPatches } = sess;
+          llmInsight, llmStreaming, llmError, dismissLlmInsight, saveTvSettings, getSuggestedPatches, runSuggestedPatches, getPredictedSettings } = sess;
   const [showStartOver, setShowStartOver] = useState(false);
   const [showComparison, setShowComparison] = useState(false);
 
@@ -96,9 +96,9 @@ export default function App() {
       case 'prepare':        return <Prepare       {...stepProps} onConfirmPrepared={sess.confirmPrepared} onSetLightspaceTier={sess.setLightspaceTier} onSetGrayscaleRamp={sess.setGrayscaleRamp} onSetSignalRange={sess.setSignalRange} onSetCodeScale={sess.setCodeScale} onSetPatternGenerator={sess.setPatternGenerator} onConfigureLlm={sess.configureLlm} onGetLlmStatus={sess.getLlmStatus} />;
       case 'pre_grayscale':  return <PreGrayscale  {...stepProps} />;
       case 'luminance':      return <Luminance     {...stepProps} adbStatus={adbStatus} onAdbSetPicture={sess.adbSetPicture} onAdbGetPicture={sess.adbGetPicture} onAdbDeploy={sess.adbDeploy} onRefreshAdb={sess.refreshAdbStatus} />;
-      case 'white_balance':  return <WhiteBalance  {...stepProps} />;
-      case 'gamma':          return <Gamma         {...stepProps} onSetGammaWorkflow={sess.setGammaWorkflow} />;
-      case 'color_tuner':    return <ColorTuner    {...stepProps} adbStatus={adbStatus} onAdbApply={sess.adbApply} onAdbReset={sess.adbReset} onAdbDeploy={sess.adbDeploy} onRefreshAdb={sess.refreshAdbStatus} />;
+      case 'white_balance':  return <WhiteBalance  {...stepProps} getPredictedSettings={getPredictedSettings} />;
+      case 'gamma':          return <Gamma         {...stepProps} onSetGammaWorkflow={sess.setGammaWorkflow} getPredictedSettings={getPredictedSettings} />;
+      case 'color_tuner':    return <ColorTuner    {...stepProps} adbStatus={adbStatus} onAdbApply={sess.adbApply} onAdbReset={sess.adbReset} onAdbDeploy={sess.adbDeploy} onRefreshAdb={sess.refreshAdbStatus} getPredictedSettings={getPredictedSettings} />;
       case 'post_grayscale': return <PostGrayscale {...stepProps} />;
       case 'suggested_patches': return <SuggestedPatches {...stepProps} getSuggestedPatches={getSuggestedPatches} runSuggestedPatches={runSuggestedPatches} />;
       case 'report':         return <Report        session={session} onPrev={sess.prevStep} />;
