@@ -457,7 +457,8 @@ are required:
 }
 ```
 
-When `provider` is `openrouter`, requests carry two OpenRouter-specific headers:
+`http_referer` and `app_title` are optional, but recommended: when `provider`
+is `openrouter`, requests carry two OpenRouter-specific headers built from them:
 `HTTP-Referer` (per-app rate-limit attribution; sent only when `http_referer`
 is set) and `X-Title` (display name shown in OpenRouter's usage dashboard,
 defaults to `tv-calibration`). The **Test Connection** probe sends the same

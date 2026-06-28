@@ -730,6 +730,8 @@ def probe_llm(cfg: Dict[str, Any], timeout: float = 8.0) -> tuple[bool, str]:
     # Build an LLMConfig so the probe sends the same provider headers
     # (HTTP-Referer, X-Title) as a real call — otherwise the probe can pass
     # while real calls fail (e.g. a bad HTTP-Referer hitting a blocklist).
+    # Imported locally: models.py is only a TYPE_CHECKING import at module
+    # level, and a top-level import here would create a circular dependency.
     from .models import LLMConfig
 
     llm = LLMConfig.from_dict(cfg)

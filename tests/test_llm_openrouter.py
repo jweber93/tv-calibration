@@ -7,6 +7,7 @@ Covers:
 """
 
 import unittest
+from unittest.mock import patch
 
 from calcore.llm import _build_request, probe_llm
 from calcore.models import LLMConfig
@@ -40,6 +41,10 @@ class LLMConfigProviderTests(unittest.TestCase):
     def test_unknown_provider_does_not_autofill(self):
         cfg = LLMConfig(provider="litellm")
         self.assertEqual(cfg.endpoint, "")
+
+    def test_litellm_provider_keeps_explicit_endpoint(self):
+        cfg = LLMConfig(provider="litellm", endpoint="http://localhost:4000/v1")
+        self.assertEqual(cfg.endpoint, "http://localhost:4000/v1")
 
     def test_from_dict_parses_provider_fields(self):
         cfg = LLMConfig.from_dict(
@@ -119,11 +124,7 @@ class ProbeLlmHeaderTests(unittest.TestCase):
             captured["req"] = req
             raise AssertionError("stop before network")
 
-        import calcore.llm as llm_mod
-
-        orig = llm_mod.urllib.request.urlopen
-        llm_mod.urllib.request.urlopen = fake_urlopen
-        try:
+        with patch("calcore.llm.urllib.request.urlopen", side_effect=fake_urlopen):
             probe_llm(
                 {
                     "provider": "openrouter",
@@ -133,8 +134,6 @@ class ProbeLlmHeaderTests(unittest.TestCase):
                     "app_title": "probe-app",
                 }
             )
-        finally:
-            llm_mod.urllib.request.urlopen = orig
 
         h = _headers(captured["req"])
         self.assertEqual(captured["req"].full_url, "https://openrouter.ai/api/v1/chat/completions")
@@ -156,14 +155,8 @@ class ProbeLlmHeaderTests(unittest.TestCase):
             captured["req"] = req
             raise AssertionError("stop before network")
 
-        import calcore.llm as llm_mod
-
-        orig = llm_mod.urllib.request.urlopen
-        llm_mod.urllib.request.urlopen = fake_urlopen
-        try:
+        with patch("calcore.llm.urllib.request.urlopen", side_effect=fake_urlopen):
             probe_llm({"provider": "openrouter", "model": "m"})
-        finally:
-            llm_mod.urllib.request.urlopen = orig
 
         self.assertIn("req", captured)
 
