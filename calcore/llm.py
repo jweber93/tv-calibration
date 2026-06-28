@@ -1151,3 +1151,116 @@ def query_patch_optimization(
 # Type alias for callers that import PatchOptimization from here
 _resolve_endpoint = resolve_endpoint
 call_local_llm = call_llm
+
+
+@dataclass
+class PredictedSettings:
+    """LLM-predicted starting settings for a step, derived from prior-session history."""
+
+    settings: List[Dict[str, Any]]  # each: {menu, setting, value, scope, reason}
+    confidence: float  # 0.0–1.0
+    source: str  # "history" | "cold_start"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "settings": self.settings,
+            "confidence": self.confidence,
+            "source": self.source,
+        }
+
+
+def predict_initial_settings(
+    phase: str,
+    history: List[Dict[str, Any]],
+    baseline: Optional[Dict[str, Any]],
+    tv_schema: Optional[Dict[str, Any]],
+    llm: LLMConfig,
+) -> Optional[PredictedSettings]:
+    """Ask the LLM to predict good starting hardware settings for a calibration step.
+
+    Uses prior-session history (wb_final/cms_final) and the TV settings schema to
+    produce a warm-start recommendation so the user begins close to optimal.
+
+    Returns None if LLM is not configured or the response cannot be parsed.
+    Returns PredictedSettings with source="cold_start" when history is empty and
+    baseline is None (no network call).
+    """
+    if not llm.endpoint or not llm.model:
+        return None
+
+    # Cold start — no prior data, no network call needed
+    if not history and baseline is None:
+        return PredictedSettings(settings=[], confidence=0.0, source="cold_start")
+
+    history_block = build_history_block(history, baseline)
+    schema_str = json.dumps(tv_schema, indent=2, default=str) if tv_schema else "(none)"
+
+    prompt = (
+        "You are a TV calibration expert. Based on this display's PRIOR calibration\n"
+        "sessions, predict good STARTING hardware settings for the \""
+        f"{phase}\" step so the\nuser begins close to optimal and needs fewer "
+        "measurement rounds.\n\n"
+        "Use the prior sessions' final applied settings (wb_final/cms_final) and the TV\n"
+        "settings schema (valid menus, settings, and value ranges). Stay within the\n"
+        "schema ranges. If prior data is weak or absent, return an empty settings list\n"
+        "with low confidence.\n\n"
+        "Respond with ONLY a JSON object in this exact schema (no markdown, no prose):\n"
+        "{\n"
+        '  "settings": [\n'
+        '    {"menu": "<menu>", "setting": "<setting>", "value": <number>,\n'
+        '     "scope": "global" | "local", "reason": "<1 sentence>"}\n'
+        "  ],\n"
+        '  "confidence": <0.0-1.0>\n'
+        "}\n\n"
+        f"PHASE: {phase}\n"
+        f"PRIOR SESSIONS:\n{history_block}\n"
+        f"TV SETTINGS SCHEMA:\n{schema_str}"
+    )
+
+    url = resolve_endpoint(llm.endpoint)
+    body = {
+        "model": llm.model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a strict JSON-only responder. Output only valid JSON.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.0,
+    }
+
+    req = _build_request(url, body, llm)
+
+    try:
+        with urllib.request.urlopen(req, timeout=min(llm.timeout, 45.0)) as resp:
+            raw = resp.read().decode("utf-8")
+        parsed = json.loads(raw)
+        choices = parsed.get("choices") or []
+        if not choices:
+            raise ValueError(f"LLM returned empty choices array: {raw[:300]}")
+        content = _extract_json(choices[0]["message"]["content"].strip())
+        obj = json.loads(content)
+
+        raw_settings = obj.get("settings") or []
+        settings = [dict(s) for s in raw_settings]
+        confidence = float(obj.get("confidence", 0.5))
+
+        return PredictedSettings(
+            settings=settings,
+            confidence=confidence,
+            source="history",
+        )
+    except urllib.error.HTTPError as e:
+        logger.error(
+            "LLM HTTP error in predict_initial_settings: %s - %s", e.code, e.reason
+        )
+        return None
+    except json.JSONDecodeError as e:
+        logger.error("LLM response parsing failed in predict_initial_settings: %s", e)
+        return None
+    except Exception as e:
+        logger.error(
+            "Unexpected error in predict_initial_settings: %s: %s", type(e).__name__, e
+        )
+        return None
