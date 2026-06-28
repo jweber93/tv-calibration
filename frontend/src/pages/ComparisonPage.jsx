@@ -190,19 +190,63 @@ export function ComparisonPage({ profiles }) {
             </div>
           )}
 
+          {/* Delta hero */}
+          <div style={{ background: 'var(--panel2)', border: '1px solid var(--line)', borderRadius: 'var(--radius-lg)', padding: '32px 24px 28px', marginBottom: 16, textAlign: 'center' }}>
+            <div style={{ fontSize: '0.65rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--ink3)', marginBottom: 10 }}>
+              Session B vs A — Improvement Δ
+            </div>
+
+            {/* Big improvement delta */}
+            {(() => {
+              const impD = deltas?.improvement_pct;
+              const impPositive = impD > 0;
+              return (
+                <>
+                  <div style={{ fontSize: '3.5rem', fontWeight: 700, lineHeight: 1, fontFamily: 'var(--mono)', fontVariantNumeric: 'tabular-nums', color: impD == null ? 'var(--ink)' : deltaColor(impD, false), marginBottom: 4 }}>
+                    {impD != null ? `${impPositive ? '+' : ''}${impD.toFixed(1)}%` : '—'}
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--ink2)', marginBottom: 24 }}>
+                    accuracy improvement Δ (B − A)
+                  </div>
+                </>
+              );
+            })()}
+
+            {/* Post-Cal ΔE A → B */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', maxWidth: 460, margin: '0 auto' }}>
+              <div style={{ flex: 1, textAlign: 'right' }}>
+                <div style={{ fontSize: '1.5rem', fontWeight: 700, fontFamily: 'var(--mono)', color: 'var(--red)' }}>
+                  {repA?.post_cal?.avg_de != null ? repA.post_cal.avg_de.toFixed(2) : '—'}
+                </div>
+                <div style={{ fontSize: '0.65rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink3)', marginTop: 2 }}>
+                  Post-Cal ΔE · A
+                </div>
+              </div>
+              <div style={{ padding: '0 20px', color: 'var(--ink3)', fontSize: '1.2rem', userSelect: 'none' }}>→</div>
+              <div style={{ flex: 1, textAlign: 'left' }}>
+                <div style={{ fontSize: '1.5rem', fontWeight: 700, fontFamily: 'var(--mono)', color: 'var(--green)' }}>
+                  {repB?.post_cal?.avg_de != null ? repB.post_cal.avg_de.toFixed(2) : '—'}
+                </div>
+                <div style={{ fontSize: '0.65rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink3)', marginTop: 2 }}>
+                  Post-Cal ΔE · B
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Key Metrics Table */}
           <Card title="Key Metrics">
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+            <table className="data-table">
               <thead>
-                <tr style={{ borderBottom: '1px solid var(--line)' }}>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', color: 'var(--ink2)', fontWeight: 600, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Metric</th>
-                  <th style={{ textAlign: 'right', padding: '8px 10px', color: '#e74c3c', fontWeight: 600, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                    Session A <br /><span style={{ color: 'var(--ink2)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>{sessA?.date ? new Date(sessA.date).toLocaleDateString() : ''}</span>
+                <tr>
+                  <th>Metric</th>
+                  <th style={{ textAlign: 'right', color: 'var(--red)' }}>
+                    Session A <br /><span style={{ color: 'var(--ink3)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>{sessA?.date ? new Date(sessA.date).toLocaleDateString() : ''}</span>
                   </th>
-                  <th style={{ textAlign: 'right', padding: '8px 10px', color: '#22c987', fontWeight: 600, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                    Session B <br /><span style={{ color: 'var(--ink2)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>{sessB?.date ? new Date(sessB.date).toLocaleDateString() : ''}</span>
+                  <th style={{ textAlign: 'right', color: 'var(--green)' }}>
+                    Session B <br /><span style={{ color: 'var(--ink3)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>{sessB?.date ? new Date(sessB.date).toLocaleDateString() : ''}</span>
                   </th>
-                  <th style={{ textAlign: 'right', padding: '8px 10px', color: 'var(--ink2)', fontWeight: 600, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Δ (B − A)</th>
+                  <th style={{ textAlign: 'right' }}>Δ (B − A)</th>
                 </tr>
               </thead>
               <tbody>
@@ -217,11 +261,11 @@ export function ComparisonPage({ profiles }) {
                   { label: 'Peak Luminance', a: repA?.peak_luminance, b: repB?.peak_luminance, d: deltas?.peak_luminance, digits: 1, suffix: ' nits', lowerIsBetter: false },
                   { label: 'Improvement %', a: repA?.improvement_pct, b: repB?.improvement_pct, d: deltas?.improvement_pct, digits: 1, suffix: '%', lowerIsBetter: false },
                 ].map(row => (
-                  <tr key={row.label} style={{ borderBottom: '1px solid var(--line)' }}>
-                    <td style={{ padding: '8px 10px', fontWeight: 500 }}>{row.label}</td>
-                    <td style={{ padding: '8px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtValue(row.a, row.digits || 2, row.suffix || '')}</td>
-                    <td style={{ padding: '8px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtValue(row.b, row.digits || 2, row.suffix || '')}</td>
-                    <td style={{ padding: '8px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: deltaColor(row.d, row.lowerIsBetter) }}>{fmtValue(row.d, row.digits || 2, row.suffix || '')}</td>
+                  <tr key={row.label}>
+                    <td style={{ fontFamily: 'inherit', fontWeight: 500 }}>{row.label}</td>
+                    <td style={{ textAlign: 'right' }}>{fmtValue(row.a, row.digits || 2, row.suffix || '')}</td>
+                    <td style={{ textAlign: 'right' }}>{fmtValue(row.b, row.digits || 2, row.suffix || '')}</td>
+                    <td style={{ textAlign: 'right', color: deltaColor(row.d, row.lowerIsBetter), fontWeight: 600 }}>{fmtValue(row.d, row.digits || 2, row.suffix || '')}</td>
                   </tr>
                 ))}
               </tbody>
