@@ -22,13 +22,13 @@ export function OverlayDeChart({ measurementsA, measurementsB }) {
 
   const colorsA = allLabels.map(l => {
     const v = getDelta(measurementsA, l);
-    if (v == null) return C.redFill;
+    if (v == null) return C.redFillMissing;
     return v <= 2 ? C.red : v <= 3 ? C.amber : C.red;
   });
 
   const colorsB = allLabels.map(l => {
     const v = getDelta(measurementsB, l);
-    if (v == null) return C.greenFill;
+    if (v == null) return C.greenFillMissing;
     return v <= 2 ? C.green : v <= 3 ? C.amber : C.red;
   });
 
