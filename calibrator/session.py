@@ -720,6 +720,7 @@ def serialize_session(s: Dict[str, Any]) -> Dict[str, Any]:
             "timeout": llm_cfg.get("timeout", 30.0),
         },
         "repass_count": s.get("repass_count", 0),
+        "llm_adjustment_rounds": s.get("llm_adjustment_rounds", []),
     }
 
 
@@ -787,6 +788,7 @@ def deserialize_session(data: Dict[str, Any]) -> Dict[str, Any]:
             "timeout": data.get("llm_config", {}).get("timeout", 30.0),
         },
         "repass_count": data.get("repass_count", 0),
+        "llm_adjustment_rounds": data.get("llm_adjustment_rounds", []),
     }
 
 
@@ -1305,6 +1307,7 @@ def session_view(s: Dict[str, Any]) -> Dict[str, Any]:
         "grayscale_ramp_steps": s.get("grayscale_ramp_steps", 11),
         "quality_gates": step_quality(s, tv),
         "repass_count": s.get("repass_count", 0),
+        "adjustment_round_count": len(s.get("llm_adjustment_rounds", [])),
         "llm_config": {
             "endpoint": s.get("llm_config", {}).get("endpoint", ""),
             "model": s.get("llm_config", {}).get("model", ""),
@@ -1762,6 +1765,7 @@ class SessionStore:
                 "timeout": 30.0,
             },
             "repass_count": 0,
+            "llm_adjustment_rounds": [],
         }
             return self.sessions[sid]
 
@@ -2038,6 +2042,33 @@ class SessionStore:
         session["step"] = step_to_remeasure
         self.save_session(sid)
         return session
+
+    def record_adjustment_round(
+        self,
+        sid: str,
+        residual: Dict[str, Any],
+        suggested: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Append a convergence-loop round (residual → suggested deltas) (#337).
+
+        Held under the store RLock so the get → mutate → save sequence is atomic
+        against concurrent callers (#256). The recorded ``residual`` is the state
+        the ``suggested`` deltas were responding to; the next round's residual
+        reveals whether those deltas converged.
+        """
+        with self._lock:
+            session = self.get(sid)
+            rounds = session.setdefault("llm_adjustment_rounds", [])
+            rounds.append(
+                {
+                    "round": len(rounds) + 1,
+                    "residual": residual,
+                    "suggested": suggested,
+                    "timestamp": now().isoformat(),
+                }
+            )
+            self.save_session(sid)
+            return session
 
     def _locked_import(
         self,
