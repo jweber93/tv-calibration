@@ -195,6 +195,101 @@ class ParseAdjustmentPlanFenceTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result.adjustments, [])
 
+    # ── per-adjustment field validation (#315) ─────────────────────────────
+
+    def _make_adj(self, **overrides):
+        base = {
+            "menu": "White Balance",
+            "setting": "B-Gain",
+            "from": 0,
+            "to": -3,
+            "scope": "global",
+            "reason": "Blue push above D65 locus.",
+        }
+        base.update(overrides)
+        return base
+
+    def _plan_with_adjustments(self, adjustments):
+        return json.dumps(
+            {
+                "adjustments": adjustments,
+                "next_step": "rerun_grayscale",
+                "confidence": 0.85,
+            }
+        )
+
+    def test_adjustment_missing_menu_returns_none(self):
+        """Adjustment without 'menu' field is rejected."""
+        adj = self._make_adj()
+        del adj["menu"]
+        payload = self._plan_with_adjustments([adj])
+        self.assertIsNone(parse_adjustment_plan(payload))
+
+    def test_adjustment_missing_setting_returns_none(self):
+        """Adjustment without 'setting' field is rejected."""
+        adj = self._make_adj()
+        del adj["setting"]
+        payload = self._plan_with_adjustments([adj])
+        self.assertIsNone(parse_adjustment_plan(payload))
+
+    def test_adjustment_missing_to_returns_none(self):
+        """Adjustment without 'to' field is rejected."""
+        adj = self._make_adj()
+        del adj["to"]
+        payload = self._plan_with_adjustments([adj])
+        self.assertIsNone(parse_adjustment_plan(payload))
+
+    def test_adjustment_missing_scope_returns_none(self):
+        """Adjustment without 'scope' field is rejected."""
+        adj = self._make_adj()
+        del adj["scope"]
+        payload = self._plan_with_adjustments([adj])
+        self.assertIsNone(parse_adjustment_plan(payload))
+
+    def test_adjustment_with_optional_fields_omitted_is_valid(self):
+        """Adjustment missing optional fields 'from' and 'reason' is still valid."""
+        adj = self._make_adj()
+        del adj["from"]
+        del adj["reason"]
+        payload = self._plan_with_adjustments([adj])
+        result = parse_adjustment_plan(payload)
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result.adjustments), 1)
+
+    def test_adjustment_with_extra_fields_is_valid(self):
+        """Adjustment with extra fields beyond required is still valid."""
+        adj = self._make_adj()
+        adj["colour"] = "Red"
+        adj["priority"] = "high"
+        payload = self._plan_with_adjustments([adj])
+        result = parse_adjustment_plan(payload)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.adjustments[0]["colour"], "Red")
+
+    def test_adjustment_not_a_dict_returns_none(self):
+        """Non-dict adjustment item is rejected."""
+        payload = self._plan_with_adjustments(["not_a_dict"])
+        self.assertIsNone(parse_adjustment_plan(payload))
+
+    def test_mixed_valid_and_invalid_adjustments_returns_none(self):
+        """Plan with one valid and one invalid adjustment is rejected."""
+        good = self._make_adj()
+        bad = {"menu": "Color", "setting": "Red Gain"}  # missing 'to' and 'scope'
+        payload = self._plan_with_adjustments([good, bad])
+        self.assertIsNone(parse_adjustment_plan(payload))
+
+    def test_null_adjustment_in_list_returns_none(self):
+        """Adjustment list containing None is rejected."""
+        payload = self._plan_with_adjustments([None])
+        self.assertIsNone(parse_adjustment_plan(payload))
+
+    def test_adjustment_null_required_field_returns_none(self):
+        """Adjustment with null value for a required field is rejected."""
+        adj = self._make_adj(to=None)
+        adj["to"] = None
+        payload = self._plan_with_adjustments([adj])
+        self.assertIsNone(parse_adjustment_plan(payload))
+
 
 # ── pytest-style parametrized tests ────────────────────────────────────────────
 

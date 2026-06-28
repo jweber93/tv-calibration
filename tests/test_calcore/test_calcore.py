@@ -474,9 +474,7 @@ class LlmResponseEdgeCasesTests(unittest.TestCase):
             }
         )
         result = parse_adjustment_plan(data)
-        self.assertIsNotNone(result)
-        self.assertEqual(len(result.adjustments), 1)
-        self.assertEqual(result.adjustments[0].get("menu"), "White Balance")
+        self.assertIsNone(result)
 
     def test_parse_adjustment_plan_valid_json_string(self):
         invalid = '{"adjustments": [], "next_step": "verify", "confidence": 0.5}'

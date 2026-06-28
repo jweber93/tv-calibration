@@ -31,10 +31,10 @@ function AdjustmentRow({ adj }) {
     <div style={{ padding: '8px 0', borderBottom: '1px solid var(--border-subtle, rgba(255,255,255,0.06))' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
         <span style={{ fontWeight: 600, fontSize: '0.83rem', color: 'var(--ink)' }}>
-          {adj.setting}
+          {adj.setting ?? '?'}
         </span>
         <span style={{ fontSize: '0.75rem', color: 'var(--ink2)' }}>
-          {adj.menu}
+          {adj.menu ?? '?'}
         </span>
         <span style={{
           marginLeft: 'auto',

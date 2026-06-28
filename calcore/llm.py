@@ -134,6 +134,18 @@ def parse_adjustment_plan(text: str) -> Optional[AdjustmentPlan]:
     if not isinstance(adjustments, list) or not next_step:
         return None
 
+    required_fields: set = {"menu", "setting", "to", "scope"}
+    for adj in adjustments:
+        if not isinstance(adj, dict) or not required_fields.issubset(adj.keys()):
+            logger.warning("parse_adjustment_plan: adjustment missing required key(s)")
+            return None
+        for field in required_fields:
+            if adj[field] is None:
+                logger.warning(
+                    "parse_adjustment_plan: required field '%s' is null", field
+                )
+                return None
+
     try:
         return AdjustmentPlan(
             adjustments=adjustments,
