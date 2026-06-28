@@ -45,6 +45,7 @@ from calcore.llm import (
     build_history_block as _build_history_block,
     call_llm as _call_llm,
     parse_adjustment_plan as _parse_adjustment_plan,
+    predict_initial_settings as _predict_initial_settings,
     probe_llm as _probe_llm,
     query_delta_summary as _query_delta_summary,
     query_gamut_advice as _query_gamut_advice,
@@ -1718,6 +1719,54 @@ def get_suggested_patches(sid: str, budget: int = 30):
         return {"optimization": None, "reason": "LLM returned no result"}
 
     return {"optimization": optimization.to_dict()}
+
+
+# ── Predicted settings endpoint (#335) ────────────────────────────────────────
+
+
+@app.get("/api/session/{sid}/predicted-settings")
+def get_predicted_settings(sid: str, phase: Optional[str] = None):
+    """Return LLM-predicted starting settings for the current calibration step.
+
+    Uses prior-session history (wb_final/cms_final) and TV settings schema to
+    produce a warm-start recommendation.  Returns null when LLM is not configured.
+
+    Query params:
+        phase: override the current step (default: session.step or "baseline")
+
+    Returns {"predicted": {...} | null, "reason": "<string when null>"}.
+    """
+    session = store.get(sid)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+
+    llm_cfg_dict = session.get("llm_config", {})
+    if not (llm_cfg_dict.get("endpoint") and llm_cfg_dict.get("model")):
+        return {"predicted": None, "reason": "LLM not configured"}
+
+    tv_key = session.get("tv_key", "unknown")
+    history = _load_history(tv_key, limit=3)
+    baseline = _load_baseline(tv_key)
+
+    tv_schema: Optional[Dict[str, Any]] = None
+    if tv_key:
+        profile = _get_tv_profile(tv_key)
+        if profile and profile.llm_schema:
+            tv_schema = profile.llm_schema
+
+    llm_cfg = LLMConfig.from_dict(llm_cfg_dict, default_timeout=45.0)
+    predicted = _predict_initial_settings(
+        phase=phase or session.get("step", "baseline"),
+        history=history,
+        baseline=baseline,
+        tv_schema=tv_schema,
+        llm=llm_cfg,
+    )
+
+    if predicted is None:
+        return {"predicted": None, "reason": "LLM returned no result"}
+
+    return {"predicted": predicted.to_dict()}
 
 
 @app.post("/api/session/{sid}/suggested-patches/run")
