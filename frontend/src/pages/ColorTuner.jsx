@@ -6,39 +6,9 @@ import { ZroInstructions } from '../components/ZroInstructions';
 import { fmtDe } from '../utils/fmt';
 import { QualityGate } from '../components/QualityGate';
 import { AdbErrorBoundary } from '../components/AdbErrorBoundary';
+import { CollapsibleSection } from '../components/CollapsibleSection';
 
-function AdbStatusPanel({ adbStatus, onDeploy, onRefresh }) {
-  if (!adbStatus) {
-    return <div className="muted text-sm">ADB status unavailable — is <code>adb</code> on PATH?</div>;
-  }
-  const dot = (ok) => (
-    <span style={{ width: 8, height: 8, borderRadius: '50%', background: ok ? 'var(--green)' : 'var(--red)', display: 'inline-block', marginRight: 5 }} />
-  );
-  const deviceList = adbStatus.devices?.length
-    ? adbStatus.devices.map((d, i) => <code key={i} style={{ fontSize: '0.75rem' }}>{d}</code>)
-    : <span className="muted text-sm">none</span>;
-
-  return (
-    <div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-        <span>{dot(adbStatus.connected)} <span className="text-sm">ADB connected</span></span>
-        <span>{dot(adbStatus.cms_tool_deployed)} <span className="text-sm">cms_tool.dex deployed</span></span>
-        <span className="muted text-sm" style={{ marginLeft: 4 }}>Device: {deviceList}</span>
-        <Button small onClick={onRefresh} style={{ marginLeft: 'auto' }}>Refresh</Button>
-        {adbStatus.connected && !adbStatus.cms_tool_deployed && (
-          <Button small onClick={onDeploy}>Deploy cms_tool.dex</Button>
-        )}
-      </div>
-      {!adbStatus.connected && (
-        <div className="muted text-sm mt-2">
-          Connect the TV via ADB: <code>adb connect &lt;tv-ip&gt;</code>
-        </div>
-      )}
-    </div>
-  );
-}
-
-export function ColorTuner({ session, adbStatus, onAdbApply, onAdbReset, onAdbDeploy, onRefreshAdb, onNext, onPrev }) {
+export function ColorTuner({ session, adbStatus, onAdbApply, onAdbReset, onAdbDeploy, onNext, onPrev }) {
   const cd = session.cms_data || {};
   const plan = cd.control_plan || [];
   const meas = cd.measurements || [];
@@ -82,19 +52,21 @@ export function ColorTuner({ session, adbStatus, onAdbApply, onAdbReset, onAdbDe
       )}
 
       {meas.length > 0 && (
-        <Card title="CMS Measurements">
+        <CollapsibleSection title="CMS Measurements" storageKey="cms-measurements" summary={`${meas.length} reading${meas.length !== 1 ? 's' : ''}`}>
           <MeasurementTable measurements={meas} />
-        </Card>
+        </CollapsibleSection>
       )}
 
       <AdbErrorBoundary>
         <Card title="Programmatic Control (ADB)">
-          <AdbStatusPanel adbStatus={adbStatus} onDeploy={onAdbDeploy} onRefresh={onRefreshAdb} />
-          <div style={{ marginTop: 10 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            {adbStatus?.connected && !adbStatus?.cms_tool_deployed && (
+              <Button small onClick={onAdbDeploy}>Deploy cms_tool.dex</Button>
+            )}
             <Button small disabled={!(adbStatus?.connected && adbStatus?.cms_tool_deployed)} onClick={onAdbReset}>
               Reset All CMS to 0
             </Button>
-            <span className="muted text-sm" style={{ marginLeft: 8 }}>Calls setColorTunerReset() on the TV</span>
+            <span className="muted text-sm">Calls setColorTunerReset() on the TV</span>
           </div>
         </Card>
       </AdbErrorBoundary>

@@ -1,8 +1,8 @@
 import '../charts/index.js';
 import { Scatter } from 'react-chartjs-2';
+import { TICK, GRID, C } from './tokens.js';
 
-const TICK = { color: '#74757c', font: { size: 9 } };
-const GRID = { color: '#2e2f33' };
+const TICK_SM = { ...TICK, font: { ...TICK.font, size: 9 } };
 
 export function OverlayCIEScatter({ measurementsA, measurementsB, targetXy }) {
   const ptsA = (measurementsA || []).filter(m => m.x && m.y);
@@ -16,7 +16,7 @@ export function OverlayCIEScatter({ measurementsA, measurementsB, targetXy }) {
     datasets.push({
       label: 'Session A (before)',
       data: ptsA.map(m => ({ x: m.x, y: m.y, label: m.label })),
-      backgroundColor: 'rgba(231,76,60,0.5)',
+      backgroundColor: 'rgba(240,100,75,0.5)',
       pointRadius: 5, pointStyle: 'circle',
     });
   }
@@ -25,7 +25,7 @@ export function OverlayCIEScatter({ measurementsA, measurementsB, targetXy }) {
     datasets.push({
       label: 'Session B (after)',
       data: ptsB.map(m => ({ x: m.x, y: m.y, label: m.label })),
-      backgroundColor: 'rgba(34,201,135,0.6)',
+      backgroundColor: 'rgba(56,210,154,0.6)',
       pointRadius: 6, pointStyle: 'rectRot',
     });
   }
@@ -34,9 +34,9 @@ export function OverlayCIEScatter({ measurementsA, measurementsB, targetXy }) {
     datasets.push({
       label: 'D65 Target',
       data: [{ x: targetXy[0], y: targetXy[1] }],
-      backgroundColor: '#f5a623',
+      backgroundColor: C.amber,
       pointRadius: 8, pointStyle: 'crossRot',
-      borderColor: '#f5a623', borderWidth: 2,
+      borderColor: C.amber, borderWidth: 2,
     });
   }
 
@@ -47,7 +47,7 @@ export function OverlayCIEScatter({ measurementsA, measurementsB, targetXy }) {
         options={{
           responsive: true, maintainAspectRatio: false,
           plugins: {
-            legend: { labels: { color: '#74757c', font: { size: 10 } } },
+            legend: { labels: { color: C.muted, font: { size: 10 } } },
             tooltip: {
               callbacks: {
                 label: ctx => `${ctx.raw.label || ''} (${ctx.raw.x?.toFixed(4)}, ${ctx.raw.y?.toFixed(4)})`,
@@ -55,8 +55,8 @@ export function OverlayCIEScatter({ measurementsA, measurementsB, targetXy }) {
             },
           },
           scales: {
-            x: { min: 0.2, max: 0.45, ticks: TICK, grid: GRID, title: { display: true, text: 'CIE x', color: '#74757c' } },
-            y: { min: 0.2, max: 0.45, ticks: TICK, grid: GRID, title: { display: true, text: 'CIE y', color: '#74757c' } },
+            x: { min: 0.2, max: 0.45, ticks: TICK_SM, grid: GRID, title: { display: true, text: 'CIE x', color: C.muted } },
+            y: { min: 0.2, max: 0.45, ticks: TICK_SM, grid: GRID, title: { display: true, text: 'CIE y', color: C.muted } },
           },
         }}
       />

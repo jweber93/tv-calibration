@@ -1,8 +1,6 @@
 import '../charts/index.js';
 import { Line } from 'react-chartjs-2';
-
-const TICK = { color: '#74757c', font: { size: 10 } };
-const GRID = { color: '#2e2f33' };
+import { TICK, GRID, C } from './tokens.js';
 
 export function GammaChart({ measurements }) {
   const pts = (measurements || []).filter(m => m.effective_gamma != null);
@@ -17,22 +15,22 @@ export function GammaChart({ measurements }) {
             {
               label: 'Effective Gamma',
               data: pts.map(m => m.effective_gamma),
-              borderColor: '#00b4d8', backgroundColor: 'rgba(0,180,216,0.08)',
-              tension: 0.3, pointBackgroundColor: '#00b4d8', fill: true,
+              borderColor: C.cyan, backgroundColor: C.cyanFill,
+              tension: 0.3, pointBackgroundColor: C.cyan, fill: true,
             },
             {
               label: 'Target 2.2',
               data: pts.map(() => 2.2),
-              borderColor: '#74757c', borderDash: [4, 4], pointRadius: 0,
+              borderColor: C.muted, borderDash: [4, 4], pointRadius: 0,
             },
           ],
         }}
         options={{
           responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { labels: { color: '#74757c', font: { size: 10 } } } },
+          plugins: { legend: { labels: { color: C.muted, font: { size: 10 } } } },
           scales: {
             x: { ticks: TICK, grid: GRID },
-            y: { ticks: TICK, grid: GRID, title: { display: true, text: 'γ', color: '#74757c' } },
+            y: { ticks: TICK, grid: GRID, title: { display: true, text: 'γ', color: C.muted } },
           },
         }}
       />

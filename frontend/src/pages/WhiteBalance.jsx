@@ -6,6 +6,7 @@ import { ZroInstructions } from '../components/ZroInstructions';
 import { CIEScatter } from '../charts/CIEScatter';
 import { fmtDe, fmtDateTime } from '../utils/fmt';
 import { QualityGate } from '../components/QualityGate';
+import { CollapsibleSection } from '../components/CollapsibleSection';
 
 function wbSub(measurement) {
   if (!measurement) return null;
@@ -82,9 +83,9 @@ export function WhiteBalance({ session, onNext, onPrev }) {
       </Card>
 
       {wbMeas.length > 0 && (
-        <Card title="WB Measurements">
+        <CollapsibleSection title="WB Measurements" storageKey="wb-measurements" summary={`${wbMeas.length} reading${wbMeas.length !== 1 ? 's' : ''}`}>
           <MeasurementTable measurements={wbMeas} />
-        </Card>
+        </CollapsibleSection>
       )}
 
       <div className="btn-group">
