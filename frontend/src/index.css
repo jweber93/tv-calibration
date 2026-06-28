@@ -189,6 +189,23 @@ body {
 .stat-value { font-size: 1.9rem; font-weight: 700; line-height: 1; font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .stat-label { font-size: 0.68rem; color: var(--ink2); margin-top: 5px; text-transform: uppercase; letter-spacing: 0.08em; }
 
+/* ── Readout cards ──────────────────────────────────────────────────────────── */
+.readout-card {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line2);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+}
+.readout-card.tone-accent { border-left-color: var(--accent); }
+.readout-card.tone-green  { border-left-color: var(--green); }
+.readout-card.tone-amber  { border-left-color: var(--yellow); }
+.readout-card.tone-red    { border-left-color: var(--red); }
+.readout-value { font-size: 1.9rem; font-weight: 700; line-height: 1; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.readout-unit  { font-size: 0.9rem; font-weight: 500; font-family: var(--mono); color: var(--ink2); margin-left: 4px; }
+.readout-label { font-size: 0.68rem; color: var(--ink2); margin-top: 5px; text-transform: uppercase; letter-spacing: 0.08em; }
+.readout-sub   { font-size: 0.75rem; color: var(--ink3); margin-top: 6px; }
+
 /* ── Buttons ────────────────────────────────────────────────────────────────── */
 .btn {
   display: inline-flex; align-items: center; gap: 6px;
