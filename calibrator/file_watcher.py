@@ -359,7 +359,13 @@ class _ZROHandler(FileSystemEventHandler):
             self._importing.discard(src_path)
 
     def _do_import_file(self, src_path: str) -> None:
-        """Inner import logic — called from ``_import_file`` under the ``_importing`` guard."""
+        """Inner import logic — called from ``_import_file`` under the ``_importing`` guard.
+
+        Split out so ``_import_file`` can wrap this in ``try/finally`` and
+        guarantee ``_importing.discard(src_path)`` on every exit path (success,
+        error, or PermissionError retry).  Calling this directly would bypass
+        the cleanup.
+        """
         global _last_import, _watcher_error, _last_attempt
 
         # ── mtime dedup ───────────────────────────────────────────────────

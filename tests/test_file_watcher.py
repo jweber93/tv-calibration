@@ -412,6 +412,39 @@ class TestDebounce:
             "_importing flag should be cleared after import completes"
         )
 
+    def test_schedule_timer_works_after_guard_clears(self, tmp_path):
+        """_schedule_timer creates a timer once _importing is cleared."""
+        import threading
+
+        session = _make_session()
+        handler = fw._ZROHandler(lambda: session, lambda: None)
+        csv_file = tmp_path / "guard-clear.csv"
+        csv_file.write_text(MINIMAL_ZRO_CSV)
+
+        gate = threading.Event()
+
+        def slow_import(src_path):
+            gate.wait(timeout=5.0)
+
+        with patch.object(handler, "_do_import_file", side_effect=slow_import):
+            t1 = threading.Thread(target=handler._import_file, args=(str(csv_file),))
+            t1.start()
+
+            deadline = time.monotonic() + 2.0
+            while str(csv_file) not in handler._importing:
+                time.sleep(0.01)
+                if time.monotonic() > deadline:
+                    pytest.fail("Timed out waiting for _importing flag")
+
+            gate.set()
+            t1.join(timeout=5.0)
+
+        # Guard is clear — _schedule_timer should now create a timer.
+        handler._schedule_timer(str(csv_file), fw.DEBOUNCE_SECONDS)
+        assert str(csv_file) in handler._timers, (
+            "_schedule_timer should create a timer once _importing is cleared"
+        )
+
 
 class TestDuplicateSuppression:
     def test_same_mtime_not_reimported(self, tmp_path):
