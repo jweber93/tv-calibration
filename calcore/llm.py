@@ -1058,6 +1058,7 @@ def query_patch_optimization(
     phase: str,
     patch_budget: int,
     llm: LLMConfig,
+    code_max: int = 255,
 ) -> Optional[Any]:
     """Ask the LLM to recommend an optimized patch set from per-patch residuals.
 
@@ -1136,7 +1137,7 @@ def query_patch_optimization(
         raw_patches = obj.get("patches") or []
         # Cap at budget
         raw_patches = raw_patches[:patch_budget]
-        patches = [SuggestedPatch.from_dict(p) for p in raw_patches]
+        patches = [SuggestedPatch.from_dict(p, code_max=code_max) for p in raw_patches]
         confidence = float(obj.get("confidence", 0.5))
 
         return PatchOptimization(
