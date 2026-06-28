@@ -126,6 +126,85 @@ def load_baseline(tv_key: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def update_history_entry(tv_key: str, session_id: str, metrics: Dict[str, Any]) -> bool:
+    """Update an existing history entry with computed metrics.
+
+    Args:
+        tv_key: TV profile key
+        session_id: Session identifier to update
+        metrics: Dict of metric keys and values to merge into the entry
+
+    Returns:
+        True if entry was found and updated, False otherwise.
+    """
+    path = _sessions_path(tv_key)
+    if not path.exists():
+        return False
+
+    entries: List[Dict[str, Any]] = []
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line:
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
+    except OSError:
+        return False
+
+    updated = False
+    for entry in entries:
+        if entry.get("session_id") == session_id:
+            entry.update(metrics)
+            updated = True
+
+    if not updated:
+        return False
+
+    # Rewrite the entire file with updated entry
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            for entry in entries:
+                fh.write(json.dumps(entry) + "\n")
+    except OSError:
+        return False
+
+    return True
+
+
+def update_baseline(tv_key: str, metrics: Dict[str, Any]) -> bool:
+    """Update the baseline entry with computed metrics.
+
+    Args:
+        tv_key: TV profile key
+        metrics: Dict of metric keys and values to merge into the baseline
+
+    Returns:
+        True if baseline was found and updated, False otherwise.
+    """
+    path = _baseline_path(tv_key)
+    if not path.exists():
+        return False
+
+    try:
+        baseline = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return False
+
+    baseline.update(metrics)
+
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(baseline, fh, indent=2)
+    except OSError:
+        return False
+
+    return True
+
+
 def history_summary(tv_key: str) -> Dict[str, Any]:
     """Return a lightweight summary dict for API exposure.
 

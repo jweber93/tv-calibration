@@ -61,6 +61,8 @@ from calibrator.history import (
     load_baseline as _load_baseline,
     load_history as _load_history,
     record_session as _record_session,
+    update_baseline as _update_baseline,
+    update_history_entry as _update_history_entry,
 )
 from calibrator.file_watcher import (
     get_status as _fw_status,
@@ -1506,6 +1508,91 @@ def get_report_compare(a: str, b: str, format: str = "json"):
     return comparison
 
 
+_HISTORY_COMPUTED_METRIC_KEYS = {
+    "post_grayscale_avg_de",
+    "gamma_avg",
+    "wb_avg_de",
+    "cms_avg_de",
+}
+
+
+def _compute_metrics_from_session(session_id: str) -> Dict[str, Optional[float]]:
+    """Load a session and compute metrics from its report payload.
+
+    Returns None values if the session cannot be loaded or has no target.
+    """
+    try:
+        session = _load_session_by_id(session_id)
+        report = _report_payload(session)
+        return {
+            "post_grayscale_avg_de": (report.get("post_cal") or {}).get("avg_de"),
+            "gamma_avg": (report.get("gamma") or {}).get("avg_gamma"),
+            "wb_avg_de": (report.get("white_balance") or {}).get("avg_de"),
+            "cms_avg_de": (report.get("color_tuner") or {}).get("avg_de"),
+            "peak_luminance": report.get("peak_luminance"),
+        }
+    except Exception:
+        logger.warning(
+            "Failed to compute metrics for session %s", session_id, exc_info=True
+        )
+        return {
+            "post_grayscale_avg_de": None,
+            "gamma_avg": None,
+            "wb_avg_de": None,
+            "cms_avg_de": None,
+            "peak_luminance": None,
+        }
+
+
+def _history_entry_metrics(
+    entry: Dict[str, Any], tv_key: str, is_baseline: bool = False
+) -> Dict[str, Optional[float]]:
+    """Return computed metrics for a history entry.
+
+    Uses stored values if available; otherwise computes from the session's report payload
+    and writes back to the history store so recomputation is avoided on subsequent loads.
+
+    Args:
+        entry: History or baseline entry dict
+        tv_key: TV profile key for write-back
+        is_baseline: Whether this is a baseline entry (uses different write-back path)
+
+    Returns:
+        Dict of metric values, computed if necessary.
+    """
+    metrics = {
+        "post_grayscale_avg_de": entry.get("post_grayscale_avg_de"),
+        "gamma_avg": entry.get("gamma_avg"),
+        "wb_avg_de": entry.get("wb_avg_de"),
+        "cms_avg_de": entry.get("cms_avg_de"),
+        "peak_luminance": entry.get("peak_luminance"),
+    }
+
+    # Only trigger recomputation for computed metrics, not peak_luminance
+    if any(metrics.get(k) is None for k in _HISTORY_COMPUTED_METRIC_KEYS):
+        session_id = entry.get("session_id")
+        if not session_id:
+            return metrics
+
+        computed = _compute_metrics_from_session(session_id)
+        for key, value in computed.items():
+            if metrics.get(key) is None:
+                metrics[key] = value
+
+        # Write-back computed values to history store (best effort)
+        try:
+            if is_baseline:
+                _update_baseline(tv_key, computed)
+            else:
+                _update_history_entry(tv_key, session_id, computed)
+        except Exception:
+            logger.warning(
+                "Failed to write-back metrics for session %s", session_id, exc_info=True
+            )
+
+    return metrics
+
+
 @app.get("/api/report/history/{tv_key}")
 def get_report_history(tv_key: str, limit: int = 20):
     """Return past calibration sessions for a TV as lightweight summaries.
@@ -1522,29 +1609,31 @@ def get_report_history(tv_key: str, limit: int = 20):
 
     sessions = []
     if baseline:
+        metrics = _history_entry_metrics(baseline, tv_key, is_baseline=True)
         sessions.append({
             "session_id": baseline.get("session_id"),
             "date": baseline.get("date"),
             "mode": baseline.get("mode"),
             "is_baseline": True,
-            "avg_de": baseline.get("post_grayscale_avg_de"),
-            "peak_luminance": baseline.get("peak_luminance"),
-            "gamma_avg": baseline.get("gamma_avg"),
-            "wb_avg_de": baseline.get("wb_avg_de"),
-            "cms_avg_de": baseline.get("cms_avg_de"),
+            "avg_de": metrics["post_grayscale_avg_de"],
+            "peak_luminance": metrics["peak_luminance"],
+            "gamma_avg": metrics["gamma_avg"],
+            "wb_avg_de": metrics["wb_avg_de"],
+            "cms_avg_de": metrics["cms_avg_de"],
         })
 
     for entry in history:
+        metrics = _history_entry_metrics(entry, tv_key)
         sessions.append({
             "session_id": entry.get("session_id"),
             "date": entry.get("date"),
             "mode": entry.get("mode"),
             "is_baseline": False,
-            "avg_de": entry.get("post_grayscale_avg_de"),
-            "peak_luminance": entry.get("peak_luminance"),
-            "gamma_avg": entry.get("gamma_avg"),
-            "wb_avg_de": entry.get("wb_avg_de"),
-            "cms_avg_de": entry.get("cms_avg_de"),
+            "avg_de": metrics["post_grayscale_avg_de"],
+            "peak_luminance": metrics["peak_luminance"],
+            "gamma_avg": metrics["gamma_avg"],
+            "wb_avg_de": metrics["wb_avg_de"],
+            "cms_avg_de": metrics["cms_avg_de"],
         })
 
     return {"tv_key": tv_key, "sessions": sessions}
