@@ -8,7 +8,7 @@ import { QualityGate } from '../components/QualityGate';
 import { AdbErrorBoundary } from '../components/AdbErrorBoundary';
 import { CollapsibleSection } from '../components/CollapsibleSection';
 
-export function ColorTuner({ session, adbStatus, onAdbApply, onAdbReset, onAdbDeploy, onRefreshAdb, onNext, onPrev }) {
+export function ColorTuner({ session, adbStatus, onAdbApply, onAdbReset, onAdbDeploy, onNext, onPrev }) {
   const cd = session.cms_data || {};
   const plan = cd.control_plan || [];
   const meas = cd.measurements || [];
