@@ -64,20 +64,37 @@ describe('ActionPlan', () => {
     expect(screen.getByText('Raise brightness slightly')).toBeInTheDocument();
   });
 
-  it('renders magnitude bar when step has amount', () => {
-    const { container } = render(
-      <ActionPlan plan={[step({ amount: 5 })]} adbStatus={adbReady} onApply={vi.fn()} />,
-    );
-    const bars = container.querySelectorAll('[style*="height: 4px"]');
-    expect(bars.length).toBeGreaterThan(0);
+  it('renders reason text when provided', () => {
+    render(<ActionPlan plan={[step({ reason: 'Shadow detail is crushed' })]} />);
+    expect(screen.getByText('Shadow detail is crushed')).toBeInTheDocument();
+  });
+
+  it('renders magnitude bar when step has a positive amount', () => {
+    render(<ActionPlan plan={[step({ amount: 5 })]} adbStatus={adbReady} onApply={vi.fn()} />);
+    expect(screen.getByTestId('magnitude-bar')).toBeInTheDocument();
+  });
+
+  it('renders magnitude bar when step.amount is 0 (null-check, not falsy-check)', () => {
+    render(<ActionPlan plan={[step({ amount: 0 })]} adbStatus={adbReady} onApply={vi.fn()} />);
+    expect(screen.getByTestId('magnitude-bar')).toBeInTheDocument();
   });
 
   it('does not render magnitude bar when step has no amount', () => {
-    const { container } = render(
+    render(
       <ActionPlan plan={[step({ amount: undefined })]} adbStatus={adbReady} onApply={vi.fn()} />,
     );
-    const bars = container.querySelectorAll('[style*="height: 4px"]');
-    expect(bars.length).toBe(0);
+    expect(screen.queryByTestId('magnitude-bar')).not.toBeInTheDocument();
+  });
+
+  it('Apply button absent for amount: 0 step (falsy guard in canApply)', () => {
+    render(
+      <ActionPlan
+        plan={[step({ amount: 0, direction: 'up' })]}
+        adbStatus={adbReady}
+        onApply={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText('Apply')).not.toBeInTheDocument();
   });
 
   it('Apply and Apply all buttons absent when adbStatus not provided', () => {
@@ -148,5 +165,10 @@ describe('ActionPlan', () => {
       />,
     );
     expect(screen.queryByText('Apply')).not.toBeInTheDocument();
+  });
+
+  it('steps with no amount render no magnitude bar', () => {
+    render(<ActionPlan plan={[step({ amount: undefined })]} />);
+    expect(screen.queryByTestId('magnitude-bar')).not.toBeInTheDocument();
   });
 });

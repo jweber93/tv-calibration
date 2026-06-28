@@ -89,7 +89,7 @@ export function ActionPlan({ plan, menuPath, adbStatus, onApply }) {
 
               {step.amount != null && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ flex: 1, height: 4, background: 'var(--panel3)', borderRadius: 2, overflow: 'hidden' }}>
+                  <div data-testid="magnitude-bar" style={{ flex: 1, height: 4, background: 'var(--panel3)', borderRadius: 2, overflow: 'hidden' }}>
                     <div style={{ width: `${pct}%`, height: '100%', background: barColor, borderRadius: 2 }} />
                   </div>
                   <span style={{ fontSize: '0.72rem', color: 'var(--ink2)', fontFamily: 'var(--mono)', minWidth: 20, textAlign: 'right' }}>
