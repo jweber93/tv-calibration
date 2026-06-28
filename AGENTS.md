@@ -68,6 +68,84 @@ When I say **"cleanup"** or **"branch was merged"** or **"PR [number] merged"**,
 - **Every task that touches code ends with a pushed branch, an open draft PR, and `Closes #[issue-number]` in the PR body.** No exceptions.
 - **Complete the full task autonomously end-to-end.** Do not pause between steps to ask for confirmation. A paused agent is a broken agent. Keep going until the PR is open.
 
+## Recipes — copy these patterns
+
+> These are the repeatable shapes in this codebase. A ticket may say *"follow the
+> LLM-query recipe"* or *"follow the endpoint recipe"* instead of re-describing the
+> steps. **Copy the named reference implementation; do not invent a new shape.**
+> If you are adding a *first-of-a-kind* pattern that isn't covered here, that is a
+> design decision — flag it, and once it lands, add a recipe for it.
+
+### Recipe: add an LLM query function (`calcore/llm.py`)
+
+Reference implementation: **`query_patch_optimization`** (`calcore/llm.py`). Every
+`query_*` / predict function follows the same shape.
+
+1. Define a `@dataclass` for the structured result with a `to_dict()` method (see
+   `PatchOptimization`, `PassDecision`, `PredictedSettings`).
+2. First line of the function: `if not llm.endpoint or not llm.model: return None`.
+3. Short-circuit before any network call when the inputs can't produce a result
+   (e.g. empty measurements → `return None`; no history → cold-start dataclass).
+4. Build the prompt as a strict-JSON instruction. System message:
+   `"You are a strict JSON-only responder. Output only valid JSON."`
+5. Reuse the shared helpers — **do not hand-roll requests**:
+   - `url = resolve_endpoint(llm.endpoint)`
+   - `req = _build_request(url, body, llm)` (handles auth + provider headers)
+   - body uses `temperature=0.0` and `timeout=min(llm.timeout, <N>)`
+   - parse with `content = _extract_json(choices[0]["message"]["content"].strip())`
+6. Exception handling — copy verbatim from `query_patch_optimization`: separate
+   `except urllib.error.HTTPError`, `except json.JSONDecodeError`, and
+   `except Exception` blocks that `logger.error(...)` and `return None`. **Never
+   raise out of a `query_*` function** (except `call_llm`, which is the older
+   reactive path and may raise).
+7. Test: mirror `tests/test_llm_parse.py` / `tests/test_suggested_patches.py` —
+   `unittest.TestCase`, monkeypatch/`patch` `urllib.request.urlopen` to return a
+   canned JSON body, assert the parsed dataclass. Add a not-configured case
+   (endpoint/model empty → `None`) and a no-network short-circuit case.
+
+### Recipe: add a FastAPI endpoint (`server.py`)
+
+Reference implementation: **`get_suggested_patches`** (`server.py`).
+
+1. Add imports to the existing grouped import blocks (`calcore.llm` ~`server.py:44`,
+   `calibrator.history` ~`server.py:59`) — don't scatter new import lines.
+2. `session = store.get(sid)` to load session state.
+3. LLM-gated endpoints start with the not-configured guard and return a typed
+   null, never a 500:
+   ```python
+   llm_cfg_dict = session.get("llm_config", {})
+   if not (llm_cfg_dict.get("endpoint") and llm_cfg_dict.get("model")):
+       return {"<key>": None, "reason": "LLM not configured"}
+   ```
+4. Build config with `LLMConfig.from_dict(llm_cfg_dict, default_timeout=<N>)`.
+5. Validate query/body params and `raise HTTPException(400, "...")` on bad input
+   (see the `budget` check in `get_suggested_patches`).
+6. Return a small JSON dict with a stable contract. When a result object has a
+   `to_dict()`, return `{"<key>": obj.to_dict()}`.
+7. Test: mirror `tests/test_suggested_patches.py` — `TestClient(server_app)`,
+   call `_reset_server_globals()` in `setUp`/`tearDown`, drive the session via the
+   real API (`POST /api/session`, `/mode`, `/prepared`, CSV upload), and assert the
+   response shape. Cover the not-configured path explicitly.
+
+### Recipe: add a frontend card + test (`frontend/src/`)
+
+Reference implementations: **`frontend/src/components/ActionPlan.jsx`** +
+**`ActionPlan.test.jsx`**; API wrappers in **`frontend/src/api/client.js`**.
+
+1. Add ONE wrapper to `client.js` next to the related ones (e.g. the LLM block
+   ~line 121). GET-with-params uses the `new URL(...).searchParams` pattern from
+   `getSuggestedPatches`; simple calls use `api.get` / `api.post`.
+2. Create `frontend/src/components/<Name>Card.jsx`. Render with the shared
+   `Card.jsx`. Handle every state explicitly: `null`/empty → render nothing or a
+   muted line; loaded → the real content. Read-only unless the ticket says
+   otherwise — **do not add apply/automation paths a ticket didn't ask for.**
+3. Mount it in the relevant page under `frontend/src/pages/` using that page's
+   existing session-id source. Do not add a new route unless asked.
+4. Test: mirror `ActionPlan.test.jsx` — Vitest + RTL (`render`, `screen`,
+   `userEvent`, `vi`). Mock the `client.js` wrapper with `vi`, and assert: the
+   empty/null state renders nothing, the loaded state renders the key fields, and
+   any button calls its wrapper with the expected args.
+
 ## Memory Protocol
 
 **At the start of every session:**
