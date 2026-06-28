@@ -78,7 +78,7 @@ describe('PredictedSettingsCard', () => {
 
   it('renders nothing when API call rejects', async () => {
     const getPredictedSettings = vi.fn().mockRejectedValue(new Error('network error'));
-    const { container } = render(
+    render(
       <PredictedSettingsCard getPredictedSettings={getPredictedSettings} phase="white_balance" />,
     );
     await waitFor(() => {
