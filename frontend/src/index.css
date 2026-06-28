@@ -257,11 +257,6 @@ body {
 .action-icon.check { background: var(--accent-dim); color: var(--accent); }
 .action-summary { font-size: 0.83rem; font-weight: 600; margin-bottom: 3px; }
 .action-reason  { font-size: 0.78rem; color: var(--ink2); }
-.action-card {
-  background: var(--panel2); border: 1px solid var(--line);
-  border-radius: var(--radius-lg); padding: 14px 16px; margin-bottom: 10px;
-  display: flex; align-items: flex-start; gap: 12px;
-}
 .action-body { flex: 1; }
 
 /* ── ZRO cards ───────────────────────────────────────────────────────────────── */
@@ -548,10 +543,4 @@ hr.divider { border: none; border-top: 1px solid var(--line); margin: 16px 0; }
 }
 .ip-upload:hover, .ip-upload.drag-over { border-color: var(--accent); background: var(--accent-dim); color: var(--ink); }
 
-/* ── Card highlight pulse (#42) ─────────────────────────────────────────────── */
-@keyframes cardPulse {
-  0%   { box-shadow: 0 0 0 0   rgba(46,199,230,0.55); }
-  70%  { box-shadow: 0 0 0 8px rgba(46,199,230,0);    }
-  100% { box-shadow: 0 0 0 0   rgba(46,199,230,0);    }
-}
-.card-pulse { animation: cardPulse 0.85s ease-out; }
+

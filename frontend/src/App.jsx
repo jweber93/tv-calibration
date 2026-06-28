@@ -48,16 +48,6 @@ import { LogsPanel }     from './components/LogsPanel';
 import { AppShell }     from './components/AppShell';
 
 
-function scrollToCard(id) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  el.classList.remove('card-pulse');
-  void el.offsetWidth;
-  el.classList.add('card-pulse');
-  setTimeout(() => el.classList.remove('card-pulse'), 900);
-}
-
 export default function App() {
   const sess = useSession();
   const { session, profiles, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, dogegenStatus, adbStatus, loading,
@@ -120,11 +110,6 @@ export default function App() {
     setShowComparison(prev => !prev);
   }
 
-  const bridgeOk = bridgeStatus?.ok;
-  const bridgeConfigured = bridgeStatus?.configured;
-  const dogegenRunning = dogegenStatus?.running;
-  const dogegenConfigured = dogegenStatus?.configured;
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       {showStartOver && (
@@ -156,21 +141,6 @@ export default function App() {
                 Start Over
               </button>
             </>
-          )}
-          {watchStatus.watching && (
-            <button className="badge badge-watch" onClick={() => scrollToCard('watch-folder')} style={{ cursor: 'pointer', border: 'none', background: 'none', padding: 0 }}>● WATCHING</button>
-          )}
-          {(bridgeOk || bridgeConfigured) && (
-            <button onClick={() => scrollToCard('bridge-card')} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', color: bridgeOk ? 'var(--green)' : 'var(--red)', cursor: 'pointer', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit' }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: bridgeOk ? 'var(--green)' : 'var(--ink2)', flexShrink: 0 }} />
-              Bridge
-            </button>
-          )}
-          {(dogegenRunning || dogegenConfigured) && (
-            <button onClick={() => scrollToCard('dogegen-card')} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', color: dogegenRunning ? 'var(--green)' : 'var(--red)', cursor: 'pointer', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit' }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: dogegenRunning ? 'var(--green)' : 'var(--ink2)', flexShrink: 0 }} />
-              Dogegen
-            </button>
           )}
           <button
             onClick={handleToggleComparison}
