@@ -31,9 +31,9 @@ class TestBt1886Degenerate(unittest.TestCase):
             self.assertIn("black floor", str(caught[0].message))
 
     def test_lb_eq_lw_falls_back_to_pure_gamma(self):
-        """When lb == lw, result equals lw * v**gamma."""
+        """When lb == lw, result equals lw * v**(1/gamma)."""
         v, lw, lb, gamma = 0.5, 100.0, 100.0, 2.4
-        expected = lw * (v ** gamma)
+        expected = lw * (v ** (1 / gamma))
         self.assertAlmostEqual(bt1886_eotf(v, lw, lb, gamma=gamma), expected)
 
     def test_lb_ge_lw_v0_returns_zero(self):
