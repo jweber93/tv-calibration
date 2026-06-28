@@ -21,6 +21,7 @@ Usage (from server.py)::
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import queue
@@ -264,6 +265,7 @@ class _ZROHandler(FileSystemEventHandler):
         grayscale_level_count: int = 11,
         watched_file: Optional[str] = None,
         post_import_hook: Optional[Callable[[Dict], None]] = None,
+        session_lock: Optional[threading.Lock] = None,
     ) -> None:
         super().__init__()
         self._session_getter = session_getter
@@ -272,6 +274,7 @@ class _ZROHandler(FileSystemEventHandler):
         self._grayscale_level_count = grayscale_level_count
         self._watched_file = os.path.abspath(watched_file) if watched_file else None
         self._post_import_hook = post_import_hook
+        self._session_lock = session_lock if session_lock is not None else contextlib.nullcontext()
 
         # path → timer
         self._timers: Dict[str, threading.Timer] = {}
@@ -446,118 +449,119 @@ class _ZROHandler(FileSystemEventHandler):
                 }
             return
 
-        # ── session lookup ────────────────────────────────────────────────
-        session = self._session_getter()
-        if session is None:
-            with _lock:
-                _watcher_error = "No active session — import skipped"
-                _last_attempt = {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "file": os.path.basename(src_path),
-                    "path": os.path.abspath(src_path),
-                    "status": "no_session",
-                    "detail": "No active calibration session was available for import.",
-                }
-            return
+        # ── session lookup & merge (under session lock) ──────────────────
+        with self._session_lock:
+            session = self._session_getter()
+            if session is None:
+                with _lock:
+                    _watcher_error = "No active session — import skipped"
+                    _last_attempt = {
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "file": os.path.basename(src_path),
+                        "path": os.path.abspath(src_path),
+                        "status": "no_session",
+                        "detail": "No active calibration session was available for import.",
+                    }
+                return
 
-        # ── merge ─────────────────────────────────────────────────────────
-        bucket_map = _bucket_map_for_session_step(result, session.get("step"))
-        step_warnings = _warnings_for_session_step(result, session.get("step"))
+            # ── merge ─────────────────────────────────────────────────────
+            bucket_map = _bucket_map_for_session_step(result, session.get("step"))
+            step_warnings = _warnings_for_session_step(result, session.get("step"))
 
-        counts: Dict[str, int] = {}
-        deser = self._measurement_deserializer
-        for key, meas_dicts in bucket_map.items():
-            if key in ("pre_measurements", "post_measurements"):
-                candidate_measurements = [
-                    deser(d) if deser is not None else d for d in meas_dicts
-                ]
-                existing_signatures = [
+            counts: Dict[str, int] = {}
+            deser = self._measurement_deserializer
+            for key, meas_dicts in bucket_map.items():
+                if key in ("pre_measurements", "post_measurements"):
+                    candidate_measurements = [
+                        deser(d) if deser is not None else d for d in meas_dicts
+                    ]
+                    existing_signatures = [
+                        _measurement_signature(measurement)
+                        for measurement in session.setdefault(key, [])
+                    ]
+                    candidate_signatures = [
+                        _measurement_signature(measurement)
+                        for measurement in candidate_measurements
+                    ]
+                    if (
+                        candidate_measurements
+                        and candidate_signatures != existing_signatures
+                    ):
+                        session[key] = candidate_measurements
+                        counts[key] = len(candidate_measurements)
+                    continue
+
+                existing_signatures = {
                     _measurement_signature(measurement)
                     for measurement in session.setdefault(key, [])
-                ]
-                candidate_signatures = [
-                    _measurement_signature(measurement)
-                    for measurement in candidate_measurements
-                ]
-                if (
-                    candidate_measurements
-                    and candidate_signatures != existing_signatures
-                ):
-                    session[key] = candidate_measurements
-                    counts[key] = len(candidate_measurements)
-                continue
-
-            existing_signatures = {
-                _measurement_signature(measurement)
-                for measurement in session.setdefault(key, [])
-            }
-            appended = 0
-            for d in meas_dicts:
-                measurement = deser(d) if deser is not None else d
-                signature = _measurement_signature(measurement)
-                if signature in existing_signatures:
-                    continue
-                session[key].append(measurement)
-                existing_signatures.add(signature)
-                appended += 1
-            if appended:
-                counts[key] = appended
-
-        if not counts:
-            with _lock:
-                _last_attempt = {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "file": os.path.basename(src_path),
-                    "path": os.path.abspath(src_path),
-                    "status": "no_new_rows",
-                    "detail": "Watched CSV changed, but it only contained rows already imported for this session.",
                 }
-                _watcher_error = None
-            with self._timer_lock:
-                self._imported[src_path] = mtime
-            return
+                appended = 0
+                for d in meas_dicts:
+                    measurement = deser(d) if deser is not None else d
+                    signature = _measurement_signature(measurement)
+                    if signature in existing_signatures:
+                        continue
+                    session[key].append(measurement)
+                    existing_signatures.add(signature)
+                    appended += 1
+                if appended:
+                    counts[key] = appended
 
-        # Update peak luminance if white was measured.
-        if counts.get("lum_measurements"):
-            latest_lum = session["lum_measurements"][-1]
-            latest_y = latest_lum["Y"] if isinstance(latest_lum, dict) else latest_lum.Y
-            session["peak_luminance"] = round(latest_y, 2)
+            if not counts:
+                with _lock:
+                    _last_attempt = {
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "file": os.path.basename(src_path),
+                        "path": os.path.abspath(src_path),
+                        "status": "no_new_rows",
+                        "detail": "Watched CSV changed, but it only contained rows already imported for this session.",
+                    }
+                    _watcher_error = None
+                with self._timer_lock:
+                    self._imported[src_path] = mtime
+                return
 
-        now = datetime.now(timezone.utc).isoformat()
+            # Update peak luminance if white was measured.
+            if counts.get("lum_measurements"):
+                latest_lum = session["lum_measurements"][-1]
+                latest_y = latest_lum["Y"] if isinstance(latest_lum, dict) else latest_lum.Y
+                session["peak_luminance"] = round(latest_y, 2)
 
-        # Record import metadata on the session.
-        measurement_timestamps = []
-        for measurements in bucket_map.values():
-            for measurement in measurements:
-                ts = measurement.get("timestamp")
-                if ts:
-                    measurement_timestamps.append(ts)
-        import_meta: Dict = {
-            "filename": os.path.basename(src_path),
-            "timestamp": now,
-            "total_rows": result.total_rows,
-            "sessions_detected": result.sessions_detected,
-            "colour_sessions": result.colour_sessions,
-            "grayscale_sessions": result.grayscale_sessions,
-            "session_breaks": result.session_breaks,
-            "abl_warnings": step_warnings,
-            "unknown_rows": result.unknown_rows,
-            "buckets_populated": counts,
-            "measurement_start": min(measurement_timestamps)
-            if measurement_timestamps
-            else None,
-            "measurement_end": max(measurement_timestamps)
-            if measurement_timestamps
-            else None,
-            "auto_import": True,
-        }
-        session.setdefault("zro_imports", []).append(import_meta)
+            now = datetime.now(timezone.utc).isoformat()
 
-        # Save.
-        try:
-            self._session_saver()
-        except Exception as exc:
-            logger.warning("Could not save session after auto-import: %s", exc)
+            # Record import metadata on the session.
+            measurement_timestamps = []
+            for measurements in bucket_map.values():
+                for measurement in measurements:
+                    ts = measurement.get("timestamp")
+                    if ts:
+                        measurement_timestamps.append(ts)
+            import_meta: Dict = {
+                "filename": os.path.basename(src_path),
+                "timestamp": now,
+                "total_rows": result.total_rows,
+                "sessions_detected": result.sessions_detected,
+                "colour_sessions": result.colour_sessions,
+                "grayscale_sessions": result.grayscale_sessions,
+                "session_breaks": result.session_breaks,
+                "abl_warnings": step_warnings,
+                "unknown_rows": result.unknown_rows,
+                "buckets_populated": counts,
+                "measurement_start": min(measurement_timestamps)
+                if measurement_timestamps
+                else None,
+                "measurement_end": max(measurement_timestamps)
+                if measurement_timestamps
+                else None,
+                "auto_import": True,
+            }
+            session.setdefault("zro_imports", []).append(import_meta)
+
+            # Save.
+            try:
+                self._session_saver()
+            except Exception as exc:
+                logger.warning("Could not save session after auto-import: %s", exc)
 
         # Mark imported.
         with self._timer_lock:
@@ -657,6 +661,7 @@ def start_watching(
     measurement_deserializer: Optional[Callable[[Dict], object]] = None,
     grayscale_level_count: int = 11,
     post_import_hook: Optional[Callable[[Dict], None]] = None,
+    session_lock: Optional[threading.Lock] = None,
 ) -> None:
     """
     Start watching *path* for new or modified ``.csv`` files.
@@ -681,6 +686,10 @@ def start_watching(
     grayscale_level_count:
         Number of grayscale levels required for a complete pre-cal ramp
         (used for auto-advancing the session step).  Defaults to 11.
+    session_lock:
+        Optional threading lock held while the session is read, mutated,
+        and saved.  Prevents race conditions with concurrent session
+        access (e.g. HTTP handlers or multiple import threads).
     """
     global _observer, _handler, _watching_path, _watcher_error
 
@@ -706,6 +715,7 @@ def start_watching(
         grayscale_level_count=grayscale_level_count,
         watched_file=watched_file,
         post_import_hook=post_import_hook,
+        session_lock=session_lock,
     )
     observer = Observer()
     observer.schedule(handler, watch_dir, recursive=False)

@@ -686,3 +686,135 @@ class TestWatchEndpoints:
         assert resp.status_code == 200
         data = resp.json()
         assert data["watching"] is False
+
+
+class TestSessionLock:
+    """Verify that session_lock protects against concurrent mutation."""
+
+    def test_session_lock_is_acquired_during_import(self, tmp_path):
+        """The session_lock is held while session_getter → merge → session_saver runs."""
+        import threading
+
+        session = _make_session()
+        lock = threading.Lock()
+        held = threading.Event()
+        release_gate = threading.Event()
+
+        class InstrumentedLock:
+            def __init__(self):
+                self._inner = threading.Lock()
+
+            def acquire(self, *a, **kw):
+                result = self._inner.acquire(*a, **kw)
+                if result:
+                    held.set()
+                    release_gate.wait(timeout=5.0)
+                return result
+
+            def release(self):
+                try:
+                    release_gate.set()
+                finally:
+                    self._inner.release()
+
+            def __enter__(self):
+                self.acquire()
+                return self
+
+            def __exit__(self, *a):
+                self.release()
+
+        instrumented = InstrumentedLock()
+
+        fw.start_watching(
+            tmp_path,
+            lambda: session,
+            lambda: None,
+            session_lock=instrumented,
+        )
+
+        csv_file = tmp_path / "lock_test.csv"
+        csv_file.write_text(MINIMAL_ZRO_CSV)
+
+        assert held.wait(timeout=5.0), "session_lock should be acquired during import"
+        release_gate.set()
+
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if session.get("pre_measurements"):
+                break
+            time.sleep(0.1)
+
+        assert len(session["pre_measurements"]) > 0
+
+    def test_concurrent_imports_are_serialised_by_session_lock(self, tmp_path):
+        """Two imports via the same handler cannot interleave session mutation."""
+        import threading
+
+        session = _make_session()
+        lock = threading.Lock()
+        mutation_log: list = []
+        log_lock = threading.Lock()
+
+        def logging_getter():
+            with log_lock:
+                mutation_log.append("get")
+            return session
+
+        def logging_saver():
+            with log_lock:
+                mutation_log.append("save")
+
+        fw.start_watching(
+            tmp_path,
+            logging_getter,
+            logging_saver,
+            session_lock=lock,
+        )
+
+        csv_file = tmp_path / "test.csv"
+        csv_file.write_text(MINIMAL_ZRO_CSV)
+
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if session.get("pre_measurements"):
+                break
+            time.sleep(0.1)
+
+        # Second import via different mtime
+        csv_file.write_text(MINIMAL_ZRO_CSV + "15/03/2026 10:48:45\t140\t140\t140\t30.01\t0.313\t0.328\t 360ms\n")
+
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            with log_lock:
+                if len(mutation_log) >= 4:
+                    break
+            time.sleep(0.1)
+
+        fw.stop_watching()
+
+        with log_lock:
+            log_snapshot = list(mutation_log)
+
+        assert len(log_snapshot) >= 4, f"Expected at least 4 events (2 get+save pairs), got {log_snapshot}"
+        # Every save must be preceded by a get — no interleaving
+        for i in range(0, len(log_snapshot) - 1, 2):
+            assert log_snapshot[i] == "get" and log_snapshot[i + 1] == "save", (
+                f"Expected (get, save) pair at index {i}, got {log_snapshot[i:i+2]}"
+            )
+
+    def test_no_lock_still_works(self, tmp_path):
+        """When no session_lock is provided, imports still work (backward compat)."""
+        session = _make_session()
+        fw.start_watching(tmp_path, lambda: session, lambda: None)
+
+        csv_file = tmp_path / "nolock.csv"
+        csv_file.write_text(MINIMAL_ZRO_CSV)
+
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if session.get("pre_measurements"):
+                break
+            time.sleep(0.1)
+
+        assert len(session["pre_measurements"]) > 0
