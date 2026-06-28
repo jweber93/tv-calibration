@@ -86,6 +86,11 @@ When I say **"cleanup"** or **"branch was merged"** or **"PR [number] merged"**,
 
 **Memory entries should be concise and specific** — not "worked on calibration" 
 but "decided to use CV 738 as clip point because U8G clips around CV 840-895".
+
+## Session Summary
+
+At the END of your final response for every session, output all significant decisions, config values, file paths, commands, and findings as a numbered list under the heading `## Session Summary.` Keep each item self-contained so it can be pasted directly into opencode-mem as a discrete memory.
+
 # TV Calibration — Planning Agent Protocol
 ## Model: Gemma 4 31B 8-bit | Role: Architect / Design Lead
 
