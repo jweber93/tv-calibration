@@ -2045,58 +2045,59 @@ class SessionStore:
         filename: Optional[str],
         contents: bytes,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        session = self.get(sid)
-        if session.get("mode") is None:
-            raise HTTPException(
-                400, "Select a calibration mode before importing measurements."
-            )
         try:
             result = parse_zro_csv(contents)
         except Exception as exc:
             raise HTTPException(400, f"ZRO CSV parse error: {exc}") from exc
-        result = recontextualize_import_result(
-            result,
-            session.get("signal_range", "full"),
-            session.get("code_scale", "8bit"),
-        )
-        if result.total_rows == 0:
-            raise HTTPException(
-                400,
-                "No valid measurement rows found. Expected a tab-separated ZRO export with columns: Date and time, R, G, B, Y, x, y, msec.",
+        with self._lock:
+            session = self.get(sid)
+            if session.get("mode") is None:
+                raise HTTPException(
+                    400, "Select a calibration mode before importing measurements."
+                )
+            result = recontextualize_import_result(
+                result,
+                session.get("signal_range", "full"),
+                session.get("code_scale", "8bit"),
             )
-        bucket_map = bucket_map_for_session_step(result, session.get("step"))
-        step_warnings = warnings_for_session_step(result, session.get("step"))
-        counts: Dict[str, int] = {}
-        target_gray_bucket = _gray_bucket_for_step(session.get("step"))
-        for key, meas_dicts in bucket_map.items():
-            if key == target_gray_bucket and meas_dicts:
-                session[key] = []
-            for item in meas_dicts:
-                session[key].append(deserialize_measurement(item))
-            if meas_dicts:
-                counts[key] = len(meas_dicts)
-        if session.get("lum_measurements"):
-            last_lum = session["lum_measurements"][-1]
-            y_val = getattr(last_lum, "Y", last_lum.get("Y") if isinstance(last_lum, dict) else None)
-            if y_val is not None:
-                session["peak_luminance"] = round(y_val, 2)
-        imported_at = now().isoformat()
-        import_meta: Dict[str, Any] = {
-            "filename": filename or "unknown",
-            "timestamp": imported_at,
-            "total_rows": result.total_rows,
-            "sessions_detected": result.sessions_detected,
-            "colour_sessions": result.colour_sessions,
-            "grayscale_sessions": result.grayscale_sessions,
-            "session_breaks": result.session_breaks,
-            "abl_warnings": step_warnings,
-            "unknown_rows": result.unknown_rows,
-            "buckets_populated": counts,
-            "raw_rows": result.raw_rows,
-            **measurement_time_bounds(bucket_map),
-        }
-        session.setdefault("zro_imports", []).append(import_meta)
-        self.save_session(sid)
+            if result.total_rows == 0:
+                raise HTTPException(
+                    400,
+                    "No valid measurement rows found. Expected a tab-separated ZRO export with columns: Date and time, R, G, B, Y, x, y, msec.",
+                )
+            bucket_map = bucket_map_for_session_step(result, session.get("step"))
+            step_warnings = warnings_for_session_step(result, session.get("step"))
+            counts: Dict[str, int] = {}
+            target_gray_bucket = _gray_bucket_for_step(session.get("step"))
+            for key, meas_dicts in bucket_map.items():
+                if key == target_gray_bucket and meas_dicts:
+                    session[key] = []
+                for item in meas_dicts:
+                    session[key].append(deserialize_measurement(item))
+                if meas_dicts:
+                    counts[key] = len(meas_dicts)
+            if session.get("lum_measurements"):
+                last_lum = session["lum_measurements"][-1]
+                y_val = getattr(last_lum, "Y", last_lum.get("Y") if isinstance(last_lum, dict) else None)
+                if y_val is not None:
+                    session["peak_luminance"] = round(y_val, 2)
+            imported_at = now().isoformat()
+            import_meta: Dict[str, Any] = {
+                "filename": filename or "unknown",
+                "timestamp": imported_at,
+                "total_rows": result.total_rows,
+                "sessions_detected": result.sessions_detected,
+                "colour_sessions": result.colour_sessions,
+                "grayscale_sessions": result.grayscale_sessions,
+                "session_breaks": result.session_breaks,
+                "abl_warnings": step_warnings,
+                "unknown_rows": result.unknown_rows,
+                "buckets_populated": counts,
+                "raw_rows": result.raw_rows,
+                **measurement_time_bounds(bucket_map),
+            }
+            session.setdefault("zro_imports", []).append(import_meta)
+            self.save_session(sid)
         return session, import_meta
 
     def import_generic_bytes(
@@ -2108,46 +2109,47 @@ class SessionStore:
         from .csv_adapter import patches_to_session_buckets
         from calcore.csv_import import parse_measurement_csv
 
-        session = self.get(sid)
-        if session.get("mode") is None:
-            raise HTTPException(
-                400, "Select a calibration mode before importing measurements."
-            )
         try:
             patches = parse_measurement_csv(contents, format="xyY")
         except Exception as exc:
             raise HTTPException(400, f"Generic CSV parse error: {exc}") from exc
-        bucket_map = patches_to_session_buckets(patches, session["target"], session.get("step"))
-        step_warnings = []
-        counts: Dict[str, int] = {}
-        target_gray_bucket = _gray_bucket_for_step(session.get("step"))
-        for key, meas_dicts in bucket_map.items():
-            if key == target_gray_bucket and meas_dicts:
-                session[key] = []
-            for item in meas_dicts:
-                session[key].append(deserialize_measurement(item))
-            if meas_dicts:
-                counts[key] = len(meas_dicts)
-        if session.get("lum_measurements"):
-            last_lum = session["lum_measurements"][-1]
-            y_val = getattr(last_lum, "Y", last_lum.get("Y") if isinstance(last_lum, dict) else None)
-            if y_val is not None:
-                session["peak_luminance"] = round(y_val, 2)
-        imported_at = now().isoformat()
-        import_meta: Dict[str, Any] = {
-            "filename": filename or "unknown",
-            "timestamp": imported_at,
-            "total_rows": len(patches),
-            "sessions_detected": 1,
-            "colour_sessions": sum(1 for p in patches if not p.is_grayscale),
-            "grayscale_sessions": sum(1 for p in patches if p.is_grayscale),
-            "session_breaks": 0,
-            "abl_warnings": step_warnings,
-            "unknown_rows": 0,
-            "buckets_populated": counts,
-            "raw_rows": [],
-            **measurement_time_bounds(bucket_map),
-        }
-        session.setdefault("zro_imports", []).append(import_meta)
-        self.save_session(sid)
+        with self._lock:
+            session = self.get(sid)
+            if session.get("mode") is None:
+                raise HTTPException(
+                    400, "Select a calibration mode before importing measurements."
+                )
+            bucket_map = patches_to_session_buckets(patches, session["target"], session.get("step"))
+            step_warnings = []
+            counts: Dict[str, int] = {}
+            target_gray_bucket = _gray_bucket_for_step(session.get("step"))
+            for key, meas_dicts in bucket_map.items():
+                if key == target_gray_bucket and meas_dicts:
+                    session[key] = []
+                for item in meas_dicts:
+                    session[key].append(deserialize_measurement(item))
+                if meas_dicts:
+                    counts[key] = len(meas_dicts)
+            if session.get("lum_measurements"):
+                last_lum = session["lum_measurements"][-1]
+                y_val = getattr(last_lum, "Y", last_lum.get("Y") if isinstance(last_lum, dict) else None)
+                if y_val is not None:
+                    session["peak_luminance"] = round(y_val, 2)
+            imported_at = now().isoformat()
+            import_meta: Dict[str, Any] = {
+                "filename": filename or "unknown",
+                "timestamp": imported_at,
+                "total_rows": len(patches),
+                "sessions_detected": 1,
+                "colour_sessions": sum(1 for p in patches if not p.is_grayscale),
+                "grayscale_sessions": sum(1 for p in patches if p.is_grayscale),
+                "session_breaks": 0,
+                "abl_warnings": step_warnings,
+                "unknown_rows": 0,
+                "buckets_populated": counts,
+                "raw_rows": [],
+                **measurement_time_bounds(bucket_map),
+            }
+            session.setdefault("zro_imports", []).append(import_meta)
+            self.save_session(sid)
         return session, import_meta

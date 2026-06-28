@@ -160,15 +160,13 @@ class TestConcurrentImport:
         )
 
     def test_simultaneous_import_zro_bytes_no_data_loss(self, store_with_session):
-        """Use the real import_zro_bytes path with concurrent calls.
+        """Concurrent import_zro_bytes calls are serialised by the SessionStore RLock.
 
-        NOTE: This test documents a known race condition — import_zro_bytes
-        clears the target gray bucket before appending, so concurrent imports
-        can lose data.  The test verifies that at least one import completes
-        without crashing, and that the session remains consistent.
-
-        A proper fix would hold a lock across get → mutate → save or use
-        append-only semantics with dedup.
+        The lock covers get → mutate → save, so even though import_zro_bytes
+        clears the target gray bucket before appending, the second import sees
+        the first import's data and overwrites it cleanly rather than racing.
+        Both imports must complete without error and the session must remain
+        internally consistent.
         """
         store, sid = store_with_session
         errors = []
@@ -197,24 +195,19 @@ class TestConcurrentImport:
 
         assert not errors, f"Import errors: {errors}"
         final = store.get(sid)
-        # Both imports complete without crashing.  Due to the clear-then-append
-        # pattern in import_zro_bytes, concurrent imports may lose data from one
-        # thread — the session is still internally consistent though.
         meas_r_vals = set()
         for m in final["pre_measurements"]:
             r = m.stimulus_rgb[0]
             meas_r_vals.add(r)
-        # At least one import's data survived — session is not corrupted.
         assert len(meas_r_vals) >= 2, (
             f"Expected at least 2 measurements, got {len(meas_r_vals)}: {meas_r_vals}"
         )
 
     def test_concurrent_import_generic_bytes(self, store_with_session):
-        """Concurrent import_generic_bytes — same clear-then-append race.
+        """Concurrent import_generic_bytes — serialised by SessionStore RLock.
 
-        import_generic_bytes shares the same pattern: clears target gray
-        bucket before appending.  This test verifies crash-free behavior
-        under concurrent access.
+        Both imports complete without error and the session remains
+        internally consistent.
         """
         store, sid = store_with_session
         errors = []
@@ -239,11 +232,8 @@ class TestConcurrentImport:
         t1.join()
         t2.join()
 
-        # Both should complete without crashing.  Due to the clear-then-append
-        # pattern, one import may overwrite the other's data.
         assert not errors, f"Import errors: {errors}"
         final = store.get(sid)
-        # Session is consistent — at least one import's data survived.
         assert len(final["pre_measurements"]) >= 2
 
 
@@ -497,3 +487,145 @@ class TestSessionDictSafeAccess:
         assert len(final["pre_measurements"]) in (0, 1), (
             f"Expected 0 or 1 measurements, got {len(final['pre_measurements'])}"
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# File-watcher + manual-upload races (#256)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestFileWatcherAndManualUpload:
+    """Concurrent file-watcher auto-import and manual CSV upload must not
+    corrupt session state.  Both paths must serialise through the
+    SessionStore RLock (#256).
+    """
+
+    def test_file_watcher_and_import_zro_bytes_no_corruption(
+        self, store_with_session
+    ):
+        """File watcher mutation and import_zro_bytes serialise via RLock."""
+        store, sid = store_with_session
+        errors = []
+        barrier = threading.Barrier(2)
+
+        session = store.get(sid)
+
+        def simulate_file_watcher_mutation():
+            with store._lock:
+                try:
+                    barrier.wait()
+                    session["pre_measurements"].append(
+                        deserialize_measurement(_make_zro_csv_row(25))
+                    )
+                    store.save_session(sid)
+                except Exception as e:
+                    errors.append(f"watcher: {e}")
+
+        def manual_zro_upload():
+            ts = "01/01/2024 12:00:00"
+            header = b"Date and time\tR\tG\tB\tY\tx\ty\tmsec\n"
+            body = f"{ts}\t75\t75\t75\t1.00\t0.3127\t0.3290\t50".encode()
+            csv_bytes = header + body
+            try:
+                barrier.wait()
+                store.import_zro_bytes(sid, "manual.csv", csv_bytes)
+            except Exception as e:
+                errors.append(f"upload: {e}")
+
+        t1 = threading.Thread(target=simulate_file_watcher_mutation)
+        t2 = threading.Thread(target=manual_zro_upload)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        assert not errors, f"Errors: {errors}"
+        final = store.get(sid)
+        assert len(final["pre_measurements"]) >= 1
+
+    def test_import_zro_bytes_holds_lock_across_get_mutate_save(
+        self, store_with_session
+    ):
+        """import_zro_bytes acquires the RLock for the full get-mutate-save span."""
+        store, sid = store_with_session
+        lock_held = threading.Event()
+        proceed = threading.Event()
+
+        original_get = store.get
+
+        def delaying_get(*args, **kwargs):
+            result = original_get(*args, **kwargs)
+            lock_held.set()
+            proceed.wait(timeout=5.0)
+            return result
+
+        with patch.object(store, "get", delaying_get):
+            ts = "01/01/2024 12:00:00"
+            header = b"Date and time\tR\tG\tB\tY\tx\ty\tmsec\n"
+            body = f"{ts}\t50\t50\t50\t1.00\t0.3127\t0.3290\t50".encode()
+            csv_bytes = header + body
+
+            def do_import():
+                store.import_zro_bytes(sid, "test.csv", csv_bytes)
+
+            t = threading.Thread(target=do_import)
+            t.start()
+
+            assert lock_held.wait(timeout=5.0), "Lock should be held during import"
+
+            with store._lock:
+                pass
+
+            proceed.set()
+            t.join(timeout=5.0)
+
+    def test_concurrent_zro_imports_preserve_peak_luminance(
+        self, store_with_session
+    ):
+        """Concurrent import_zro_bytes calls don't corrupt peak_luminance."""
+        store, sid = store_with_session
+        session = store.get(sid)
+        session["step"] = "luminance"
+        session["lum_measurements"].append(
+            deserialize_measurement(_make_lum_row(100.0))
+        )
+        store.save_session(sid)
+
+        errors = []
+        barrier = threading.Barrier(2)
+
+        def zro_importer(nits, label):
+            ts = "01/01/2024 12:00:00"
+            header = b"Date and time\tR\tG\tB\tY\tx\ty\tmsec\n"
+            body = f"{ts}\t255\t255\t255\t{nits:.2f}\t0.3127\t0.3290\t50".encode()
+            csv_bytes = header + body
+            try:
+                barrier.wait()
+                store.import_zro_bytes(sid, f"{label}.csv", csv_bytes)
+            except Exception as e:
+                errors.append(f"{label}: {e}")
+
+        t1 = threading.Thread(target=zro_importer, args=(200.0, "A"))
+        t2 = threading.Thread(target=zro_importer, args=(300.0, "B"))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        assert not errors, f"Errors: {errors}"
+        final = store.get(sid)
+        assert final["peak_luminance"] in (200.0, 300.0)
+
+    def test_no_deadlock_on_reentrant_lock(self, store_with_session):
+        """import_zro_bytes uses RLock — save_session re-acquires without deadlock."""
+        store, sid = store_with_session
+
+        ts = "01/01/2024 12:00:00"
+        header = b"Date and time\tR\tG\tB\tY\tx\ty\tmsec\n"
+        body = f"{ts}\t50\t50\t50\t1.00\t0.3127\t0.3290\t50".encode()
+        csv_bytes = header + body
+
+        store.import_zro_bytes(sid, "test.csv", csv_bytes)
+
+        final = store.get(sid)
+        assert len(final["pre_measurements"]) >= 1
