@@ -1,8 +1,6 @@
 import '../charts/index.js';
 import { Bar } from 'react-chartjs-2';
-
-const TICK = { color: '#74757c', font: { size: 10 } };
-const GRID = { color: '#2e2f33' };
+import { TICK, GRID, C } from './tokens.js';
 
 export function OverlayDeChart({ measurementsA, measurementsB }) {
   if (!measurementsA?.length && !measurementsB?.length) return null;
@@ -24,14 +22,14 @@ export function OverlayDeChart({ measurementsA, measurementsB }) {
 
   const colorsA = allLabels.map(l => {
     const v = getDelta(measurementsA, l);
-    if (v == null) return 'rgba(231,76,60,0.15)';
-    return v <= 2 ? '#e74c3c' : v <= 3 ? '#f5a623' : '#c0392b';
+    if (v == null) return C.redFill;
+    return v <= 2 ? C.red : v <= 3 ? C.amber : C.red;
   });
 
   const colorsB = allLabels.map(l => {
     const v = getDelta(measurementsB, l);
-    if (v == null) return 'rgba(34,201,135,0.15)';
-    return v <= 2 ? '#22c987' : v <= 3 ? '#f5a623' : '#e74c3c';
+    if (v == null) return C.greenFill;
+    return v <= 2 ? C.green : v <= 3 ? C.amber : C.red;
   });
 
   return (
@@ -59,11 +57,11 @@ export function OverlayDeChart({ measurementsA, measurementsB }) {
         options={{
           responsive: true, maintainAspectRatio: false,
           plugins: {
-            legend: { labels: { color: '#74757c', font: { size: 10 } } },
+            legend: { labels: { color: C.muted, font: { size: 10 } } },
           },
           scales: {
             x: { ticks: TICK, grid: GRID },
-            y: { beginAtZero: true, ticks: TICK, grid: GRID, title: { display: true, text: 'ΔE', color: '#74757c', font: { size: 10 } } },
+            y: { beginAtZero: true, ticks: TICK, grid: GRID, title: { display: true, text: 'ΔE', color: C.muted, font: { size: 10 } } },
           },
           animation: { duration: 300 },
         }}

@@ -4,6 +4,7 @@ import { MeasurementTable } from '../components/MeasurementTable';
 import { ZroInstructions } from '../components/ZroInstructions';
 import { DeChart } from '../charts/DeChart';
 import { QualityGate } from '../components/QualityGate';
+import { CollapsibleSection } from '../components/CollapsibleSection';
 
 export function PostGrayscale({ session, onNext, onPrev }) {
   const gd = session.grayscale_data || {};
@@ -29,7 +30,13 @@ export function PostGrayscale({ session, onNext, onPrev }) {
           <div className="text-sm muted">{done}/{total}</div>
         </div>
         {meas.length > 0 && <DeChart measurements={meas} label="Post-Cal ΔE" />}
-        <div className="mt-3"><MeasurementTable measurements={meas} /></div>
+        {meas.length > 0 && (
+          <div className="mt-3">
+            <CollapsibleSection title="Measurement Data" storageKey="post-grayscale-measurements" summary={`${meas.length} reading${meas.length !== 1 ? 's' : ''}`}>
+              <MeasurementTable measurements={meas} />
+            </CollapsibleSection>
+          </div>
+        )}
       </Card>
 
       <div className="btn-group">

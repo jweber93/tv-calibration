@@ -5,6 +5,7 @@ import { MeasurementTable } from '../components/MeasurementTable';
 import { ZroInstructions } from '../components/ZroInstructions';
 import { GammaChart } from '../charts/GammaChart';
 import { QualityGate } from '../components/QualityGate';
+import { CollapsibleSection } from '../components/CollapsibleSection';
 
 export function Gamma({ session, onSetGammaWorkflow, onNext, onPrev }) {
   const gd = session.gamma_data || {};
@@ -44,7 +45,11 @@ export function Gamma({ session, onSetGammaWorkflow, onNext, onPrev }) {
       {meas.length > 0 && (
         <Card title="Gamma Tracking">
           <GammaChart measurements={meas} />
-          <div className="mt-3"><MeasurementTable measurements={meas} includeGamma /></div>
+          <div className="mt-3">
+            <CollapsibleSection title="Measurement Data" storageKey="gamma-measurements" summary={`${meas.length} point${meas.length !== 1 ? 's' : ''}`}>
+              <MeasurementTable measurements={meas} includeGamma />
+            </CollapsibleSection>
+          </div>
         </Card>
       )}
 

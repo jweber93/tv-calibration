@@ -4,6 +4,7 @@ import { MeasurementTable } from '../components/MeasurementTable';
 import { ImportLog } from '../components/ImportLog';
 import { ZroInstructions } from '../components/ZroInstructions';
 import { DeChart } from '../charts/DeChart';
+import { CollapsibleSection } from '../components/CollapsibleSection';
 
 export function PreGrayscale({ session, onNext, onPrev }) {
   const gd = session.grayscale_data || {};
@@ -28,7 +29,13 @@ export function PreGrayscale({ session, onNext, onPrev }) {
           <div className="text-sm muted">{done}/{total}</div>
         </div>
         {meas.length > 0 && <DeChart measurements={meas} label="Pre-Cal ΔE" />}
-        <div className="mt-3"><MeasurementTable measurements={meas} /></div>
+        {meas.length > 0 && (
+          <div className="mt-3">
+            <CollapsibleSection title="Measurement Data" storageKey="pre-grayscale-measurements" summary={`${meas.length} reading${meas.length !== 1 ? 's' : ''}`}>
+              <MeasurementTable measurements={meas} />
+            </CollapsibleSection>
+          </div>
+        )}
       </Card>
 
       <Card title="Import Log">

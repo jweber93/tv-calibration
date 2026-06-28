@@ -1,8 +1,6 @@
 import '../charts/index.js';
 import { Bar } from 'react-chartjs-2';
-
-const TICK = { color: '#74757c', font: { size: 10 } };
-const GRID = { color: '#2e2f33' };
+import { TICK, GRID, C, deColor } from './tokens.js';
 
 export function DeChart({ measurements, label }) {
   if (!measurements?.length) return null;
@@ -17,7 +15,7 @@ export function DeChart({ measurements, label }) {
   });
   const labels = rows.map(m => m.label || m.stimulus_pct + '%');
   const data   = rows.map(m => m.delta_e);
-  const colors = data.map(v => v <= 2 ? '#22c987' : v <= 3 ? '#f5a623' : '#e74c3c');
+  const colors = data.map(deColor);
 
   return (
     <div className="chart-wrap">
@@ -28,7 +26,7 @@ export function DeChart({ measurements, label }) {
           plugins: { legend: { display: false } },
           scales: {
             x: { ticks: TICK, grid: GRID },
-            y: { beginAtZero: true, ticks: TICK, grid: GRID, title: { display: true, text: 'ΔE', color: '#74757c', font: { size: 10 } } },
+            y: { beginAtZero: true, ticks: TICK, grid: GRID, title: { display: true, text: 'ΔE', color: C.muted, font: { size: 10 } } },
           },
           animation: { duration: 300 },
         }}
