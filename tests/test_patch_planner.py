@@ -65,6 +65,68 @@ class SuggestedPatchTests(unittest.TestCase):
         self.assertIsInstance(patch.g, int)
         self.assertIsInstance(patch.b, int)
 
+    def test_from_dict_clamps_above_max(self):
+        d = {"nits": 100, "r": 300, "g": 256, "b": 400, "priority": "high"}
+        patch = SuggestedPatch.from_dict(d)
+        self.assertEqual(patch.r, 255)
+        self.assertEqual(patch.g, 255)
+        self.assertEqual(patch.b, 255)
+
+    def test_from_dict_clamps_negative(self):
+        d = {"nits": 50, "r": -10, "g": -1, "b": 0, "priority": "medium"}
+        patch = SuggestedPatch.from_dict(d)
+        self.assertEqual(patch.r, 0)
+        self.assertEqual(patch.g, 0)
+        self.assertEqual(patch.b, 0)
+
+    def test_from_dict_clamps_boundary(self):
+        d = {"nits": 80, "r": 255, "g": 255, "b": 255, "priority": "low"}
+        patch = SuggestedPatch.from_dict(d)
+        self.assertEqual(patch.r, 255)
+        self.assertEqual(patch.g, 255)
+        self.assertEqual(patch.b, 255)
+
+        d2 = {"nits": 80, "r": 256, "g": 0, "b": -1, "priority": "low"}
+        patch2 = SuggestedPatch.from_dict(d2)
+        self.assertEqual(patch2.r, 255)
+        self.assertEqual(patch2.g, 0)
+        self.assertEqual(patch2.b, 0)
+
+    def test_from_dict_within_range_unchanged(self):
+        d = {"nits": 120, "r": 100, "g": 150, "b": 200, "priority": "high"}
+        patch = SuggestedPatch.from_dict(d)
+        self.assertEqual(patch.r, 100)
+        self.assertEqual(patch.g, 150)
+        self.assertEqual(patch.b, 200)
+
+    def test_from_dict_10bit_code_max(self):
+        d = {"nits": 100, "r": 512, "g": 768, "b": 1023, "priority": "high"}
+        patch = SuggestedPatch.from_dict(d, code_max=1023)
+        self.assertEqual(patch.r, 512)
+        self.assertEqual(patch.g, 768)
+        self.assertEqual(patch.b, 1023)
+
+    def test_from_dict_10bit_clamps_above_1023(self):
+        d = {"nits": 100, "r": 1100, "g": 2000, "b": 1024, "priority": "high"}
+        patch = SuggestedPatch.from_dict(d, code_max=1023)
+        self.assertEqual(patch.r, 1023)
+        self.assertEqual(patch.g, 1023)
+        self.assertEqual(patch.b, 1023)
+
+    def test_from_dict_string_values_coerced(self):
+        d = {"nits": 80, "r": "200", "g": "100", "b": "50", "priority": "medium"}
+        patch = SuggestedPatch.from_dict(d)
+        self.assertEqual(patch.r, 200)
+        self.assertEqual(patch.g, 100)
+        self.assertEqual(patch.b, 50)
+
+    def test_from_dict_string_values_clamped(self):
+        d = {"nits": 80, "r": "300", "g": "-10", "b": "50", "priority": "medium"}
+        patch = SuggestedPatch.from_dict(d)
+        self.assertEqual(patch.r, 255)
+        self.assertEqual(patch.g, 0)
+        self.assertEqual(patch.b, 50)
+
 
 class PatchOptimizationTests(unittest.TestCase):
     """Tests for the PatchOptimization dataclass."""

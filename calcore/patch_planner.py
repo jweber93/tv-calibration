@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 MAX_PATCH_BUDGET: int = 30  # configurable default cap on recommended patches
+MAX_RGB: int = 255  # 8-bit display maximum for patch RGB values
 
 _PRIORITY_RANK = {"high": 0, "medium": 1, "low": 2}
 
@@ -39,12 +40,15 @@ class SuggestedPatch:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "SuggestedPatch":
+    def from_dict(cls, d: Dict[str, Any], code_max: int = MAX_RGB) -> "SuggestedPatch":
+        r = max(0, min(int(d.get("r", 0)), code_max))
+        g = max(0, min(int(d.get("g", 0)), code_max))
+        b = max(0, min(int(d.get("b", 0)), code_max))
         return cls(
             nits=float(d.get("nits", 0.0)),
-            r=int(d.get("r", 0)),
-            g=int(d.get("g", 0)),
-            b=int(d.get("b", 0)),
+            r=r,
+            g=g,
+            b=b,
             priority=str(d.get("priority", "medium")),
             label=str(d.get("label", "")),
             rationale=str(d.get("rationale", "")),

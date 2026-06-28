@@ -32,7 +32,7 @@ from fastapi.middleware.cors import CORSMiddleware
 _MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB limit for CSV uploads
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from calcore.analysis import analyze as _calcore_analyze
 from calcore.gamut import (
@@ -40,6 +40,7 @@ from calcore.gamut import (
     format_gamut_diagnosis as _format_gamut_diagnosis,
     gamut_diagnosis_to_dict as _gamut_diagnosis_to_dict,
 )
+from calcore.patch_planner import MAX_RGB as _MAX_RGB
 from calcore.llm import (
     build_history_block as _build_history_block,
     call_llm as _call_llm,
@@ -535,6 +536,11 @@ class SuggestedPatchBody(BaseModel):
     priority: str
     label: str = ""
     rationale: str = ""
+
+    @field_validator("r", "g", "b", mode="before")
+    @classmethod
+    def clamp_rgb(cls, v: int) -> int:
+        return max(0, min(int(v), _MAX_RGB))
 
 
 class RunPatchesReq(BaseModel):
@@ -1608,6 +1614,7 @@ def get_suggested_patches(sid: str, budget: int = 30):
         phase=phase,
         patch_budget=budget,
         llm=llm_cfg,
+        code_max=cfg.code_max,
     )
 
     if optimization is None:
