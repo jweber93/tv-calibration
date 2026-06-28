@@ -27,30 +27,19 @@ def is_number(s: str) -> bool:
 
 
 def _classify_headerless_row(
-    v4: float, v5: float, v6: float, explicit_format: Literal["xyY", "XYZ"] | None,
+    v4: float, v5: float, v6: float, explicit_format: Literal["xyY", "XYZ"],
 ) -> tuple[tuple[float, float, float], tuple[float, float, float] | None]:
     """Return (meas_xyz, meas_yxy) for a headerless row.
 
-    When *explicit_format* is given, use it directly.
-    Otherwise apply the tightened heuristic:
-      - Treat as xyY only when x + y < 1.0 (valid chromaticity triangle boundary).
-      - Otherwise treat as XYZ.
+    *explicit_format* must be provided by the caller; auto-detection is disabled
+    because it can misclassify low-luminance XYZ as xyY.
     """
     if explicit_format == "XYZ":
         return (v4, v5, v6), None
 
-    if explicit_format == "xyY":
-        Y, x, y = v4, v5, v6
-        return xyY_to_xyz(x, y, Y), (Y, x, y)
-
-    # Auto-detect: xyY is valid only when x + y < 1.0 (chromaticity inside triangle).
-    # This prevents low-luminance XYZ values (e.g. black: X=0.3, Y=0.5, Z=0.4)
-    # from being misclassified as xyY.
-    x, y, Y = v5, v6, v4
-    if 0 <= x <= 1.0 and 0 <= y <= 1.0 and Y >= 0 and (x + y) < 1.0:
-        return xyY_to_xyz(x, y, Y), (Y, x, y)
-
-    return (v4, v5, v6), None
+    # explicit_format == "xyY"
+    Y, x, y = v4, v5, v6
+    return xyY_to_xyz(x, y, Y), (Y, x, y)
 
 
 def parse_measurement_csv(
@@ -134,6 +123,12 @@ def parse_measurement_csv(
                 )
             )
         return patches
+
+    if format is None:
+        raise ValueError(
+            "Headerless CSV detected. Explicit 'format' parameter required (\"XYZ\" or \"xyY\"). "
+            "Auto-detection is unreliable and can silently misclassify data."
+        )
 
     for line in raw_lines:
         line = line.strip()
