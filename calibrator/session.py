@@ -136,6 +136,9 @@ STEPS_ORDER = [
 # Repatch is a transient meta-state that can occur during any measurement step
 REPATCH_MAX_PASSES = 3
 
+# Cap on stored convergence-loop rounds per session to bound growth (#337)
+_MAX_ADJUSTMENT_ROUNDS = 20
+
 STEP_LABELS = {
     "select_mode": "Mode",
     "prepare": "Prepare TV",
@@ -2067,6 +2070,10 @@ class SessionStore:
                     "timestamp": now().isoformat(),
                 }
             )
+            # Bound session growth — the most recent rounds drive stall detection,
+            # so keep the tail and drop the oldest.
+            if len(rounds) > _MAX_ADJUSTMENT_ROUNDS:
+                del rounds[:-_MAX_ADJUSTMENT_ROUNDS]
             self.save_session(sid)
             return session
 

@@ -1681,7 +1681,10 @@ def predict_next_settings(
         content = choices[0]["message"]["content"].strip()
         plan = parse_adjustment_plan(content)
         if plan is None:
-            logger.warning("predict_next_settings: could not parse adjustment plan")
+            logger.warning(
+                "predict_next_settings: could not parse adjustment plan from: %s",
+                content[:500],
+            )
             return None
 
         return NextSettingsPrediction(
