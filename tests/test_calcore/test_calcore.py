@@ -53,7 +53,7 @@ class ParseMeasurementCsvTests(unittest.TestCase):
             path = Path(tmpdir) / "measurements.csv"
             path.write_text(csv_text, encoding="utf-8")
 
-            patches = parse_measurement_csv(str(path))
+            patches = parse_measurement_csv(str(path), format="xyY")
 
         self.assertEqual(len(patches), 2)
         self.assertEqual(patches[0].meas_yxy, (100.0, 0.3127, 0.3290))
