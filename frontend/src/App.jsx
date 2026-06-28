@@ -30,6 +30,7 @@ class StepErrorBoundary extends Component {
   }
 }
 import { Setup }         from './pages/Setup';
+import { SelectMode }    from './pages/SelectMode';
 import { Prepare }       from './pages/Prepare';
 import { PreGrayscale }  from './pages/PreGrayscale';
 import { Luminance }     from './pages/Luminance';
@@ -101,7 +102,7 @@ export default function App() {
       return <Setup profiles={profiles} onCreateSession={sess.createSession} onConfirmMode={sess.confirmMode} />;
     }
     switch (session.step) {
-      case 'select_mode':    return null;
+      case 'select_mode':    return <SelectMode    {...stepProps} onConfirmMode={sess.confirmMode} />;
       case 'prepare':        return <Prepare       {...stepProps} onConfirmPrepared={sess.confirmPrepared} onSetLightspaceTier={sess.setLightspaceTier} onSetGrayscaleRamp={sess.setGrayscaleRamp} onSetSignalRange={sess.setSignalRange} onSetCodeScale={sess.setCodeScale} onSetPatternGenerator={sess.setPatternGenerator} onConfigureLlm={sess.configureLlm} onGetLlmStatus={sess.getLlmStatus} />;
       case 'pre_grayscale':  return <PreGrayscale  {...stepProps} />;
       case 'luminance':      return <Luminance     {...stepProps} adbStatus={adbStatus} onAdbSetPicture={sess.adbSetPicture} onAdbGetPicture={sess.adbGetPicture} onAdbDeploy={sess.adbDeploy} onRefreshAdb={sess.refreshAdbStatus} />;

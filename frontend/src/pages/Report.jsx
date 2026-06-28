@@ -98,14 +98,14 @@ export function Report({ session, onPrev }) {
               tooltip="Maximum brightness measured in cd/m² (nits)."
             />
             <StatCard
-              value={report.tracking_gamma != null ? report.tracking_gamma.toFixed(2) : '—'}
+              value={report.gamma?.avg_gamma != null ? report.gamma.avg_gamma.toFixed(2) : '—'}
               label="Tracking Gamma"
-              tooltip="Measured gamma exponent. Target is typically 2.2 or BT.1886."
+              tooltip="Average measured gamma exponent. Target is typically 2.2 or BT.1886."
             />
             <StatCard
-              value={report.white_point_cct != null ? `${Math.round(report.white_point_cct)}K` : '—'}
-              label="White Point CCT"
-              tooltip="Correlated Color Temperature of the white point. D65 is ~6500 K."
+              value={post.max_de != null ? post.max_de.toFixed(2) : '—'}
+              label="Post-Cal Max ΔE"
+              tooltip="Worst-case Delta E after calibration. ΔE < 3 is generally acceptable."
             />
           </div>
 
