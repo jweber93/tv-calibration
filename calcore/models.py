@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 import math
@@ -243,12 +244,41 @@ class CalibrationTarget:
     def __post_init__(self) -> None:
         if not self.primaries:
             self.primaries = detect_primaries(self.gamut)
-        # Normalize primaries to dict format if it's a tuple (JSON serialization format).
-        if isinstance(self.primaries, tuple):
-            color_names = ["red", "green", "blue"]
-            self.primaries = dict(zip(color_names, self.primaries))
-        else:
+
+        # Normalize primaries to dict format {name: (x, y)}.
+        # Handles: dict (pass-through), tuple/list of coordinate pairs (JSON format).
+        if isinstance(self.primaries, Mapping):
             self.primaries = dict(self.primaries)
+        elif isinstance(self.primaries, Sequence) and not isinstance(self.primaries, (str, bytes)):
+            # Validate shape: sequence of 3 coordinate pairs (x, y)
+            if len(self.primaries) != 3:
+                raise ValueError(
+                    f"primaries sequence must have exactly 3 elements (red, green, blue), got {len(self.primaries)}"
+                )
+            color_names = ["red", "green", "blue"]
+            validated_primaries = {}
+            for i, (name, coords) in enumerate(zip(color_names, self.primaries)):
+                if not isinstance(coords, Sequence) or isinstance(coords, (str, bytes)):
+                    raise ValueError(
+                        f"primaries[{i}] ({name}) must be a sequence of (x, y) coordinates, got {type(coords).__name__}"
+                    )
+                if len(coords) != 2:
+                    raise ValueError(
+                        f"primaries[{i}] ({name}) must be a pair (x, y), got {len(coords)} elements"
+                    )
+                try:
+                    x, y = float(coords[0]), float(coords[1])
+                    validated_primaries[name] = (x, y)
+                except (TypeError, ValueError) as e:
+                    raise ValueError(
+                        f"primaries[{i}] ({name}) coordinates must be numbers (float/int), got {type(coords[0]).__name__}, {type(coords[1]).__name__}"
+                    ) from e
+            self.primaries = validated_primaries
+        else:
+            raise TypeError(
+                f"primaries must be a mapping or sequence of (x, y) pairs, got {type(self.primaries).__name__}"
+            )
+
         # Normalize display names that older calibrator code expects.
         if self.gamut.lower() in ("bt709", "709", "rec709"):
             self.gamut = "Rec.709"
