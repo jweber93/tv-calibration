@@ -33,7 +33,8 @@ def target_xyz_for_patch(
             rel = pq_eotf(n) / 10000.0
             target_y = measured_peak_y * rel
         elif cfg.eotf.lower() == "bt1886":
-            target_y = bt1886_eotf(n, measured_peak_y, measured_black_y, gamma=2.4)
+            gamma = 2.2 if cfg.mode.lower() == "sdr" else 2.4
+            target_y = bt1886_eotf(n, measured_peak_y, measured_black_y, gamma=gamma)
         else:
             gamma = (
                 2.2
