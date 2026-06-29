@@ -120,6 +120,7 @@ export const api = {
   // LLM
   configureLlm:  (sid, body)  => api.post(`/api/session/${sid}/llm/configure`, body),
   getLlmStatus:  (sid)        => api.get(`/api/session/${sid}/llm/status`),
+  getLlmHistorySummary: (sid)  => api.get(`/api/session/${sid}/llm/history-summary`),
   saveTvSettings: (sid, body) => api.post(`/api/session/${sid}/tv-settings`, body),
 
   // Suggested patches

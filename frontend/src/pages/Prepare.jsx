@@ -3,6 +3,7 @@ import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { DogegenCard } from '../components/DogegenCard';
 import { LlmConnectionCard } from '../components/LlmConnectionCard';
+import { LlmHistoryCard } from '../components/LlmHistoryCard';
 import { Tooltip } from '../components/Tooltip';
 import { CollapsibleSection } from '../components/CollapsibleSection';
 
@@ -330,6 +331,7 @@ export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onS
       )}
 
       {/* Section 4: AI Assistant */}
+      <LlmHistoryCard sid={session.id} />
       <LlmConnectionCard sid={session.id} />
 
       <div className="btn-group">
