@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button } from './Button';
-import { getLlmStatus, configureLlm } from '../api/client';
+import * as api from '../api/client';
 
 export function LlmConnectionCard({ sid }) {
   const [endpoint, setEndpoint] = useState('');
@@ -11,7 +11,7 @@ export function LlmConnectionCard({ sid }) {
 
   useEffect(() => {
     if (!sid) return;
-    getLlmStatus(sid).then(data => {
+    api.getLlmStatus(sid).then(data => {
       if (data?.configured) {
         setEndpoint(data.endpoint || '');
         setModel(data.model || '');
@@ -24,7 +24,7 @@ export function LlmConnectionCard({ sid }) {
     if (!sid) return;
     const body = { endpoint: endpoint.trim(), model: model.trim() };
     if (apiKey) body.api_key = apiKey;
-    const result = await configureLlm(sid, body);
+    const result = await api.configureLlm(sid, body);
     setSavedModel(result?.model || null);
     setApiKey('');
   }
@@ -33,7 +33,7 @@ export function LlmConnectionCard({ sid }) {
     if (!sid) return;
     setStatus('testing');
     try {
-      const data = await getLlmStatus(sid);
+      const data = await api.getLlmStatus(sid);
       setStatus(data);
     } catch (err) {
       setStatus({ configured: false, reachable: false, error: err.message });
