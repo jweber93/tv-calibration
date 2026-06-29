@@ -8,6 +8,7 @@ export function LlmConnectionCard({ sid }) {
   const [apiKey, setApiKey] = useState('');
   const [status, setStatus] = useState(null); // null | 'testing' | { configured, reachable, model, error }
   const [savedModel, setSavedModel] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!sid) return;
@@ -21,22 +22,31 @@ export function LlmConnectionCard({ sid }) {
   }, [sid]);
 
   async function handleSave() {
-    if (!sid) return;
+    if (!sid || loading) return;
+    setLoading(true);
+    setSavedModel(null);
     const body = { endpoint: endpoint.trim(), model: model.trim() };
-    if (apiKey) body.api_key = apiKey;
-    const result = await api.configureLlm(sid, body);
-    setSavedModel(result?.model || null);
-    setApiKey('');
+    if (apiKey.trim()) body.api_key = apiKey.trim();
+    try {
+      const result = await api.configureLlm(sid, body);
+      setSavedModel(result?.model || null);
+      setApiKey('');
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleTest() {
-    if (!sid) return;
+    if (!sid || loading) return;
+    setLoading(true);
     setStatus('testing');
     try {
       const data = await api.getLlmStatus(sid);
       setStatus(data);
     } catch (err) {
       setStatus({ configured: false, reachable: false, error: err.message });
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -125,8 +135,8 @@ export function LlmConnectionCard({ sid }) {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 2 }}>
           <div className="btn-group">
-            <Button small onClick={handleSave}>Save</Button>
-            <Button small onClick={handleTest}>Test connection</Button>
+            <Button small onClick={handleSave} disabled={loading}>Save</Button>
+            <Button small onClick={handleTest} disabled={loading}>Test connection</Button>
             {statusBadge}
           </div>
           {savedModel && (
