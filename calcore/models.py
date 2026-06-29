@@ -243,6 +243,11 @@ class CalibrationTarget:
     def __post_init__(self) -> None:
         if not self.primaries:
             self.primaries = detect_primaries(self.gamut)
+        # Normalize primaries to dict format if it's a tuple (JSON serialization format).
+        if isinstance(self.primaries, tuple):
+            self.primaries = {name: coords for name, coords in zip(["red", "green", "blue"], self.primaries)}
+        else:
+            self.primaries = dict(self.primaries)
         # Normalize display names that older calibrator code expects.
         if self.gamut.lower() in ("bt709", "709", "rec709"):
             self.gamut = "Rec.709"
