@@ -1473,6 +1473,44 @@ class TestLLMIntegration:
         assert data["configured"] is True
         assert data["reachable"] is True
 
+    def test_llm_probe_reachable(self, client, session_id, monkeypatch):
+        monkeypatch.setattr(server_module, "_probe_llm", lambda *a, **kw: (True, ""))
+        resp = client.post(f"/api/session/{session_id}/llm/probe",
+                           json={"endpoint": "http://localhost:4000", "model": "gpt-4o"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["configured"] is True
+        assert data["reachable"] is True
+        assert data["model"] == "gpt-4o"
+
+    def test_llm_probe_unreachable(self, client, session_id, monkeypatch):
+        monkeypatch.setattr(server_module, "_probe_llm", lambda *a, **kw: (False, "connection refused"))
+        resp = client.post(f"/api/session/{session_id}/llm/probe",
+                           json={"endpoint": "http://bad-host:9999", "model": "llama3"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["configured"] is True
+        assert data["reachable"] is False
+        assert data["error"] == "connection refused"
+
+    def test_llm_probe_does_not_persist_to_session(self, client, session_id, monkeypatch):
+        monkeypatch.setattr(server_module, "_probe_llm", lambda *a, **kw: (True, ""))
+        client.post(f"/api/session/{session_id}/llm/probe",
+                    json={"endpoint": "http://probe-only:9999", "model": "probe-model"})
+        resp = client.get(f"/api/session/{session_id}/llm/status")
+        data = resp.json()
+        assert data["configured"] is False
+
+    def test_llm_probe_rejects_missing_endpoint(self, client, session_id):
+        resp = client.post(f"/api/session/{session_id}/llm/probe",
+                           json={"model": "gpt-4o"})
+        assert resp.status_code == 422
+
+    def test_llm_probe_rejects_missing_model(self, client, session_id):
+        resp = client.post(f"/api/session/{session_id}/llm/probe",
+                           json={"endpoint": "http://localhost:4000"})
+        assert resp.status_code == 422
+
     def test_llm_history_summary_fresh_session(self, client, session_id, monkeypatch):
         monkeypatch.setattr(server_module, "_history_summary", lambda *a, **kw: {
             "session_count": 0, "latest_date": None,
