@@ -1193,6 +1193,25 @@ def llm_status(sid: str):
     }
 
 
+@app.get("/api/session/{sid}/llm/history-summary")
+def llm_history_summary(sid: str):
+    session = store.get(sid)
+    tv_key = session.get("tv_key", "unknown")
+    summary = _history_summary(tv_key)
+    history = _load_history(tv_key, limit=3)
+    has_finals = any(
+        (h.get("wb_final") or h.get("cms_final")) for h in history
+    )
+    return {
+        "tv_key": tv_key,
+        "session_count": summary.get("session_count", 0),
+        "latest_date": summary.get("latest_date"),
+        "latest_post_de": summary.get("latest_post_de"),
+        "baseline_post_de": summary.get("baseline_post_de"),
+        "has_final_settings": has_finals,
+    }
+
+
 @app.post("/api/session/{sid}/llm/run")
 def llm_run(sid: str):
     session = store.get(sid)

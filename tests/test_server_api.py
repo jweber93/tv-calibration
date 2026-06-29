@@ -1473,6 +1473,19 @@ class TestLLMIntegration:
         assert data["configured"] is True
         assert data["reachable"] is True
 
+    def test_llm_history_summary_fresh_session(self, client, session_id, monkeypatch):
+        monkeypatch.setattr(server_module, "_history_summary", lambda *a, **kw: {
+            "session_count": 0, "latest_date": None,
+            "latest_post_de": None, "baseline_post_de": None,
+        })
+        monkeypatch.setattr(server_module, "_load_history", lambda *a, **kw: [])
+        resp = client.get(f"/api/session/{session_id}/llm/history-summary")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["session_count"] == 0
+        assert data["tv_key"] == "u8g"
+        assert data["has_final_settings"] is False
+
     def test_llm_run_not_configured_returns_400(self, client, session_id):
         resp = client.post(f"/api/session/{session_id}/llm/run")
         assert resp.status_code == 400
