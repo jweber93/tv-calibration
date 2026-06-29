@@ -4,16 +4,18 @@ import * as api from '../api/client';
 export function LlmHistoryCard({ sid }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setError(false);
     Promise.resolve(sid ? api.getLlmHistorySummary(sid) : null)
       .then((res) => {
         if (!cancelled) setData(res);
       })
       .catch(() => {
-        if (!cancelled) setData(null);
+        if (!cancelled) setError(true);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -22,6 +24,19 @@ export function LlmHistoryCard({ sid }) {
   }, [sid]);
 
   if (loading) return null;
+
+  if (error) {
+    return (
+      <div className="card">
+        <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--ink)', marginBottom: 12 }}>
+          Bootstrap from History
+        </div>
+        <div style={{ fontSize: '0.82rem', color: 'var(--line2)', fontStyle: 'italic' }}>
+          Unable to load history.
+        </div>
+      </div>
+    );
+  }
 
   const sessionCount = data?.session_count ?? 0;
   const hasFinals = data?.has_final_settings ?? false;

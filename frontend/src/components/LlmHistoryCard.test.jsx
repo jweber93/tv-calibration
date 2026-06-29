@@ -61,11 +61,9 @@ describe('LlmHistoryCard', () => {
     expect(screen.queryByText(/Prior runs have no saved settings yet/)).not.toBeInTheDocument();
   });
 
-  it('renders nothing when API call rejects', async () => {
+  it('renders subtle error message when API call rejects', async () => {
     client.getLlmHistorySummary.mockRejectedValue(new Error('network error'));
-    const { container } = render(<LlmHistoryCard sid={sid} />);
-    await waitFor(() => {
-      expect(container).toBeEmptyDOMElement();
-    });
+    render(<LlmHistoryCard sid={sid} />);
+    expect(await screen.findByText('Unable to load history.')).toBeInTheDocument();
   });
 });
