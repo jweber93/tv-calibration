@@ -43,8 +43,11 @@ export function LlmConnectionCard({ sid, onConfigureLlm }) {
     setLoading(true);
     setStatus('testing');
     try {
-      const data = await api.getLlmStatus(sid);
+      const body = { endpoint: endpoint.trim(), model: model.trim() };
+      if (apiKey.trim()) body.api_key = apiKey.trim();
+      const data = await api.probeLlm(sid, body);
       setStatus(data);
+      setApiKey('');
     } catch (err) {
       setStatus({ configured: false, reachable: false, error: err.message });
     } finally {

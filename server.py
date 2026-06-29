@@ -532,6 +532,12 @@ class LlmConfigureReq(BaseModel):
     timeout: Optional[float] = None
 
 
+class LlmProbeReq(BaseModel):
+    endpoint: str
+    model: str
+    api_key: str = ""
+
+
 class SuggestedPatchBody(BaseModel):
     nits: float
     r: int
@@ -1189,6 +1195,23 @@ def llm_status(sid: str):
         "configured": configured,
         "reachable": reachable,
         "model": llm_cfg.get("model", ""),
+        "error": error,
+    }
+
+
+@app.post("/api/session/{sid}/llm/probe")
+def probe_llm_endpoint(sid: str, req: LlmProbeReq):
+    """Probe the given LLM values without persisting them to the session."""
+    cfg = {
+        "endpoint": req.endpoint.strip(),
+        "model": req.model.strip(),
+        "api_key": req.api_key,
+    }
+    reachable, error = _probe_llm(cfg)
+    return {
+        "configured": bool(cfg["endpoint"] and cfg["model"]),
+        "reachable": reachable,
+        "model": cfg["model"],
         "error": error,
     }
 

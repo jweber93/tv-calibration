@@ -7,6 +7,7 @@ import * as client from '../api/client';
 vi.mock('../api/client', () => ({
   getLlmStatus: vi.fn(),
   configureLlm: vi.fn(),
+  probeLlm: vi.fn(),
 }));
 
 const sid = 'test-session-123';
@@ -30,6 +31,7 @@ describe('LlmConnectionCard', () => {
 
   it('shows error when configured but unreachable', async () => {
     client.getLlmStatus.mockResolvedValue({ configured: true, reachable: false, error: 'HTTP 401: Unauthorized' });
+    client.probeLlm.mockResolvedValue({ configured: true, reachable: false, error: 'HTTP 401: Unauthorized' });
     render(<LlmConnectionCard sid={sid} />);
     await screen.findByText('Not configured');
     await userEvent.click(screen.getByText('Test connection'));
@@ -105,5 +107,33 @@ describe('LlmConnectionCard', () => {
     await userEvent.click(screen.getByText('Save'));
 
     expect(client.configureLlm).toHaveBeenCalledWith(sid, { endpoint: 'http://localhost:11434/v1', model: 'llama3' });
+  });
+
+  it('clicking Test connection probes current field values, not saved config', async () => {
+    client.getLlmStatus.mockResolvedValue({ configured: false });
+    client.probeLlm.mockResolvedValue({ configured: true, reachable: true, model: 'llama3' });
+    render(<LlmConnectionCard sid={sid} />);
+    await screen.findByText('Not configured');
+
+    await userEvent.type(screen.getByPlaceholderText('http://localhost:11434/v1'), 'http://localhost:11434/v1');
+    await userEvent.type(screen.getByPlaceholderText('llama3'), 'llama3');
+    await userEvent.click(screen.getByText('Test connection'));
+
+    expect(client.probeLlm).toHaveBeenCalledOnce();
+    expect(client.probeLlm).toHaveBeenCalledWith(sid, { endpoint: 'http://localhost:11434/v1', model: 'llama3' });
+    expect(await screen.findByText('Reachable (llama3)')).toBeInTheDocument();
+  });
+
+  it('Test connection does not call configureLlm', async () => {
+    client.getLlmStatus.mockResolvedValue({ configured: false });
+    client.probeLlm.mockResolvedValue({ configured: true, reachable: true, model: 'llama3' });
+    render(<LlmConnectionCard sid={sid} />);
+    await screen.findByText('Not configured');
+
+    await userEvent.type(screen.getByPlaceholderText('http://localhost:11434/v1'), 'http://localhost:11434/v1');
+    await userEvent.type(screen.getByPlaceholderText('llama3'), 'llama3');
+    await userEvent.click(screen.getByText('Test connection'));
+
+    expect(client.configureLlm).not.toHaveBeenCalled();
   });
 });
