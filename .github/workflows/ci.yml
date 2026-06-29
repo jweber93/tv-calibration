@@ -281,6 +281,29 @@ jobs:
   # once a stable version is confirmed. Bandit covers security scanning for now.
   # security-trivy: ...
 
+  secret-scan:
+    name: Security / secrets + PII
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [lint-python]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so gitleaks scans every commit on the PR, not just the
+          # tip — a secret added and "removed" in a later commit still leaks.
+          fetch-depth: 0
+
+      - name: Scan for committed secrets (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+      - name: Repo hygiene (gitignored-but-tracked files + developer paths)
+        run: bash scripts/check-repo-hygiene.sh
+
 # ── Stage 4: Docker Build Smoke Test ──────────────────────────────────────────
   docker-build:
     name: Docker / build
@@ -376,6 +399,7 @@ jobs:
       - frontend-checks
       - playwright-e2e
       - security-bandit
+      - secret-scan
       - docker-build
     runs-on: ubuntu-latest
     if: always()

@@ -1,0 +1,29 @@
+# Gitleaks configuration for tv-calibration.
+#
+# Extends the upstream default ruleset (API keys, tokens, private keys, etc.)
+# and adds a narrow allowlist for values that look secret-ish but are
+# intentional, non-sensitive fixtures. Keep this list tight — every entry is a
+# hole in the scanner.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documented demo defaults and test fixtures — not real secrets."
+
+paths = [
+  # Lockfiles and vendored/minified bundles: integrity hashes and obfuscated
+  # code trip generic-secret heuristics but contain no credentials of ours.
+  '''frontend/package-lock\.json''',
+  '''static/assets/.*''',
+  '''frontend/public/assets/.*''',
+  # Test data and reference measurement CSVs — synthetic, no secrets.
+  '''tests/.*''',
+  '''tools/reference/.*\.csv''',
+]
+
+regexes = [
+  # Samba sidecar demo credentials in docker-compose.yml ("-u zro;;zro").
+  # A throwaway LAN share login documented in the compose file, not a secret.
+  '''zro;;zro''',
+]

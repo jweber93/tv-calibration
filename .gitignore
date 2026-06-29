@@ -36,6 +36,7 @@ frontend/test-results/
 
 # Claude Code
 .claude/settings.local.json
+.claude/worktrees/
 
 # Python build artifacts
 dist/
