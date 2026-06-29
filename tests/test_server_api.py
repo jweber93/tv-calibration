@@ -2070,6 +2070,93 @@ class TestHistoryGuardedByCompletion:
         assert recorded[0][1]["cms_final"] == {"red_sat": 3}
 
 
+# ── Bug fix: #352 _record_session wb_final/cms_final integration test ──────────
+
+class TestRecordSessionWbCmsIntegration:
+    """#352: Call real record_session with wb_final/cms_final and verify persistence."""
+
+    def test_record_session_persists_wb_final_and_cms_final(self, tmp_path):
+        """Integration test: real record_session writes wb_final/cms_final to JSONL."""
+        from calibrator.history import record_session, load_history
+
+        tv_key = "u8g-integration-test"
+        session_id = "int-test-session-001"
+        report = {
+            "pre_cal": {"avg_de": 5.0},
+            "post_cal": {"avg_de": 1.5},
+            "gamma": {"avg_gamma": 2.2},
+            "peak_luminance": 300.0,
+            "improvement_pct": 70.0,
+            "white_balance": {"avg_de": 0.8},
+            "color_tuner": {"avg_de": 1.2},
+        }
+        wb_final = {"two_point": {"r_gain": -2, "b_gain": 3}, "multipoint": {"10": 5}}
+        cms_final = {"red_sat": 3, "green_hue": -1}
+
+        import os
+        old_val = os.environ.get("TVCAL_HISTORY_DIR")
+        try:
+            os.environ["TVCAL_HISTORY_DIR"] = str(tmp_path)
+            record_session(
+                tv_key=tv_key,
+                session_id=session_id,
+                mode="SDR",
+                report=report,
+                wb_final=wb_final,
+                cms_final=cms_final,
+            )
+            entries = load_history(tv_key)
+            assert len(entries) == 1
+            entry = entries[0]
+            assert entry["session_id"] == session_id
+            assert entry["wb_final"] == wb_final
+            assert entry["cms_final"] == cms_final
+        finally:
+            if old_val is None:
+                os.environ.pop("TVCAL_HISTORY_DIR", None)
+            else:
+                os.environ["TVCAL_HISTORY_DIR"] = old_val
+
+    def test_record_session_omits_wb_cms_when_not_provided(self, tmp_path):
+        """Integration test: omitting wb_final/cms_final defaults to empty dict."""
+        from calibrator.history import record_session, load_history
+
+        tv_key = "u8g-integration-test-2"
+        session_id = "int-test-session-002"
+        report = {"post_cal": {"avg_de": 2.0}}
+
+        import os
+        old_val = os.environ.get("TVCAL_HISTORY_DIR")
+        try:
+            os.environ["TVCAL_HISTORY_DIR"] = str(tmp_path)
+            record_session(
+                tv_key=tv_key,
+                session_id=session_id,
+                mode="HDR10",
+                report=report,
+            )
+            entries = load_history(tv_key)
+            assert len(entries) == 1
+            entry = entries[0]
+            assert entry["wb_final"] == {}
+            assert entry["cms_final"] == {}
+        finally:
+            if old_val is None:
+                os.environ.pop("TVCAL_HISTORY_DIR", None)
+            else:
+                os.environ["TVCAL_HISTORY_DIR"] = old_val
+
+    def test_record_session_accepts_wb_cms_kwargs_explicitly(self):
+        """Verify record_session signature includes wb_final and cms_final."""
+        import inspect
+        from calibrator.history import record_session
+
+        sig = inspect.signature(record_session)
+        params = list(sig.parameters.keys())
+        assert "wb_final" in params, f"wb_final missing from signature: {params}"
+        assert "cms_final" in params, f"cms_final missing from signature: {params}"
+
+
 # ── Bug fix: #217 invalid measurements with delta_e=None don't crash reports ────
 
 class TestReportPayloadInvalidMeasurements:
