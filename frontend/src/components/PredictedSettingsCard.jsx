@@ -77,7 +77,7 @@ export function PredictedSettingsCard({ getPredictedSettings, phase }) {
         <tbody>
           {settings.map((s) => (
             <tr key={`${s.menu}:${s.setting}`} style={{ borderBottom: '1px solid var(--border-subtle, rgba(255,255,255,0.06))' }}>
-              <td style={{ padding: '7px 0', color: 'var(--ink2)', whiteSpace: 'nowrap' }}>
+              <td style={{ padding: '7px 0', color: 'var(--ink2)', whiteSpace: 'nowrap', verticalAlign: 'top' }}>
                 {s.menu} › {s.setting}
                 {s.reason && (
                   <div style={{ fontSize: '0.72rem', color: 'var(--ink2)', marginTop: 2, whiteSpace: 'normal', opacity: 0.85 }}>
