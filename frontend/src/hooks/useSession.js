@@ -449,10 +449,10 @@ export function useSession() {
     return api.runSuggestedPatches(session.id, patches);
   }
 
-  async function getPredictedSettings(phase) {
+  const getPredictedSettings = useCallback(async (phase) => {
     if (!session?.id) return null;
     return api.getPredictedSettings(session.id, phase);
-  }
+  }, [session?.id]);
 
   function dismissLlmInsight() {
     setLlmInsight(null);
