@@ -86,7 +86,7 @@ class TestCalibrationTargetPrimaries:
             CalibrationTarget(
                 mode=CalMode.SDR,
                 gamut="bt709",
-                primaries=((0.64, 0.33), ("0.30", 0.60), (0.15, 0.06)),
+                primaries=((0.64, 0.33), ("abc", 0.60), (0.15, 0.06)),
             )
 
     def test_primaries_coordinate_not_sequence(self):
