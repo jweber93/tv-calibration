@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { DogegenCard } from '../components/DogegenCard';
+import { LlmConnectionCard } from '../components/LlmConnectionCard';
 import { Tooltip } from '../components/Tooltip';
 import { CollapsibleSection } from '../components/CollapsibleSection';
 
-export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onSetLightspaceTier, onSetGrayscaleRamp, onSetSignalRange, onSetCodeScale, onSetPatternGenerator, onSaveDogegenConfig, onStartDogegen, onStopDogegen, onConfigureLlm, onGetLlmStatus }) {
+export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onSetLightspaceTier, onSetGrayscaleRamp, onSetSignalRange, onSetCodeScale, onSetPatternGenerator, onSaveDogegenConfig, onStartDogegen, onStopDogegen }) {
   const pd = session.prepare_data || {};
 
   const currentTier        = session.lightspace_tier      || 'free';
@@ -22,30 +23,12 @@ export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onS
   const [selectedSignalRange, setSelectedSignalRange] = useState(currentSignalRange);
   const [selectedCodeScale,   setSelectedCodeScale]   = useState(currentCodeScale);
   const [selectedGenerator,   setSelectedGenerator]   = useState(currentGenerator);
-  const [settingsLoading, setSettingsLoading] = useState(false);
-
-  // AI Assistant state
-  const llmCfg = session.llm_config || {};
-  const [llmEnabled,   setLlmEnabled]   = useState(!!(llmCfg.endpoint && llmCfg.model));
-  const [llmEndpoint,  setLlmEndpoint]  = useState(llmCfg.endpoint || '');
-  const [llmModel,     setLlmModel]     = useState(llmCfg.model || '');
-  const [llmApiKey,    setLlmApiKey]    = useState('');
-  const [llmTestStatus, setLlmTestStatus] = useState(null); // null | 'testing' | 'ok' | 'unreachable' | 'error'
-  const [llmTestError,  setLlmTestError]  = useState('');
 
   useEffect(() => setSelectedTier(currentTier), [currentTier]);
   useEffect(() => setSelectedSteps(currentSteps), [currentSteps]);
   useEffect(() => setSelectedSignalRange(currentSignalRange), [currentSignalRange]);
   useEffect(() => setSelectedCodeScale(currentCodeScale), [currentCodeScale]);
   useEffect(() => setSelectedGenerator(currentGenerator), [currentGenerator]);
-
-  // Sync LLM config from session when it changes (e.g. after a round-trip)
-  useEffect(() => {
-    const cfg = session.llm_config || {};
-    setLlmEnabled(!!(cfg.endpoint && cfg.model));
-    setLlmEndpoint(cfg.endpoint || '');
-    setLlmModel(cfg.model || '');
-  }, [session.llm_config?.endpoint, session.llm_config?.model]);
 
   const availableRamps = selectedGenerator === 'lightspace_connect'
     ? rampOptions.filter(o => !o.requires_paid || selectedTier === 'paid')
@@ -89,71 +72,6 @@ export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onS
   function handleCodeScaleChange(codeScale) {
     setSelectedCodeScale(codeScale);
     if (onSetCodeScale) onSetCodeScale(codeScale);
-  }
-
-  async function handleLlmToggle(enabled) {
-    setLlmEnabled(enabled);
-    setSettingsLoading(true);
-    try {
-      if (!enabled) {
-        setLlmEndpoint('');
-        setLlmModel('');
-        setLlmTestStatus(null);
-        if (onConfigureLlm) await onConfigureLlm({ endpoint: '', model: '' });
-      }
-    } finally {
-      setSettingsLoading(false);
-    }
-  }
-
-  async function handleLlmEndpointBlur(value) {
-    setSettingsLoading(true);
-    try {
-      if (onConfigureLlm) await onConfigureLlm({ endpoint: value.trim() });
-    } finally {
-      setSettingsLoading(false);
-    }
-  }
-
-  async function handleLlmModelBlur(value) {
-    setSettingsLoading(true);
-    try {
-      if (onConfigureLlm) await onConfigureLlm({ model: value.trim() });
-    } finally {
-      setSettingsLoading(false);
-    }
-  }
-
-  async function handleLlmApiKeyBlur(value) {
-    if (!value || !onConfigureLlm) return;
-    setSettingsLoading(true);
-    try {
-      await onConfigureLlm({ api_key: value });
-      setLlmApiKey('');
-    } finally {
-      setSettingsLoading(false);
-    }
-  }
-
-  async function handleTestConnection() {
-    if (!onGetLlmStatus) return;
-    setLlmTestStatus('testing');
-    setLlmTestError('');
-    try {
-      const data = await onGetLlmStatus();
-      if (data?.configured && data?.reachable) {
-        setLlmTestStatus('ok');
-      } else if (data?.configured) {
-        setLlmTestStatus('unreachable');
-        setLlmTestError(data?.error || '');
-      } else {
-        setLlmTestStatus('error');
-        setLlmTestError('Endpoint and model must both be set.');
-      }
-    } catch {
-      setLlmTestStatus('error');
-      setLlmTestError('Request failed — is the server running?');
-    }
   }
 
   const measurementSummary = [
@@ -411,92 +329,8 @@ export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onS
         </CollapsibleSection>
       )}
 
-      {/* Section 4: AI Assistant — collapsed by default */}
-      <CollapsibleSection title="AI Assistant" storageKey="prepare-ai" defaultOpen={false}>
-        <Card>
-          <div className="text-sm muted" style={{ marginBottom: 16 }}>
-            Connect an OpenAI-compatible LLM (e.g. Ollama, LiteLLM) to get real-time coaching
-            after each ZRO import. If unconfigured the rest of the workflow is unaffected.
-          </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, cursor: 'pointer', userSelect: 'none' }}>
-            <input
-              type="checkbox"
-              checked={llmEnabled}
-              onChange={e => handleLlmToggle(e.target.checked)}
-              style={{ width: 16, height: 16, accentColor: 'var(--accent)', cursor: 'pointer' }}
-            />
-            <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>Enable AI Assistant</span>
-          </label>
-          {llmEnabled && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--ink2)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  Endpoint URL
-                </label>
-                <input
-                  type="url"
-                  value={llmEndpoint}
-                  onChange={e => setLlmEndpoint(e.target.value)}
-                  onBlur={e => handleLlmEndpointBlur(e.target.value)}
-                  placeholder="http://localhost:11434/v1"
-                  autoComplete="off"
-                  spellCheck={false}
-                  disabled={settingsLoading}
-                  style={{ background: 'var(--panel2)', border: '1px solid var(--line2)', borderRadius: 'var(--radius)', color: 'var(--ink)', fontSize: '0.84rem', padding: '7px 10px', width: '100%', maxWidth: 480, outline: 'none', fontFamily: 'inherit' }}
-                />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--ink2)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  Model name
-                </label>
-                <input
-                  type="text"
-                  value={llmModel}
-                  onChange={e => setLlmModel(e.target.value)}
-                  onBlur={e => handleLlmModelBlur(e.target.value)}
-                  placeholder="llama3"
-                  autoComplete="off"
-                  spellCheck={false}
-                  disabled={settingsLoading}
-                  style={{ background: 'var(--panel2)', border: '1px solid var(--line2)', borderRadius: 'var(--radius)', color: 'var(--ink)', fontSize: '0.84rem', padding: '7px 10px', width: '100%', maxWidth: 480, outline: 'none', fontFamily: 'inherit' }}
-                />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--ink2)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  API key{' '}
-                  <span style={{ fontSize: '0.72rem', fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--line2)' }}>
-                    (optional — never shown)
-                  </span>
-                </label>
-                <input
-                  type="password"
-                  value={llmApiKey}
-                  onChange={e => setLlmApiKey(e.target.value)}
-                  onBlur={e => handleLlmApiKeyBlur(e.target.value)}
-                  placeholder="sk-…"
-                  autoComplete="new-password"
-                  disabled={settingsLoading}
-                  style={{ background: 'var(--panel2)', border: '1px solid var(--line2)', borderRadius: 'var(--radius)', color: 'var(--ink)', fontSize: '0.84rem', padding: '7px 10px', width: '100%', maxWidth: 480, outline: 'none', fontFamily: 'inherit' }}
-                />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 2 }}>
-                <div className="btn-group">
-                  <Button small onClick={handleTestConnection}>Test Connection</Button>
-                  {llmTestStatus === 'testing'    && <span style={{ fontSize: '0.8rem', fontWeight: 600, padding: '5px 10px', borderRadius: 'var(--radius)', color: 'var(--ink2)', background: 'var(--panel2)', border: '1px solid var(--line)' }}>Testing…</span>}
-                  {llmTestStatus === 'ok'         && <span style={{ fontSize: '0.8rem', fontWeight: 600, padding: '5px 10px', borderRadius: 'var(--radius)', color: 'var(--green)', background: 'var(--green-dim)', border: '1px solid #22c98759' }}>✓ Connected</span>}
-                  {llmTestStatus === 'unreachable'&& <span style={{ fontSize: '0.8rem', fontWeight: 600, padding: '5px 10px', borderRadius: 'var(--radius)', color: 'var(--red)',   background: 'var(--red-dim)',   border: '1px solid #e74c3c4d' }}>✗ Unreachable</span>}
-                  {llmTestStatus === 'error'      && <span style={{ fontSize: '0.8rem', fontWeight: 600, padding: '5px 10px', borderRadius: 'var(--radius)', color: 'var(--red)',   background: 'var(--red-dim)',   border: '1px solid #e74c3c4d' }}>✗ Error</span>}
-                </div>
-                {llmTestError && (llmTestStatus === 'unreachable' || llmTestStatus === 'error') && (
-                  <div style={{ fontSize: '0.78rem', color: 'var(--red)', fontFamily: 'monospace', padding: '6px 8px', background: 'var(--red-dim)', borderRadius: 'var(--radius)', wordBreak: 'break-all', maxWidth: 480 }}>
-                    {llmTestError}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </Card>
-      </CollapsibleSection>
+      {/* Section 4: AI Assistant */}
+      <LlmConnectionCard sid={session.id} />
 
       <div className="btn-group">
         <Button onClick={onPrev}>← Back</Button>

@@ -93,7 +93,7 @@ export default function App() {
     }
     switch (session.step) {
       case 'select_mode':    return <SelectMode    {...stepProps} onConfirmMode={sess.confirmMode} />;
-      case 'prepare':        return <Prepare       {...stepProps} onConfirmPrepared={sess.confirmPrepared} onSetLightspaceTier={sess.setLightspaceTier} onSetGrayscaleRamp={sess.setGrayscaleRamp} onSetSignalRange={sess.setSignalRange} onSetCodeScale={sess.setCodeScale} onSetPatternGenerator={sess.setPatternGenerator} onConfigureLlm={sess.configureLlm} onGetLlmStatus={sess.getLlmStatus} />;
+      case 'prepare':        return <Prepare       {...stepProps} onConfirmPrepared={sess.confirmPrepared} onSetLightspaceTier={sess.setLightspaceTier} onSetGrayscaleRamp={sess.setGrayscaleRamp} onSetSignalRange={sess.setSignalRange} onSetCodeScale={sess.setCodeScale} onSetPatternGenerator={sess.setPatternGenerator} />;
       case 'pre_grayscale':  return <PreGrayscale  {...stepProps} />;
       case 'luminance':      return <Luminance     {...stepProps} adbStatus={adbStatus} onAdbSetPicture={sess.adbSetPicture} onAdbGetPicture={sess.adbGetPicture} onAdbDeploy={sess.adbDeploy} onRefreshAdb={sess.refreshAdbStatus} />;
       case 'white_balance':  return <WhiteBalance  {...stepProps} getPredictedSettings={getPredictedSettings} />;
