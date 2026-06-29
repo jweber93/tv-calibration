@@ -246,7 +246,7 @@ class CalibrationTarget:
         # Normalize primaries to dict format if it's a tuple (JSON serialization format).
         if isinstance(self.primaries, tuple):
             color_names = ["red", "green", "blue"]
-            self.primaries = {name: coords for name, coords in zip(color_names, self.primaries)}
+            self.primaries = dict(zip(color_names, self.primaries))
         else:
             self.primaries = dict(self.primaries)
         # Normalize display names that older calibrator code expects.
