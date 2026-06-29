@@ -86,6 +86,53 @@ describe('PredictedSettingsCard', () => {
     });
   });
 
+  it('renders every setting\'s reason in its own row (regression: issue #353)', async () => {
+    const getPredictedSettings = vi.fn().mockResolvedValue({
+      predicted: {
+        settings: [
+          { menu: 'White Balance', setting: 'R-Gain', value: 5, scope: 'global', reason: 'Prior session offset' },
+          { menu: 'White Balance', setting: 'G-Gain', value: 2, scope: 'global', reason: 'Close to neutral at green high' },
+          { menu: 'White Balance', setting: 'B-Gain', value: -3, scope: 'global', reason: 'Blue pulled high last cal' },
+        ],
+        source: 'history',
+        confidence: 0.85,
+      },
+    });
+    render(
+      <PredictedSettingsCard getPredictedSettings={getPredictedSettings} phase="white_balance" />,
+    );
+    await waitFor(() => {
+      expect(screen.getByText('Prior session offset')).toBeInTheDocument();
+      expect(screen.getByText('Close to neutral at green high')).toBeInTheDocument();
+      expect(screen.getByText('Blue pulled high last cal')).toBeInTheDocument();
+    });
+  });
+
+  it('hides legacy single-reason footer block (regression: issue #353)', async () => {
+    const getPredictedSettings = vi.fn().mockResolvedValue({
+      predicted: {
+        settings: [
+          { menu: 'White Balance', setting: 'R-Gain', value: 5, scope: 'global', reason: 'Prior session offset' },
+          { menu: 'White Balance', setting: 'G-Gain', value: 2, scope: 'global' },
+        ],
+        source: 'history',
+        confidence: 0.85,
+      },
+    });
+    render(
+      <PredictedSettingsCard getPredictedSettings={getPredictedSettings} phase="white_balance" />,
+    );
+    await waitFor(() => {
+      // R-Gain shows its own reason
+      expect(screen.getByText('Prior session offset')).toBeInTheDocument();
+      // Only the row that has a reason should render it — G-Gain has none
+      expect(screen.queryByText(/2/)).toBeInTheDocument(); // the value still renders
+      // No reason text node is duplicated as a footer block
+      const reasonNodes = screen.getAllByText('Prior session offset');
+      expect(reasonNodes).toHaveLength(1);
+    });
+  });
+
   it('handles non-Promise return (session not ready)', async () => {
     const getPredictedSettings = vi.fn().mockReturnValue(null);
     render(

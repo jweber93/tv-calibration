@@ -79,19 +79,19 @@ export function PredictedSettingsCard({ getPredictedSettings, phase }) {
             <tr key={`${s.menu}:${s.setting}`} style={{ borderBottom: '1px solid var(--border-subtle, rgba(255,255,255,0.06))' }}>
               <td style={{ padding: '7px 0', color: 'var(--ink2)', whiteSpace: 'nowrap' }}>
                 {s.menu} › {s.setting}
+                {s.reason && (
+                  <div style={{ fontSize: '0.72rem', color: 'var(--ink2)', marginTop: 2, whiteSpace: 'normal', opacity: 0.85 }}>
+                    {s.reason}
+                  </div>
+                )}
               </td>
-              <td style={{ padding: '7px 0', textAlign: 'right', fontWeight: 600, color: 'var(--ink)' }}>
+              <td style={{ padding: '7px 0', textAlign: 'right', fontWeight: 600, color: 'var(--ink)', verticalAlign: 'top' }}>
                 {s.value}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
-      {settings.length > 0 && settings[0].reason && (
-        <div style={{ fontSize: '0.78rem', color: 'var(--ink2)', marginTop: 8, lineHeight: 1.5 }}>
-          {settings[0].reason}
-        </div>
-      )}
     </Card>
   );
 }
