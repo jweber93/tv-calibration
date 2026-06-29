@@ -79,6 +79,21 @@ describe('LlmConnectionCard', () => {
     expect(screen.getByText('Test connection')).not.toBeDisabled();
   });
 
+  it('calls onConfigureLlm callback when provided instead of raw API', async () => {
+    const onConfigureLlm = vi.fn().mockResolvedValue({ configured: true, model: 'llama3' });
+    client.getLlmStatus.mockResolvedValue({ configured: false });
+    render(<LlmConnectionCard sid={sid} onConfigureLlm={onConfigureLlm} />);
+    await screen.findByText('Not configured');
+
+    await userEvent.type(screen.getByPlaceholderText('http://localhost:11434/v1'), 'http://localhost:11434/v1');
+    await userEvent.type(screen.getByPlaceholderText('llama3'), 'llama3');
+    await userEvent.click(screen.getByText('Save'));
+
+    expect(onConfigureLlm).toHaveBeenCalledOnce();
+    expect(onConfigureLlm).toHaveBeenCalledWith({ endpoint: 'http://localhost:11434/v1', model: 'llama3' });
+    expect(client.configureLlm).not.toHaveBeenCalled();
+  });
+
   it('trims whitespace from endpoint, model, and api_key on save', async () => {
     client.getLlmStatus.mockResolvedValue({ configured: false });
     client.configureLlm.mockResolvedValue({ configured: true, model: 'llama3' });

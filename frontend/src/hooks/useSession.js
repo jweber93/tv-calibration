@@ -426,7 +426,9 @@ export function useSession() {
 
   async function configureLlm(payload) {
     if (!session?.id) return;
-    return api.configureLlm(session.id, payload);
+    const result = await api.configureLlm(session.id, payload);
+    setSession(await api.getSession());
+    return result;
   }
 
   async function getLlmStatus() {
