@@ -37,6 +37,7 @@ echo "==> Checking for developer-specific home/profile paths..."
 path_pattern='([A-Za-z]:\\Users\\|/c/Users/|/mnt/c/Users/|/(home|Users)/[A-Za-z0-9._-]+/)'
 allow='/home/(runner|user|vscode|node|appuser)/|/Users/(runner|vscode)/|[Uu]sers[\\/](\.\.\.|<|%|you|your|username|name)'
 if hits="$(git grep -nIE "$path_pattern" -- \
+      ':(exclude)scripts/check-repo-hygiene.sh' \
       ':(exclude)static/**' \
       ':(exclude)frontend/public/assets/**' \
       ':(exclude)**/*.min.js' \
