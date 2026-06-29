@@ -7,7 +7,7 @@ import { LlmHistoryCard } from '../components/LlmHistoryCard';
 import { Tooltip } from '../components/Tooltip';
 import { CollapsibleSection } from '../components/CollapsibleSection';
 
-export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onSetLightspaceTier, onSetGrayscaleRamp, onSetSignalRange, onSetCodeScale, onSetPatternGenerator, onSaveDogegenConfig, onStartDogegen, onStopDogegen }) {
+export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onSetLightspaceTier, onSetGrayscaleRamp, onSetSignalRange, onSetCodeScale, onSetPatternGenerator, onSaveDogegenConfig, onStartDogegen, onStopDogegen, onConfigureLlm }) {
   const pd = session.prepare_data || {};
 
   const currentTier        = session.lightspace_tier      || 'free';
@@ -333,7 +333,7 @@ export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onS
       {/* Section 4: AI Assistant — collapsed by default, user remembers preference */}
       <CollapsibleSection title="AI Assistant" storageKey="prepare-ai" defaultOpen={false}>
         <LlmHistoryCard sid={session.id} />
-        <LlmConnectionCard sid={session.id} />
+        <LlmConnectionCard sid={session.id} onConfigureLlm={onConfigureLlm} />
       </CollapsibleSection>
 
       <div className="btn-group">

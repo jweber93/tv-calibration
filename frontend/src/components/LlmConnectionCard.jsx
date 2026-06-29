@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button } from './Button';
 import * as api from '../api/client';
 
-export function LlmConnectionCard({ sid }) {
+export function LlmConnectionCard({ sid, onConfigureLlm }) {
   const [endpoint, setEndpoint] = useState('');
   const [model, setModel] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -28,7 +28,9 @@ export function LlmConnectionCard({ sid }) {
     const body = { endpoint: endpoint.trim(), model: model.trim() };
     if (apiKey.trim()) body.api_key = apiKey.trim();
     try {
-      const result = await api.configureLlm(sid, body);
+      const result = onConfigureLlm
+        ? await onConfigureLlm(body)
+        : await api.configureLlm(sid, body);
       setSavedModel(result?.model || null);
       setApiKey('');
     } finally {
