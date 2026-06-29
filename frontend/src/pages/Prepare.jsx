@@ -330,9 +330,11 @@ export function Prepare({ session, dogegenStatus, onConfirmPrepared, onPrev, onS
         </CollapsibleSection>
       )}
 
-      {/* Section 4: AI Assistant */}
-      <LlmHistoryCard sid={session.id} />
-      <LlmConnectionCard sid={session.id} />
+      {/* Section 4: AI Assistant — collapsed by default, user remembers preference */}
+      <CollapsibleSection title="AI Assistant" storageKey="prepare-ai" defaultOpen={false}>
+        <LlmHistoryCard sid={session.id} />
+        <LlmConnectionCard sid={session.id} />
+      </CollapsibleSection>
 
       <div className="btn-group">
         <Button onClick={onPrev}>← Back</Button>
