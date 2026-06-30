@@ -123,7 +123,7 @@ export function Report({ session, onPrev }) {
           <Card title="Gamma Verification">
             {(report.gamma_measurements || []).length > 0 ? (
               <>
-                <GammaChart measurements={report.gamma_measurements} />
+                <GammaChart measurements={report.gamma_measurements} eotf={report.target?.eotf} />
                 <div className="mt-3"><MeasurementTable measurements={report.gamma_measurements} includeGamma /></div>
               </>
             ) : (

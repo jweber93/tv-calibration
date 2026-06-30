@@ -53,7 +53,7 @@ from .zro_import import (
 from .utils import (
     delta_e_ciede2000_xyY,
     delta_xy,
-    gamma_from_luminance,
+    eotf_from_luminance,
     stimulus_pct_from_code_value,
 )
 
@@ -1015,7 +1015,7 @@ def m_to_dict(
         and m.Y > 0
         and target.peak_luminance_nits > 0
     ):
-        g = gamma_from_luminance(m.Y, target.peak_luminance_nits, stim_pct)
+        g = eotf_from_luminance(m.Y, target.peak_luminance_nits, stim_pct, target.eotf)
         eff_gamma = round(g, 3) if g is not None else None
     rating = (
         "invalid"

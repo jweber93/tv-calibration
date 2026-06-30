@@ -1,6 +1,14 @@
 import { render, screen } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { GammaChart } from './GammaChart';
+
+let lastChartProps = null;
+vi.mock('react-chartjs-2', () => ({
+  Line: (props) => {
+    lastChartProps = props;
+    return <canvas />;
+  },
+}));
 
 describe('GammaChart', () => {
   it('renders nothing when measurements is null', () => {
@@ -68,5 +76,21 @@ describe('GammaChart', () => {
   it('renders nothing when measurements is undefined', () => {
     const { container } = render(<GammaChart />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('passes "Target 2.2" reference dataset when eotf is unset (SDR)', () => {
+    const measurements = [{ stimulus_pct: 50, effective_gamma: 2.2 }];
+    render(<GammaChart measurements={measurements} />);
+    const target = lastChartProps.data.datasets.find(d => d.label.startsWith('Target'));
+    expect(target.label).toBe('Target 2.2');
+    expect(target.data).toEqual([2.2]);
+  });
+
+  it('passes "Target 1.0 (PQ)" reference dataset, not "Target 2.2", when eotf="PQ (ST.2084)"', () => {
+    const measurements = [{ stimulus_pct: 50, effective_gamma: 1.0 }];
+    render(<GammaChart measurements={measurements} eotf="PQ (ST.2084)" />);
+    const target = lastChartProps.data.datasets.find(d => d.label.startsWith('Target'));
+    expect(target.label).toBe('Target 1.0 (PQ)');
+    expect(target.data).toEqual([1.0]);
   });
 });
