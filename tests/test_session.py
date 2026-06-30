@@ -306,7 +306,11 @@ class TestRepassCeilingBehavior:
 
     @pytest.fixture
     def store(self, tmp_path):
-        return SessionStore(tmp_path)
+        return SessionStore(
+            session_dir_getter=lambda: tmp_path,
+            ttl_getter=lambda: timedelta(days=7),
+            watched_session_id_getter=lambda: None,
+        )
 
     def test_repatch_ceiling_advances_to_report(self, store):
         """When repatch max passes exceeded, session["step"] should be "report"."""
