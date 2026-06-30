@@ -171,6 +171,31 @@ class TestMToDict:
         d = _m_to_dict(m, SDR_TARGET)
         assert d["effective_gamma"] is None
 
+    def test_effective_gamma_uses_pq_tracking_for_hdr10(self):
+        """HDR10/PQ sessions must report effective_gamma via PQ-relative tracking
+        (target 1.0), not the plain power-law gamma used for SDR.
+
+        Regression test: session.py historically called the non-EOTF-aware
+        gamma_from_luminance() unconditionally, ignoring target.eotf.
+        """
+        from calcore.models import HDR10_TARGET
+        from calibrator.utils import gamma_from_luminance
+
+        # PQ reference luminance at 50% stimulus, peak 1000 nits, is ~92.25 nits.
+        # A measurement landing exactly there should track at 1.0 under PQ.
+        m = Measurement(
+            x=0.3127, y=0.3290,
+            Y=92.25,
+            stimulus_rgb=(512, 512, 512),
+        )
+        d = _m_to_dict(m, HDR10_TARGET)
+        assert d["effective_gamma"] == pytest.approx(1.0, abs=0.05)
+
+        # The old, EOTF-unaware power law would have produced a very different
+        # (and meaningless) number for the same inputs.
+        plain_power_law = gamma_from_luminance(92.25, HDR10_TARGET.peak_luminance_nits, d["stimulus_pct"])
+        assert d["effective_gamma"] != pytest.approx(plain_power_law, abs=0.2)
+
     def test_delta_e_on_target_small(self):
         """D65 at the target peak luminance (120 nits) should have near-zero delta-E."""
         # SDR_TARGET: peak=120 nits, gamma=2.2.  100% stimulus → expected_Y = 120.

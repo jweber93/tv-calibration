@@ -46,7 +46,7 @@ export function Gamma({ session, onSetGammaWorkflow, onNext, onPrev, getPredicte
 
       {meas.length > 0 && (
         <Card title="Gamma Tracking">
-          <GammaChart measurements={meas} />
+          <GammaChart measurements={meas} eotf={session.target?.eotf} />
           <div className="mt-3">
             <CollapsibleSection title="Measurement Data" storageKey="gamma-measurements" summary={`${meas.length} point${meas.length !== 1 ? 's' : ''}`}>
               <MeasurementTable measurements={meas} includeGamma />

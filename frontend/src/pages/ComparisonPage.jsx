@@ -298,6 +298,7 @@ export function ComparisonPage({ profiles }) {
             <OverlayGammaChart
               measurementsA={repA?.gamma_measurements || []}
               measurementsB={repB?.gamma_measurements || []}
+              eotf={repA?.target?.eotf || repB?.target?.eotf}
             />
           </Card>
 

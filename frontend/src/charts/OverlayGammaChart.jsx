@@ -1,8 +1,9 @@
 import '../charts/index.js';
 import { Line } from 'react-chartjs-2';
 import { TICK, GRID, C } from './tokens.js';
+import { isPqEotf } from '../utils/fmt.js';
 
-export function OverlayGammaChart({ measurementsA, measurementsB }) {
+export function OverlayGammaChart({ measurementsA, measurementsB, eotf }) {
   const rawA = measurementsA ?? [];
   const rawB = measurementsB ?? [];
 
@@ -20,6 +21,9 @@ export function OverlayGammaChart({ measurementsA, measurementsB }) {
   const dataA = allStimuli.map(s => (mapA.has(s) ? mapA.get(s) : null));
   const dataB = allStimuli.map(s => (mapB.has(s) ? mapB.get(s) : null));
 
+  const pq = isPqEotf(eotf);
+  const target = pq ? 1.0 : 2.2;
+
   const datasets = [
     {
       label: 'Session A (before)',
@@ -36,8 +40,8 @@ export function OverlayGammaChart({ measurementsA, measurementsB }) {
       fill: true,
     },
     {
-      label: 'Target 2.2',
-      data: allStimuli.map(() => 2.2),
+      label: pq ? 'Target 1.0 (PQ)' : 'Target 2.2',
+      data: allStimuli.map(() => target),
       borderColor: C.muted, borderDash: [4, 4], pointRadius: 0,
     },
   ];

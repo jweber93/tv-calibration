@@ -1,10 +1,14 @@
 import '../charts/index.js';
 import { Line } from 'react-chartjs-2';
 import { TICK, GRID, C } from './tokens.js';
+import { isPqEotf } from '../utils/fmt.js';
 
-export function GammaChart({ measurements }) {
+export function GammaChart({ measurements, eotf }) {
   const pts = (measurements || []).filter(m => m.effective_gamma != null && m.stimulus_pct != null);
   if (!pts.length) return null;
+
+  const pq = isPqEotf(eotf);
+  const target = pq ? 1.0 : 2.2;
 
   return (
     <div className="chart-wrap">
@@ -19,8 +23,8 @@ export function GammaChart({ measurements }) {
               tension: 0.3, pointBackgroundColor: C.cyan, fill: true,
             },
             {
-              label: 'Target 2.2',
-              data: pts.map(() => 2.2),
+              label: pq ? 'Target 1.0 (PQ)' : 'Target 2.2',
+              data: pts.map(() => target),
               borderColor: C.muted, borderDash: [4, 4], pointRadius: 0,
             },
           ],
