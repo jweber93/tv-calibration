@@ -3,14 +3,14 @@ import { Line } from 'react-chartjs-2';
 import { TICK, GRID, C } from './tokens.js';
 
 export function GammaChart({ measurements }) {
-  const pts = (measurements || []).filter(m => m.effective_gamma != null);
+  const pts = (measurements || []).filter(m => m.effective_gamma != null && m.stimulus_pct != null);
   if (!pts.length) return null;
 
   return (
     <div className="chart-wrap">
       <Line
         data={{
-          labels: pts.map(m => m.stimulus_pct + '%'),
+          labels: pts.map(m => `${m.stimulus_pct}%`),
           datasets: [
             {
               label: 'Effective Gamma',
