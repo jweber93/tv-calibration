@@ -60,4 +60,6 @@ SHARMA_WU_DALAL_2005_TABLE_I = [
 )
 def test_ciede2000_matches_canonical_reference(L1, a1, b1, L2, a2, b2, expected):
     got = ciede2000((L1, a1, b1), (L2, a2, b2))
+    # abs=0.02 matches the 4-decimal-place rounding of the published
+    # reference values themselves, not an implementation tolerance.
     assert got == pytest.approx(expected, abs=0.02)

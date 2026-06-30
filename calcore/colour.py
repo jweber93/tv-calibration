@@ -100,6 +100,12 @@ def ciede2000(
         else:
             hp_bar = (h1p + h2p) / 2
 
+    # Hue-quadrant weighting function T, per Sharma, Wu & Dalal (2005),
+    # "The CIEDE2000 Color-Difference Formula: Implementation Notes,
+    # Supplementary Test Data, and Mathematical Observations", Color
+    # Research & Application 30(1), eq. 4 — fourth-term phase offset is -63°.
+    # Verified against the paper's published 34-pair reference table in
+    # tests/test_calcore/test_ciede2000_reference.py.
     T = (
         1
         - 0.17 * math.cos(math.radians(hp_bar - 30))
