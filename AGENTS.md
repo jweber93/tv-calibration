@@ -35,6 +35,11 @@ When I say **"audit codebase"**, execute the Codebase Audit Protocol:
 - For each issue: create formal GitHub issue with title, description, labels
 - Labels: bug, high-priority, math-error, hardware-io
 - Include fix strategy with root cause + implementation plan
+- Rate each fix 1–5 on complexity, then recommend model tier:
+  - **Local / low-cost** (small open models) for tiers 1–2: missing imports,
+    typos, simple null checks, test scaffolding.
+  - **Frontier / high-cost** (GPT-4, Claude) for tiers 3–5: color math
+    corrections, EOTF/gamma fixes, concurrency bugs, matrix ops.
 - Format output suitable for direct AI agent execution
 
 When I say **"audit QE"**, execute the QE Audit Protocol:
