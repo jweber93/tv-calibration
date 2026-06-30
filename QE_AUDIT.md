@@ -5,18 +5,42 @@ process that is **fast, deterministic, and error-free** end to end:
 Dogegen → U8G → Calibrite → ArgyllCMS → ZRO → TV menu sliders.
 
 Hunt for **real defects** in both the FastAPI backend and the React frontend.
-Do not propose features or refactors. For every finding, produce:
+Do not propose features or refactors.
 
-1. **Severity** — Critical / High / Medium / Low
-2. **Location** — `file:line`
-3. **Failure scenario** — concrete inputs/state → wrong output or crash
-4. **Why it's wrong** — cite the colorimetric, contract, or UX invariant violated
-5. **Fix strategy** — root cause, not symptom
-6. **Regression test** — the test that would have caught it (mirror existing
-   test patterns: pytest `TestClient` for backend, Vitest+RTL / Playwright for FE)
+## Operating principles — read first
 
-Rank findings by impact on a real calibration run. A wrong dE2000 or an
-inverted slider correction is worse than a cosmetic UI glitch.
+- **Assume existing behavior is correct unless you can prove an invariant is
+  violated through a concrete code path. Prefer false negatives over false
+  positives.**
+- **Only report defects you can trace through executable code paths.** If a
+  defect depends on behavior you cannot verify from the repository, mark it
+  **Needs Evidence** instead of reporting it as a confirmed bug.
+- **Do not report possible bugs that lack a concrete execution path.** No
+  "this could cause…", "this may happen…", or speculative findings. If you
+  cannot show how execution reaches the defect, do not report it.
+- **Stop after 20 confirmed findings, or when no additional High-confidence
+  defects remain** — whichever comes first. Do not pad the report.
+- Rank findings by impact on a real calibration run. A wrong dE2000 or an
+  inverted slider correction is worse than a cosmetic UI glitch.
+
+---
+
+## Phased workflow — do not skip ahead
+
+**Phase 1 — Map architecture.** Build an internal model of the modules, the
+calibration signal chain, and how state flows. **Report no defects in this
+phase.**
+
+**Phase 2 — Identify executable calibration code paths.** Enumerate the real
+entry points and the paths data takes through them (CSV/ZRO import → analysis →
+correction math → API → UI).
+
+**Phase 3 — Trace each path against the invariants below.** For every candidate
+defect, walk the execution from entry point to the defect and confirm it is
+reachable with concrete inputs/state. A finding that cannot be traced here does
+not get reported.
+
+**Phase 4 — Produce findings.** Report **only** defects confirmed in Phase 3.
 
 ---
 
@@ -43,23 +67,31 @@ Probe these hotspots:
    degenerate EOTF/BT.1886 inputs, division-by-zero / NaN at CV=0, xyY↔XYZ
    round-trips, gamma vs EOTF mixups. Verify against `tests/golden/` datasets
    and `tests/test_colour_*`.
-2. **CSV / ZRO import** (`calibrator/zro_import.py`, `csv_adapter.py`):
+2. **Numeric stability** (calibration software lives or dies on this): float
+   equality / epsilon misuse, clipping (clamp ranges, off-by-one at boundaries),
+   integer/float overflow, NaN/Inf propagation through transforms, accumulated
+   rounding across multi-step pipelines, singular / ill-conditioned matrix
+   handling, tolerance comparisons.
+3. **CSV / ZRO import** (`calibrator/zro_import.py`, `csv_adapter.py`):
    headerless XYZ-vs-xyY ambiguity, short/truncated rows, subsecond timestamps,
    multiple grayscale passes, dedup/merge correctness. Off-by-one in pass
    boundaries silently corrupts a run.
-3. **Hardware I/O resilience** (`adb_control.py`, `file_watcher.py`, ZRO
+4. **FastAPI concurrency & lifecycle** (`server.py`, `session.py`): mutable
+   default arguments, cached **mutable** state shared across requests
+   (sessions returned by reference and mutated concurrently), async/sync misuse
+   (blocking calls in async handlers), thread safety of the session store,
+   background-task leaks, concurrent requests on the same session id, stale /
+   missing session.
+5. **Hardware I/O resilience** (`adb_control.py`, `file_watcher.py`, ZRO
    bridge): blocking ArgyllCMS calls, USB timeout retry logic, ADB command
    **injection** safety, file-watcher races. A hang here stalls the whole loop.
-4. **LLM query path** (`calcore/llm.py`): per the recipe, `query_*` functions
+6. **LLM query path** (`calcore/llm.py`): per the recipe, `query_*` functions
    must **never raise** — malformed/partial JSON, HTTP errors, empty
    measurements, and not-configured (`endpoint`/`model` empty → `None`) must all
    degrade gracefully, never 500.
-5. **Session & concurrency** (`server.py`, `session.py`): concurrent requests
-   on the same session id, stale/missing session, state mutation races. The
-   endpoint contract must stay stable (typed null, never 500, on unconfigured
-   paths).
-6. **API contracts**: every endpoint's success and error shape; 400 on bad
-   input (budget/param validation), not 500.
+7. **API contracts**: every endpoint's success and error shape; 400 on bad
+   input (budget/param validation), not 500; typed null (never 500) on
+   unconfigured paths.
 
 ## Frontend track (React / Vite)
 
@@ -82,12 +114,35 @@ Probe these hotspots:
 
 ---
 
-## Output
+## Output format
 
-Two ranked tables (Backend, Frontend), Critical-first. End with a
-**"Top 5 fixes for a fast, error-free run"** shortlist. Where a finding is
-already covered by an existing test, say so; where coverage is missing, name the
-exact new test file and case.
+Two tables (Backend, then Frontend), sorted **Critical-first, then by
+Confidence**. Use exactly these columns:
+
+| Severity | Confidence | File:Line | Title | Failure Scenario | Evidence | Root Cause | Fix | Test |
+| -------- | ---------- | --------- | ----- | ---------------- | -------- | ---------- | --- | ---- |
+
+Column definitions:
+
+- **Severity** — Critical / High / Medium / Low (impact on a real calibration run).
+- **Confidence** — **High** = I traced the execution path; **Medium** =
+  strong evidence, one assumption unverified; **Low** = appears wrong but I
+  could not prove it (consider **Needs Evidence** instead of reporting).
+- **Failure Scenario** — concrete inputs/state → wrong output or crash.
+- **Evidence** — the relevant code path: show how execution **reaches** the
+  defect (e.g. "`server.py:212` passes `None` into `normalize_target()`, which
+  dereferences `primaries`"). Not "this could cause…".
+- **Root Cause** — the underlying reason, not the symptom (e.g. "the cache
+  returns shared mutable session instances" — not "missing null check").
+- **Fix** — strategy that addresses the root cause.
+- **Test** — the regression test that would have caught it. Mirror existing
+  patterns: pytest `TestClient` for backend, Vitest+RTL / Playwright for FE.
+  If existing coverage already exists, say so; if missing, name the exact new
+  test file and case.
+
+End with a **"Top 5 fixes for a fast, error-free run"** shortlist. If any
+candidate defects were downgraded to **Needs Evidence**, list them separately
+below the tables with the specific evidence that would confirm or refute them.
 
 ---
 
