@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import math
 import statistics
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from .colour import D65_xy, ciede2000, xyz_to_lab
+from .colour import D65_XYZ, D65_xy, ciede2000, xyY_to_xyz, xyz_to_lab
 from .eotf import pq_eotf
 from .models import AnalysisConfig, Patch, Summary
 from .targets import target_xyz_for_patch
@@ -22,12 +22,31 @@ def max_patch(rows: List[Dict[str, Any]], key: str) -> Optional[Dict[str, Any]]:
     return max(rows, key=lambda r: r.get(key, float("-inf")))
 
 
-def analyze(patches: List[Patch], cfg: AnalysisConfig, white_point_xy=None) -> Summary:
+def analyze(
+    patches: List[Patch],
+    cfg: AnalysisConfig,
+    white_point_xy: Optional[Tuple[float, float]] = None,
+) -> Summary:
+    """Analyze a list of measured patches against calibration targets.
+
+    Args:
+        patches: Measured color/grayscale patches from the instrument.
+        cfg: Analysis configuration (mode, EOTF, target color space, code range).
+        white_point_xy: Target white point chromaticity (x, y). Defaults to D65
+            (0.3127, 0.3290). Used for both grayscale target XYZ computation and
+            as the LAB reference white, so target and measured values are evaluated
+            in the same chromatic context.
+    """
     if not patches:
         raise ValueError("No valid patches found in the CSV.")
 
     if white_point_xy is None:
         white_point_xy = D65_xy
+
+    # Derive an absolute XYZ reference white at Y=100 from the chromaticity.
+    # xyz_to_lab expects absolute XYZ (not normalized), consistent with measured XYZ.
+    wx, wy = white_point_xy
+    white_xyz: Tuple[float, float, float] = xyY_to_xyz(wx, wy, 100.0)
 
     grayscale = [p for p in patches if p.is_grayscale]
     colors = [p for p in patches if not p.is_grayscale]
@@ -63,8 +82,8 @@ def analyze(patches: List[Patch], cfg: AnalysisConfig, white_point_xy=None) -> S
             measured_black_y,
             white_point_xy,
         )
-        targ_lab = xyz_to_lab(target_xyz)
-        meas_lab = xyz_to_lab(p.meas_xyz)
+        targ_lab = xyz_to_lab(target_xyz, white_xyz)
+        meas_lab = xyz_to_lab(p.meas_xyz, white_xyz)
         de = ciede2000(targ_lab, meas_lab)
         gray_des.append(de)
 
@@ -112,8 +131,8 @@ def analyze(patches: List[Patch], cfg: AnalysisConfig, white_point_xy=None) -> S
             measured_black_y,
             white_point_xy,
         )
-        targ_lab = xyz_to_lab(target_xyz)
-        meas_lab = xyz_to_lab(p.meas_xyz)
+        targ_lab = xyz_to_lab(target_xyz, white_xyz)
+        meas_lab = xyz_to_lab(p.meas_xyz, white_xyz)
         de = ciede2000(targ_lab, meas_lab)
 
         # Chroma-only approximation: keep measured L* fixed while comparing chromaticity mismatch.

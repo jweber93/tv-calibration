@@ -19,6 +19,17 @@ def target_xyz_for_patch(
     measured_black_y: float,
     white_point_xy: Tuple[float, float] = D65_xy,
 ) -> Tuple[float, float, float]:
+    """Compute the ideal target XYZ for a single patch.
+
+    For grayscale patches, applies the session EOTF to derive target luminance Y,
+    then converts to XYZ using white_point_xy as the chromaticity (default D65).
+    For color patches, converts the target RGB to XYZ via the target color space matrix.
+
+    Args:
+        white_point_xy: Chromaticity (x, y) of the target white point. Defaults to
+            D65 (0.3127, 0.3290). Pass the session target's white_point_xy for
+            non-D65 calibrations so grayscale targets are placed correctly.
+    """
     if code_max <= 0:
         raise ValueError(f"Invalid code_max: {code_max}, must be a positive integer")
 
