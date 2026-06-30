@@ -4,7 +4,7 @@ import math
 import statistics
 from typing import Any, Dict, List, Optional, Sequence
 
-from .colour import ciede2000, xyz_to_lab
+from .colour import D65_xy, ciede2000, xyz_to_lab
 from .eotf import pq_eotf
 from .models import AnalysisConfig, Patch, Summary
 from .targets import target_xyz_for_patch
@@ -22,9 +22,12 @@ def max_patch(rows: List[Dict[str, Any]], key: str) -> Optional[Dict[str, Any]]:
     return max(rows, key=lambda r: r.get(key, float("-inf")))
 
 
-def analyze(patches: List[Patch], cfg: AnalysisConfig) -> Summary:
+def analyze(patches: List[Patch], cfg: AnalysisConfig, white_point_xy=None) -> Summary:
     if not patches:
         raise ValueError("No valid patches found in the CSV.")
+
+    if white_point_xy is None:
+        white_point_xy = D65_xy
 
     grayscale = [p for p in patches if p.is_grayscale]
     colors = [p for p in patches if not p.is_grayscale]
@@ -58,6 +61,7 @@ def analyze(patches: List[Patch], cfg: AnalysisConfig) -> Summary:
             cfg,
             measured_peak_y_effective,
             measured_black_y,
+            white_point_xy,
         )
         targ_lab = xyz_to_lab(target_xyz)
         meas_lab = xyz_to_lab(p.meas_xyz)
@@ -106,6 +110,7 @@ def analyze(patches: List[Patch], cfg: AnalysisConfig) -> Summary:
             cfg,
             measured_peak_y_effective,
             measured_black_y,
+            white_point_xy,
         )
         targ_lab = xyz_to_lab(target_xyz)
         meas_lab = xyz_to_lab(p.meas_xyz)

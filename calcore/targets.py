@@ -17,6 +17,7 @@ def target_xyz_for_patch(
     cfg: AnalysisConfig,
     measured_peak_y: Optional[float],
     measured_black_y: float,
+    white_point_xy: Tuple[float, float] = D65_xy,
 ) -> Tuple[float, float, float]:
     if code_max <= 0:
         raise ValueError(f"Invalid code_max: {code_max}, must be a positive integer")
@@ -43,7 +44,7 @@ def target_xyz_for_patch(
                 else float(cfg.eotf)
             )
             target_y = gamma_eotf(n, gamma=gamma) * measured_peak_y
-        return xyY_to_xyz(D65_xy[0], D65_xy[1], target_y)
+        return xyY_to_xyz(white_point_xy[0], white_point_xy[1], target_y)
 
     matrix = detect_matrix(cfg.target_space)
     return rgb_to_xyz(target_rgb, matrix)

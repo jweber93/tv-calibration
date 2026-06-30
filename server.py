@@ -1309,7 +1309,9 @@ def gamut_diagnosis(sid: str):
         )
     cfg = _session_to_analysis_config(session)
     patches = [_measurement_to_patch(m) for m in cms_meas]
-    summary = _calcore_analyze(patches, cfg)
+    target = session.get("target")
+    white_point = target.white_point_xy if target else None
+    summary = _calcore_analyze(patches, cfg, white_point)
     diagnosis = _assess_gamut_constraints(
         summary.color_rows,
         cfg.target_space,
@@ -1335,7 +1337,9 @@ def gamut_advise(sid: str):
 
     cfg = _session_to_analysis_config(session)
     patches = [_measurement_to_patch(m) for m in cms_meas]
-    summary = _calcore_analyze(patches, cfg)
+    target = session.get("target")
+    white_point = target.white_point_xy if target else None
+    summary = _calcore_analyze(patches, cfg, white_point)
     diagnosis = _assess_gamut_constraints(summary.color_rows, cfg.target_space)
     diagnosis_text = _format_gamut_diagnosis(diagnosis)
 
@@ -1745,7 +1749,9 @@ def get_suggested_patches(sid: str, budget: int = 30):
 
     cfg = _session_to_analysis_config(session)
     patches_core = [_measurement_to_patch(m) for m in all_measurements]
-    summary = _calcore_analyze(patches_core, cfg)
+    target = session.get("target")
+    white_point = target.white_point_xy if target else None
+    summary = _calcore_analyze(patches_core, cfg, white_point)
 
     llm_cfg = LLMConfig.from_dict(llm_cfg_dict, default_timeout=60.0)
     phase = session.get("step", "baseline")
@@ -2024,10 +2030,11 @@ def post_next_settings(sid: str):
 
     cfg = _session_to_analysis_config(session)
     patches_core = [_measurement_to_patch(m) for m in all_measurements]
-    summary = _calcore_analyze(patches_core, cfg)
+    target = session.get("target")
+    white_point = target.white_point_xy if target else None
+    summary = _calcore_analyze(patches_core, cfg, white_point)
 
     phase = session.get("step", "baseline")
-    target = session.get("target")
     target_gamma = target.gamma if target else None
 
     # Reuse the per-TV quality-gate thresholds as convergence targets (#166).
