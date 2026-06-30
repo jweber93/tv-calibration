@@ -51,8 +51,6 @@ not get reported.
 - **SDR** = BT.1886 EOTF / gamma 2.2; **HDR10** = PQ EOTF. EOTF and gamma are
   **not interchangeable** — confirm neither is silently substituted for the
   other (regression: #487, #388).
-- **U8G 20-point WB sliders are sign-inverted**: negative brightens/cools,
-  positive darkens/warms. Any correction that flips this sign is a Critical bug.
 - Conservative Round-1 correction factor (~0.55) for inter-node bleed.
 - Do **not** "correct" the 40–70% firmware tone-mapping wall via menu controls.
 - `CalibrationTarget.primaries` must always be normalized to dict form (#362).

@@ -272,7 +272,6 @@ Use the following as authoritative grounding when planning:
 - Dogegen must be running and stable on the Windows PC before any measurement loop begins
 - ArgyllCMS commands are blocking; retry logic must account for USB timeouts
 - Dogegen pattern sequencing must be deterministic — any race condition in timing corrupts a measurement run
-- 20-point WB sliders on the U8G are sign-inverted: negative values brighten/cool, positive values darken/warm.  This is empirically confirmed and must be accounted for in any correction math.
 - Inter-node bleed is real; use conservative correction factor (~0.55) for Round 1 sweeps
 - Firmware tone mapping wall exists in the 40-70% signal range; do not attempt to correct it via menu controls
 - Local Dimming must be set to Medium during all calibration sessions to match viewing conditions
