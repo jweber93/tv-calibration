@@ -1820,84 +1820,120 @@ class SessionStore:
         return session
 
     def set_gamma_workflow(self, sid: str, workflow: str) -> Dict[str, Any]:
-        session = self.get(sid)
-        tv = TV_PROFILES[session["tv_key"]]
-        available = set(getattr(tv, "GAMMA_WORKFLOWS", ["quick"]))
-        if workflow not in available:
-            raise HTTPException(400, f"Unsupported gamma workflow: {workflow}")
-        session["gamma_workflow"] = workflow
-        self.save_session(sid)
-        return session
+        """Set the gamma calibration workflow for this session.
+
+        Atomic: held under ``SessionStore._lock`` to prevent TOCTOU races
+        with concurrent delete/eviction (#503).
+        """
+        with self._lock:
+            session = self.get(sid)
+            tv = TV_PROFILES[session["tv_key"]]
+            available = set(getattr(tv, "GAMMA_WORKFLOWS", ["quick"]))
+            if workflow not in available:
+                raise HTTPException(400, f"Unsupported gamma workflow: {workflow}")
+            session["gamma_workflow"] = workflow
+            self.save_session(sid)
+            return session
 
     def set_signal_range(self, sid: str, signal_range: str) -> Dict[str, Any]:
-        session = self.get(sid)
-        if signal_range not in ("limited", "full"):
-            raise HTTPException(400, "signal_range must be 'limited' or 'full'")
-        session["signal_range"] = signal_range
-        session["code_scale"] = recommended_code_scale(
-            session.get("pattern_generator", "lightspace_connect"),
-            signal_range,
-            session.get("mode"),
-        )
-        self.save_session(sid)
-        return session
+        """Set the HDMI signal range (limited or full).
+
+        Atomic: held under ``SessionStore._lock`` to prevent TOCTOU races
+        with concurrent delete/eviction (#503).
+        """
+        with self._lock:
+            session = self.get(sid)
+            if signal_range not in ("limited", "full"):
+                raise HTTPException(400, "signal_range must be 'limited' or 'full'")
+            session["signal_range"] = signal_range
+            session["code_scale"] = recommended_code_scale(
+                session.get("pattern_generator", "lightspace_connect"),
+                signal_range,
+                session.get("mode"),
+            )
+            self.save_session(sid)
+            return session
 
     def set_pattern_generator(self, sid: str, pattern_generator: str) -> Dict[str, Any]:
-        session = self.get(sid)
-        if pattern_generator not in PATTERN_GENERATOR_OPTIONS:
-            raise HTTPException(
-                400,
-                f"pattern_generator must be one of {sorted(PATTERN_GENERATOR_OPTIONS)}",
+        """Set the pattern generator source for this session.
+
+        Atomic: held under ``SessionStore._lock`` to prevent TOCTOU races
+        with concurrent delete/eviction (#503).
+        """
+        with self._lock:
+            session = self.get(sid)
+            if pattern_generator not in PATTERN_GENERATOR_OPTIONS:
+                raise HTTPException(
+                    400,
+                    f"pattern_generator must be one of {sorted(PATTERN_GENERATOR_OPTIONS)}",
+                )
+            session["pattern_generator"] = pattern_generator
+            session["code_scale"] = recommended_code_scale(
+                pattern_generator,
+                session.get("signal_range", "limited"),
+                session.get("mode"),
             )
-        session["pattern_generator"] = pattern_generator
-        session["code_scale"] = recommended_code_scale(
-            pattern_generator,
-            session.get("signal_range", "limited"),
-            session.get("mode"),
-        )
-        self.save_session(sid)
-        return session
+            self.save_session(sid)
+            return session
 
     def set_code_scale(self, sid: str, code_scale: str) -> Dict[str, Any]:
-        session = self.get(sid)
-        if code_scale not in ("8bit", "10bit"):
-            raise HTTPException(400, "code_scale must be '8bit' or '10bit'")
-        if code_scale == "10bit" and session.get("signal_range") != "full":
-            raise HTTPException(
-                400, "10bit code_scale currently requires Full signal range"
-            )
-        session["code_scale"] = code_scale
-        self.save_session(sid)
-        return session
+        """Set the ADC code scale (8bit or 10bit).
+
+        Atomic: held under ``SessionStore._lock`` to prevent TOCTOU races
+        with concurrent delete/eviction (#503).
+        """
+        with self._lock:
+            session = self.get(sid)
+            if code_scale not in ("8bit", "10bit"):
+                raise HTTPException(400, "code_scale must be '8bit' or '10bit'")
+            if code_scale == "10bit" and session.get("signal_range") != "full":
+                raise HTTPException(
+                    400, "10bit code_scale currently requires Full signal range"
+                )
+            session["code_scale"] = code_scale
+            self.save_session(sid)
+            return session
 
     def set_lightspace_tier(
         self, sid: str, tier: str, ramp_steps: int
     ) -> Dict[str, Any]:
-        session = self.get(sid)
-        if tier not in ("free", "paid"):
-            raise HTTPException(400, "tier must be 'free' or 'paid'")
-        if ramp_steps not in GRAYSCALE_RAMP_OPTIONS:
-            raise HTTPException(
-                400, f"ramp_steps must be one of {sorted(GRAYSCALE_RAMP_OPTIONS)}"
-            )
-        if GRAYSCALE_RAMP_OPTIONS[ramp_steps]["requires_paid"] and tier != "paid":
-            raise HTTPException(
-                400, f"{ramp_steps}-step ramp requires the paid LightSpace Connect tier"
-            )
-        session["lightspace_tier"] = tier
-        session["grayscale_ramp_steps"] = ramp_steps
-        self.save_session(sid)
-        return session
+        """Set the LightSpace Connect tier and grayscale ramp step count.
+
+        Atomic: held under ``SessionStore._lock`` to prevent TOCTOU races
+        with concurrent delete/eviction (#503).
+        """
+        with self._lock:
+            session = self.get(sid)
+            if tier not in ("free", "paid"):
+                raise HTTPException(400, "tier must be 'free' or 'paid'")
+            if ramp_steps not in GRAYSCALE_RAMP_OPTIONS:
+                raise HTTPException(
+                    400, f"ramp_steps must be one of {sorted(GRAYSCALE_RAMP_OPTIONS)}"
+                )
+            if GRAYSCALE_RAMP_OPTIONS[ramp_steps]["requires_paid"] and tier != "paid":
+                raise HTTPException(
+                    400, f"{ramp_steps}-step ramp requires the paid LightSpace Connect tier"
+                )
+            session["lightspace_tier"] = tier
+            session["grayscale_ramp_steps"] = ramp_steps
+            self.save_session(sid)
+            return session
 
     def set_grayscale_ramp(self, sid: str, ramp_steps: int) -> Dict[str, Any]:
-        session = self.get(sid)
-        if ramp_steps not in GRAYSCALE_RAMP_OPTIONS:
-            raise HTTPException(
-                400, f"ramp_steps must be one of {sorted(GRAYSCALE_RAMP_OPTIONS)}"
-            )
-        session["grayscale_ramp_steps"] = ramp_steps
-        self.save_session(sid)
-        return session
+        """Set the grayscale ramp step count for this session.
+
+        Atomic: held under ``SessionStore._lock`` to prevent TOCTOU races
+        with concurrent delete/eviction (#503).
+        """
+        with self._lock:
+            session = self.get(sid)
+            if ramp_steps not in GRAYSCALE_RAMP_OPTIONS:
+                raise HTTPException(
+                    400, f"ramp_steps must be one of {sorted(GRAYSCALE_RAMP_OPTIONS)}"
+                )
+            session["grayscale_ramp_steps"] = ramp_steps
+            self.save_session(sid)
+            return session
 
     def next_step(self, sid: str, luminance_threshold_pct: float) -> Dict[str, Any]:
         with self._lock:
@@ -2019,43 +2055,47 @@ class SessionStore:
 
         Increments repass_count, checks against REPATCH_MAX_PASSES, and
         jumps the session back to the relevant measurement step.
+
+        Atomic: held under ``SessionStore._lock`` to prevent TOCTOU races
+        with concurrent delete/eviction (#503).
         """
-        session = self.get(sid)
-        current_step = session["step"]
+        with self._lock:
+            session = self.get(sid)
+            current_step = session["step"]
 
-        if action == "ceiling":
-            session.setdefault("repass_decision", {})
-            session["repass_decision"]["action"] = "ceiling"
-            session["repass_decision"]["reason"] = reason
-            session["repass_decision"]["ceiling_reason"] = ceiling_reason
-            session["repass_decision"]["timestamp"] = now().isoformat()
-            self.save_session(sid)
-            return session
-
-        if action == "repatch":
-            session["repass_count"] = session.get("repass_count", 0) + 1
-            if session["repass_count"] > REPATCH_MAX_PASSES:
+            if action == "ceiling":
                 session.setdefault("repass_decision", {})
                 session["repass_decision"]["action"] = "ceiling"
-                session["repass_decision"]["reason"] = (
-                    f"Max repass limit ({REPATCH_MAX_PASSES}) reached"
-                )
-                session["repass_decision"]["ceiling_reason"] = ceiling_reason or "Exceeded maximum repass count"
+                session["repass_decision"]["reason"] = reason
+                session["repass_decision"]["ceiling_reason"] = ceiling_reason
                 session["repass_decision"]["timestamp"] = now().isoformat()
-                session["step"] = "report"
                 self.save_session(sid)
                 return session
 
-        session.setdefault("repass_decision", {})
-        session["repass_decision"]["action"] = action
-        session["repass_decision"]["reason"] = reason
-        session["repass_decision"]["patches"] = patches or []
-        session["repass_decision"]["timestamp"] = now().isoformat()
+            if action == "repatch":
+                session["repass_count"] = session.get("repass_count", 0) + 1
+                if session["repass_count"] > REPATCH_MAX_PASSES:
+                    session.setdefault("repass_decision", {})
+                    session["repass_decision"]["action"] = "ceiling"
+                    session["repass_decision"]["reason"] = (
+                        f"Max repass limit ({REPATCH_MAX_PASSES}) reached"
+                    )
+                    session["repass_decision"]["ceiling_reason"] = ceiling_reason or "Exceeded maximum repass count"
+                    session["repass_decision"]["timestamp"] = now().isoformat()
+                    session["step"] = "report"
+                    self.save_session(sid)
+                    return session
 
-        step_to_remeasure = _repass_target_step(current_step)
-        session["step"] = step_to_remeasure
-        self.save_session(sid)
-        return session
+            session.setdefault("repass_decision", {})
+            session["repass_decision"]["action"] = action
+            session["repass_decision"]["reason"] = reason
+            session["repass_decision"]["patches"] = patches or []
+            session["repass_decision"]["timestamp"] = now().isoformat()
+
+            step_to_remeasure = _repass_target_step(current_step)
+            session["step"] = step_to_remeasure
+            self.save_session(sid)
+            return session
 
     def record_adjustment_round(
         self,
