@@ -1150,7 +1150,7 @@ def latest_gamma_pass(
             if current_dt > prev_dt:
                 break
             gap = (prev_dt - current_dt).total_seconds()
-            if gap > ZRO_SESSION_BREAK_SECONDS:
+            if gap >= ZRO_SESSION_BREAK_SECONDS:
                 break
         latest_reversed.append(measurement)
         prev_dt = current_dt
@@ -1211,7 +1211,7 @@ def latest_grayscale_pass(
                 continue
             if prev_dt is not None:
                 gap = (prev_dt - current_dt).total_seconds()
-                if gap > ZRO_SESSION_BREAK_SECONDS:
+                if gap >= ZRO_SESSION_BREAK_SECONDS:
                     break
             latest_reversed.append(measurement)
             prev_dt = current_dt
