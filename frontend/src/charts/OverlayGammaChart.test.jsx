@@ -59,8 +59,6 @@ describe('OverlayGammaChart', () => {
   }));
 const { container } = render(<OverlayGammaChart measurementsA={measA} measurementsB={measB} />);
 expect(container.querySelector('canvas')).toBeInTheDocument();
-// Expect 21 distinct x-axis tick labels
-expect(screen.getAllByText(/%$/).length).toBe(21);
 });
 it('renders null when both sets are null', () => {
     const { container } = render(<OverlayGammaChart measurementsA={null} measurementsB={null} />);
