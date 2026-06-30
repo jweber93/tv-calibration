@@ -78,12 +78,30 @@ def eotf_from_luminance(measured_nits, peak_nits, stimulus_pct, eotf="gamma"):
     the stimulus: ``log(pq_signal(Y)) / log(stim/100)``. Perfect PQ tracking
     yields 1.0 (compare against a target of 1.0, not 2.2); values above 1.0 mean
     the point is too dark, below 1.0 too bright.
+
+    Examples:
+        PQ reference at 50% stimulus is ~92.25 nits, so a display hitting that
+        tracks perfectly::
+
+            >>> round(eotf_from_luminance(92.25, 1000, 50, "PQ (ST.2084)"), 2)
+            1.0
+
+        A point measuring 250 nits at 50% is far brighter than the 92-nit
+        reference, so tracking drops below 1.0::
+
+            >>> round(eotf_from_luminance(250, 1000, 50, "PQ (ST.2084)"), 2)
+            0.73
+
+        Half the reference luminance (~46 nits) is too dark, so tracking rises
+        above 1.0::
+
+            >>> round(eotf_from_luminance(46.1, 1000, 50, "PQ (ST.2084)"), 2)
+            1.21
     """
+    # stimulus_pct is in (0, 100) past this guard, so normalised_in is in (0, 1).
     if stimulus_pct <= 0 or stimulus_pct >= 100 or peak_nits <= 0:
         return None
     normalised_in = stimulus_pct / 100.0
-    if normalised_in <= 0:
-        return None
     if is_pq_eotf(eotf):
         if measured_nits <= 0:
             return None

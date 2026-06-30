@@ -25,7 +25,8 @@ def pq_eotf(n: float) -> float:
 
 def pq_inverse_eotf(nits: float) -> float:
     # SMPTE ST 2084 forward (OETF): nits -> normalised signal in [0, 1].
-    # Inverse of pq_eotf().
+    # Inverse of pq_eotf(). nits are clamped to [0, 10000] to stay in the valid
+    # PQ range; 0 nits encodes to a tiny positive offset (~7e-7), not exactly 0.
     m1 = 0.1593017578125
     m2 = 78.84375
     c1 = 0.8359375
