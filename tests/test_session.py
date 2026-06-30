@@ -314,7 +314,8 @@ class TestRepassCeilingBehavior:
 
     def test_repatch_ceiling_advances_to_report(self, store):
         """When repatch max passes exceeded, session["step"] should be "report"."""
-        sid = store.create_session("u8g")
+        result = store.create_session("u8g")
+        sid = result["id"]
         session = store.get(sid)
         
         # Set up session in a measurement step (e.g., color_tuner)
@@ -334,7 +335,8 @@ class TestRepassCeilingBehavior:
 
     def test_ceiling_action_sets_decision_without_repatch_count(self, store):
         """Explicit ceiling action should set repass_decision without incrementing count."""
-        sid = store.create_session("u8g")
+        result = store.create_session("u8g")
+        sid = result["id"]
         session = store.get(sid)
         
         session["step"] = "color_tuner"
