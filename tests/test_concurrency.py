@@ -368,8 +368,9 @@ class TestConcurrentNextStep:
         t2 = threading.Thread(target=caller, args=(2,))
         t1.start()
         t2.start()
-        t1.join()
-        t2.join()
+        t1.join(timeout=10.0)
+        t2.join(timeout=10.0)
+        assert not t1.is_alive() and not t2.is_alive(), "Thread(s) hung"
 
         final = store.get(sid)
         # Exactly one thread must have advanced the step.
@@ -653,6 +654,7 @@ class TestStepTransitionTOCTOU:
         barrier = threading.Barrier(2)
 
         def advance():
+            barrier.wait()
             try:
                 results.append(
                     store.next_step(sid, luminance_threshold_pct=10).get("step")
@@ -664,8 +666,9 @@ class TestStepTransitionTOCTOU:
         t2 = threading.Thread(target=advance)
         t1.start()
         t2.start()
-        t1.join()
-        t2.join()
+        t1.join(timeout=10.0)
+        t2.join(timeout=10.0)
+        assert not t1.is_alive() and not t2.is_alive(), "Thread(s) hung"
 
         final = store.get(sid)
         assert final["step"] == "white_balance", (
@@ -691,6 +694,7 @@ class TestStepTransitionTOCTOU:
         barrier = threading.Barrier(2)
 
         def go_back():
+            barrier.wait()
             try:
                 results.append(store.prev_step(sid).get("step"))
             except Exception as e:
@@ -700,11 +704,11 @@ class TestStepTransitionTOCTOU:
         t2 = threading.Thread(target=go_back)
         t1.start()
         t2.start()
-        t1.join()
-        t2.join()
+        t1.join(timeout=10.0)
+        t2.join(timeout=10.0)
+        assert not t1.is_alive() and not t2.is_alive(), "Thread(s) hung"
 
         final = store.get(sid)
-        # Neither call should have advanced the session past "gamma".
         from calibrator.session import STEPS_ORDER
         gamma_idx = STEPS_ORDER.index("gamma")
         final_idx = STEPS_ORDER.index(final["step"]) if final["step"] in STEPS_ORDER else gamma_idx
@@ -726,6 +730,7 @@ class TestStepTransitionTOCTOU:
         barrier = threading.Barrier(2)
 
         def confirm():
+            barrier.wait()
             try:
                 results.append(store.confirm_prepared(sid).get("step"))
             except Exception as e:
@@ -735,8 +740,9 @@ class TestStepTransitionTOCTOU:
         t2 = threading.Thread(target=confirm)
         t1.start()
         t2.start()
-        t1.join()
-        t2.join()
+        t1.join(timeout=10.0)
+        t2.join(timeout=10.0)
+        assert not t1.is_alive() and not t2.is_alive(), "Thread(s) hung"
 
         successes = [r for r in results if r == "pre_grayscale"]
         assert len(successes) == 1, (
@@ -752,6 +758,7 @@ class TestStepTransitionTOCTOU:
         barrier = threading.Barrier(2)
 
         def select():
+            barrier.wait()
             try:
                 results.append(store.select_mode(sid, "SDR", sdr_peak_nits=120).get("step"))
             except Exception as e:
@@ -761,8 +768,9 @@ class TestStepTransitionTOCTOU:
         t2 = threading.Thread(target=select)
         t1.start()
         t2.start()
-        t1.join()
-        t2.join()
+        t1.join(timeout=10.0)
+        t2.join(timeout=10.0)
+        assert not t1.is_alive() and not t2.is_alive(), "Thread(s) hung"
 
         successes = [r for r in results if r == "prepare"]
         assert len(successes) == 1, (
@@ -785,6 +793,7 @@ class TestStepTransitionTOCTOU:
         barrier = threading.Barrier(2)
 
         def jump():
+            barrier.wait()
             try:
                 results.append(store.jump_to_step(sid, target_index).get("step"))
             except Exception as e:
@@ -794,8 +803,9 @@ class TestStepTransitionTOCTOU:
         t2 = threading.Thread(target=jump)
         t1.start()
         t2.start()
-        t1.join()
-        t2.join()
+        t1.join(timeout=10.0)
+        t2.join(timeout=10.0)
+        assert not t1.is_alive() and not t2.is_alive(), "Thread(s) hung"
 
         final = store.get(sid)
         # Both calls target the same index; both may succeed (idempotent) but
