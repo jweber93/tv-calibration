@@ -1820,6 +1820,11 @@ class SessionStore:
         return session
 
     def set_gamma_workflow(self, sid: str, workflow: str) -> Dict[str, Any]:
+        """Set the gamma calibration workflow for this session.
+
+        Atomic: held under ``SessionStore._lock`` to prevent TOCTOU races
+        with concurrent delete/eviction (#503).
+        """
         with self._lock:
             session = self.get(sid)
             tv = TV_PROFILES[session["tv_key"]]
@@ -1831,6 +1836,11 @@ class SessionStore:
             return session
 
     def set_signal_range(self, sid: str, signal_range: str) -> Dict[str, Any]:
+        """Set the HDMI signal range (limited or full).
+
+        Atomic: held under ``SessionStore._lock`` to prevent TOCTOU races
+        with concurrent delete/eviction (#503).
+        """
         with self._lock:
             session = self.get(sid)
             if signal_range not in ("limited", "full"):
@@ -1845,6 +1855,11 @@ class SessionStore:
             return session
 
     def set_pattern_generator(self, sid: str, pattern_generator: str) -> Dict[str, Any]:
+        """Set the pattern generator source for this session.
+
+        Atomic: held under ``SessionStore._lock`` to prevent TOCTOU races
+        with concurrent delete/eviction (#503).
+        """
         with self._lock:
             session = self.get(sid)
             if pattern_generator not in PATTERN_GENERATOR_OPTIONS:
@@ -1862,6 +1877,11 @@ class SessionStore:
             return session
 
     def set_code_scale(self, sid: str, code_scale: str) -> Dict[str, Any]:
+        """Set the ADC code scale (8bit or 10bit).
+
+        Atomic: held under ``SessionStore._lock`` to prevent TOCTOU races
+        with concurrent delete/eviction (#503).
+        """
         with self._lock:
             session = self.get(sid)
             if code_scale not in ("8bit", "10bit"):
@@ -1877,6 +1897,11 @@ class SessionStore:
     def set_lightspace_tier(
         self, sid: str, tier: str, ramp_steps: int
     ) -> Dict[str, Any]:
+        """Set the LightSpace Connect tier and grayscale ramp step count.
+
+        Atomic: held under ``SessionStore._lock`` to prevent TOCTOU races
+        with concurrent delete/eviction (#503).
+        """
         with self._lock:
             session = self.get(sid)
             if tier not in ("free", "paid"):
@@ -1895,6 +1920,11 @@ class SessionStore:
             return session
 
     def set_grayscale_ramp(self, sid: str, ramp_steps: int) -> Dict[str, Any]:
+        """Set the grayscale ramp step count for this session.
+
+        Atomic: held under ``SessionStore._lock`` to prevent TOCTOU races
+        with concurrent delete/eviction (#503).
+        """
         with self._lock:
             session = self.get(sid)
             if ramp_steps not in GRAYSCALE_RAMP_OPTIONS:
@@ -2025,6 +2055,9 @@ class SessionStore:
 
         Increments repass_count, checks against REPATCH_MAX_PASSES, and
         jumps the session back to the relevant measurement step.
+
+        Atomic: held under ``SessionStore._lock`` to prevent TOCTOU races
+        with concurrent delete/eviction (#503).
         """
         with self._lock:
             session = self.get(sid)

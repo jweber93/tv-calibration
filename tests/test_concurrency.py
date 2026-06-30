@@ -1066,3 +1066,60 @@ class TestConfigSetterTOCTOU:
             proceed.set()
             t.join(timeout=5.0)
             acquired.wait(timeout=5.0)
+
+    def test_setter_concurrent_with_ttl_eviction_no_resurrection(self, store):
+        """Setter called concurrently with background TTL eviction — no resurrection.
+
+        This test verifies the fix against the real-world eviction path
+        (``evict_expired_sessions`` called by the file-watcher watchdog), not
+        just explicit ``delete()`` calls.  We manually push the session's
+        ``last_accessed_at`` into the past to simulate an expired session,
+        then race eviction against a setter.  The RLock must prevent the
+        setter from resurrecting the session after eviction removes it.
+        """
+        sid = store.create_session("u8g")["id"]
+        store.select_mode(sid, "SDR", sdr_peak_nits=120)
+        store.confirm_prepared(sid)
+
+        # Push last_accessed_at far into the past so eviction treats it as expired.
+        with store._lock:
+            store.sessions[sid]["last_accessed_at"] = (
+                datetime.now(timezone.utc) - timedelta(days=30)
+            ).isoformat()
+
+        errors = []
+        barrier = threading.Barrier(2)
+
+        def setter():
+            try:
+                barrier.wait()
+                store.set_code_scale(sid, "10bit")
+            except Exception as e:
+                errors.append(f"setter: {type(e).__name__}: {e}")
+
+        def evictor():
+            try:
+                barrier.wait()
+                store.evict_expired_sessions()
+            except Exception as e:
+                errors.append(f"evict: {type(e).__name__}: {e}")
+
+        t1 = threading.Thread(target=setter)
+        t2 = threading.Thread(target=evictor)
+        t1.start()
+        t2.start()
+        t1.join(timeout=10.0)
+        t2.join(timeout=10.0)
+
+        assert not t1.is_alive() and not t2.is_alive(), "Thread(s) hung"
+        # No crashes — 404 from the loser is acceptable.
+        crash_errors = [e for e in errors if "TypeError" in str(type(e))]
+        assert not crash_errors, f"Crashes during race: {errors}"
+
+        # Session must be either fully updated OR completely gone.
+        remaining = store.sessions.get(sid)
+        if remaining is not None:
+            assert remaining["code_scale"] == "10bit", (
+                f"Session survived but setting not applied: "
+                f"{remaining.get('code_scale')}"
+            )
