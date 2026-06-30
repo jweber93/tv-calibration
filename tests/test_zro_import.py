@@ -248,6 +248,20 @@ class TestGroupIntoSessions:
         groups = _group_into_sessions(rows)
         assert len(groups) == 2
 
+    @pytest.mark.parametrize("gap_seconds", [44.9, 45.0, 45.1])
+    def test_session_break_at_boundary(self, gap_seconds):
+        from datetime import datetime, timedelta
+        base = datetime(2026, 3, 15, 10, 48, 0)
+        rows = [
+            _Row(dt=base, r=128, g=128, b=128, Y=20.0, x=0.313, y=0.329),
+            _Row(dt=base + timedelta(seconds=gap_seconds), r=128, g=128, b=128, Y=20.0, x=0.313, y=0.329),
+        ]
+        groups = _group_into_sessions(rows)
+        if gap_seconds >= SESSION_BREAK_SECONDS:
+            assert len(groups) == 2, f"gap={gap_seconds}: expected 2 sessions, got {len(groups)}"
+        else:
+            assert len(groups) == 1, f"gap={gap_seconds}: expected 1 session, got {len(groups)}"
+
 
 # ── Unit tests: parse_zro_csv (full integration of parser logic) ──────────────
 

@@ -318,7 +318,7 @@ def _group_into_sessions(rows: List[_Row]) -> List[List[_Row]]:
     groups: List[List[_Row]] = [[rows[0]]]
     for row in rows[1:]:
         gap = (row.dt - groups[-1][-1].dt).total_seconds()
-        if gap > SESSION_BREAK_SECONDS:
+        if gap >= SESSION_BREAK_SECONDS:
             groups.append([])
         groups[-1].append(row)
     return groups
