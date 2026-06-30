@@ -17,7 +17,19 @@ def target_xyz_for_patch(
     cfg: AnalysisConfig,
     measured_peak_y: Optional[float],
     measured_black_y: float,
+    white_point_xy: Tuple[float, float] = D65_xy,
 ) -> Tuple[float, float, float]:
+    """Compute the ideal target XYZ for a single patch.
+
+    For grayscale patches, applies the session EOTF to derive target luminance Y,
+    then converts to XYZ using white_point_xy as the chromaticity (default D65).
+    For color patches, converts the target RGB to XYZ via the target color space matrix.
+
+    Args:
+        white_point_xy: Chromaticity (x, y) of the target white point. Defaults to
+            D65 (0.3127, 0.3290). Pass the session target's white_point_xy for
+            non-D65 calibrations so grayscale targets are placed correctly.
+    """
     if code_max <= 0:
         raise ValueError(f"Invalid code_max: {code_max}, must be a positive integer")
 
@@ -43,7 +55,7 @@ def target_xyz_for_patch(
                 else float(cfg.eotf)
             )
             target_y = gamma_eotf(n, gamma=gamma) * measured_peak_y
-        return xyY_to_xyz(D65_xy[0], D65_xy[1], target_y)
+        return xyY_to_xyz(white_point_xy[0], white_point_xy[1], target_y)
 
     matrix = detect_matrix(cfg.target_space)
     return rgb_to_xyz(target_rgb, matrix)
