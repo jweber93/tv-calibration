@@ -1784,37 +1784,39 @@ class SessionStore:
     def select_mode(
         self, sid: str, mode: str, sdr_peak_nits: Optional[float] = None
     ) -> Dict[str, Any]:
-        session = self.get(sid)
-        if session["step"] != "select_mode":
-            raise HTTPException(400, "Not in select_mode step")
-        if mode not in TARGETS:
-            raise HTTPException(400, f"Unknown mode: {mode}")
-        session["mode"] = mode
-        if mode == "SDR" and sdr_peak_nits is not None:
-            if not (50 <= sdr_peak_nits <= 400):
-                raise HTTPException(400, "sdr_peak_nits must be between 50 and 400")
-            session["target"] = dc_replace(
-                SDR_TARGET, peak_luminance_nits=sdr_peak_nits
+        with self._lock:
+            session = self.get(sid)
+            if session["step"] != "select_mode":
+                raise HTTPException(400, "Not in select_mode step")
+            if mode not in TARGETS:
+                raise HTTPException(400, f"Unknown mode: {mode}")
+            session["mode"] = mode
+            if mode == "SDR" and sdr_peak_nits is not None:
+                if not (50 <= sdr_peak_nits <= 400):
+                    raise HTTPException(400, "sdr_peak_nits must be between 50 and 400")
+                session["target"] = dc_replace(
+                    SDR_TARGET, peak_luminance_nits=sdr_peak_nits
+                )
+                session["sdr_peak_nits"] = sdr_peak_nits
+            else:
+                session["target"] = TARGETS[mode]
+                session.setdefault("sdr_peak_nits", None)
+            session["code_scale"] = recommended_code_scale(
+                session.get("pattern_generator", "lightspace_connect"),
+                session.get("signal_range", "limited"),
+                mode,
             )
-            session["sdr_peak_nits"] = sdr_peak_nits
-        else:
-            session["target"] = TARGETS[mode]
-            session.setdefault("sdr_peak_nits", None)
-        session["code_scale"] = recommended_code_scale(
-            session.get("pattern_generator", "lightspace_connect"),
-            session.get("signal_range", "limited"),
-            mode,
-        )
-        session["step"] = "prepare"
-        self.save_session(sid)
+            session["step"] = "prepare"
+            self.save_session(sid)
         return session
 
     def confirm_prepared(self, sid: str) -> Dict[str, Any]:
-        session = self.get(sid)
-        if session["step"] != "prepare":
-            raise HTTPException(400, "Not in prepare step")
-        session["step"] = "pre_grayscale"
-        self.save_session(sid)
+        with self._lock:
+            session = self.get(sid)
+            if session["step"] != "prepare":
+                raise HTTPException(400, "Not in prepare step")
+            session["step"] = "pre_grayscale"
+            self.save_session(sid)
         return session
 
     def set_gamma_workflow(self, sid: str, workflow: str) -> Dict[str, Any]:
@@ -1898,107 +1900,110 @@ class SessionStore:
         return session
 
     def next_step(self, sid: str, luminance_threshold_pct: float) -> Dict[str, Any]:
-        session = self.get(sid)
-        step = session["step"]
-        grayscale_levels = grayscale_levels_for_ramp(
-            session.get("grayscale_ramp_steps", 11)
-        )
-        if step == "pre_grayscale":
-            if len(session["pre_measurements"]) < len(grayscale_levels):
-                raise HTTPException(
-                    400,
-                    f"Need {len(grayscale_levels)} measurements, have {len(session['pre_measurements'])}",
-                )
-            session["step"] = "luminance"
-        elif step == "luminance":
-            if not session["lum_measurements"]:
-                raise HTTPException(400, "Take at least one luminance reading first")
-            if session.get("target") is None:
-                raise HTTPException(400, "Target not set. Go back and select a calibration mode.")
-            latest = session["lum_measurements"][-1]
-            validation = validate_peak_luminance(latest.Y, session["target"])
-            if not validation["valid"]:
-                raise HTTPException(400, validation["message"])
-            if session["target"]:
-                target_nits = session["target"].peak_luminance_nits
-                pct_err = abs(latest.Y - target_nits) / target_nits * 100
-                if pct_err > luminance_threshold_pct:
+        with self._lock:
+            session = self.get(sid)
+            step = session["step"]
+            grayscale_levels = grayscale_levels_for_ramp(
+                session.get("grayscale_ramp_steps", 11)
+            )
+            if step == "pre_grayscale":
+                if len(session["pre_measurements"]) < len(grayscale_levels):
                     raise HTTPException(
                         400,
-                        f"Peak luminance is {latest.Y:.1f} nits but target is {target_nits:.0f} nits ({pct_err:.1f}% off). Adjust Backlight until the reading is within {luminance_threshold_pct:.0f}% of target before continuing.",
+                        f"Need {len(grayscale_levels)} measurements, have {len(session['pre_measurements'])}",
                     )
-            session["step"] = "white_balance"
-        elif step == "white_balance":
-            latest_wb = latest_wb_measurements(session["wb_measurements"])
-            if not latest_wb["gain"] or not latest_wb["offset"]:
-                raise HTTPException(
-                    400, "Take both 80% gray and 30% gray white balance readings first"
-                )
-            session["step"] = "gamma"
-        elif step == "gamma":
-            gamma_levels = gamma_levels_for_session(session)
-            if not gamma_pass_complete(
-                session["gamma_measurements"],
-                gamma_levels,
-                session.get("signal_range", "auto"),
-                session.get("code_scale", "8bit"),
-            ):
-                workflow_label = GAMMA_WORKFLOW_LABELS.get(
-                    session.get("gamma_workflow", "quick"), "selected"
-                )
-                raise HTTPException(
-                    400,
-                    f"Run a full {workflow_label.lower()} gamma pass before continuing",
-                )
-            session["step"] = "color_tuner"
-        elif step == "color_tuner":
-            session["post_measurements"] = []
-            session["step"] = "post_grayscale"
-        elif step == "post_grayscale":
-            if len(session["post_measurements"]) < len(grayscale_levels):
-                raise HTTPException(
-                    400,
-                    f"Need {len(grayscale_levels)} measurements, have {len(session['post_measurements'])}",
-                )
-            session["step"] = "report"
-        else:
-            raise HTTPException(400, f"No transition from step '{step}'")
-        self.save_session(sid)
+                session["step"] = "luminance"
+            elif step == "luminance":
+                if not session["lum_measurements"]:
+                    raise HTTPException(400, "Take at least one luminance reading first")
+                if session.get("target") is None:
+                    raise HTTPException(400, "Target not set. Go back and select a calibration mode.")
+                latest = session["lum_measurements"][-1]
+                validation = validate_peak_luminance(latest.Y, session["target"])
+                if not validation["valid"]:
+                    raise HTTPException(400, validation["message"])
+                if session["target"]:
+                    target_nits = session["target"].peak_luminance_nits
+                    pct_err = abs(latest.Y - target_nits) / target_nits * 100
+                    if pct_err > luminance_threshold_pct:
+                        raise HTTPException(
+                            400,
+                            f"Peak luminance is {latest.Y:.1f} nits but target is {target_nits:.0f} nits ({pct_err:.1f}% off). Adjust Backlight until the reading is within {luminance_threshold_pct:.0f}% of target before continuing.",
+                        )
+                session["step"] = "white_balance"
+            elif step == "white_balance":
+                latest_wb = latest_wb_measurements(session["wb_measurements"])
+                if not latest_wb["gain"] or not latest_wb["offset"]:
+                    raise HTTPException(
+                        400, "Take both 80% gray and 30% gray white balance readings first"
+                    )
+                session["step"] = "gamma"
+            elif step == "gamma":
+                gamma_levels = gamma_levels_for_session(session)
+                if not gamma_pass_complete(
+                    session["gamma_measurements"],
+                    gamma_levels,
+                    session.get("signal_range", "auto"),
+                    session.get("code_scale", "8bit"),
+                ):
+                    workflow_label = GAMMA_WORKFLOW_LABELS.get(
+                        session.get("gamma_workflow", "quick"), "selected"
+                    )
+                    raise HTTPException(
+                        400,
+                        f"Run a full {workflow_label.lower()} gamma pass before continuing",
+                    )
+                session["step"] = "color_tuner"
+            elif step == "color_tuner":
+                session["post_measurements"] = []
+                session["step"] = "post_grayscale"
+            elif step == "post_grayscale":
+                if len(session["post_measurements"]) < len(grayscale_levels):
+                    raise HTTPException(
+                        400,
+                        f"Need {len(grayscale_levels)} measurements, have {len(session['post_measurements'])}",
+                    )
+                session["step"] = "report"
+            else:
+                raise HTTPException(400, f"No transition from step '{step}'")
+            self.save_session(sid)
         return session
 
     def jump_to_step(self, sid: str, target_index: int) -> Dict[str, Any]:
-        session = self.get(sid)
-        current_index = (
-            STEPS_ORDER.index(session["step"]) if session["step"] in STEPS_ORDER else 0
-        )
-        if target_index >= current_index:
-            raise HTTPException(400, "Can only jump to a completed step")
-        if target_index < 0 or target_index >= len(STEPS_ORDER):
-            raise HTTPException(400, "Invalid step index")
-        session["step"] = STEPS_ORDER[target_index]
-        self.save_session(sid)
+        with self._lock:
+            session = self.get(sid)
+            current_index = (
+                STEPS_ORDER.index(session["step"]) if session["step"] in STEPS_ORDER else 0
+            )
+            if target_index >= current_index:
+                raise HTTPException(400, "Can only jump to a completed step")
+            if target_index < 0 or target_index >= len(STEPS_ORDER):
+                raise HTTPException(400, "Invalid step index")
+            session["step"] = STEPS_ORDER[target_index]
+            self.save_session(sid)
         return session
 
     def prev_step(self, sid: str) -> Dict[str, Any]:
-        session = self.get(sid)
-        transitions = {
-            "prepare": "select_mode",
-            "pre_grayscale": "prepare",
-            "luminance": "pre_grayscale",
-            "white_balance": "luminance",
-            "gamma": "white_balance",
-            "color_tuner": "gamma",
-            "post_grayscale": "color_tuner",
-            "report": "post_grayscale",
-        }
-        step = session["step"]
-        if step not in transitions:
-            raise HTTPException(400, f"No back transition from step '{step}'")
-        if step == "prepare":
-            session["mode"] = None
-            session["target"] = None
-        session["step"] = transitions[step]
-        self.save_session(sid)
+        with self._lock:
+            session = self.get(sid)
+            transitions = {
+                "prepare": "select_mode",
+                "pre_grayscale": "prepare",
+                "luminance": "pre_grayscale",
+                "white_balance": "luminance",
+                "gamma": "white_balance",
+                "color_tuner": "gamma",
+                "post_grayscale": "color_tuner",
+                "report": "post_grayscale",
+            }
+            step = session["step"]
+            if step not in transitions:
+                raise HTTPException(400, f"No back transition from step '{step}'")
+            if step == "prepare":
+                session["mode"] = None
+                session["target"] = None
+            session["step"] = transitions[step]
+            self.save_session(sid)
         return session
 
 

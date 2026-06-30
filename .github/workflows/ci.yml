@@ -24,8 +24,72 @@ env:
   PYTHON_DEFAULT: "3.12"
   NODE_DEFAULT: "22"
 
-# ── Stage 1: Lint ─────────────────────────────────────────────────────────────
+# ── Stage 0: PR Quality ───────────────────────────────────────────────────────
 jobs:
+  pr-template:
+    name: PR / template compliance
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Verify PR body follows template
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, sys
+
+          with open(os.environ["GITHUB_EVENT_PATH"]) as f:
+              event = json.load(f)
+
+          body = (event.get("pull_request", {}).get("body") or "").strip()
+
+          if not body:
+              print("::error::PR body is empty — please fill in the pull request template.")
+              sys.exit(1)
+
+          REQUIRED_HEADINGS = [
+              "## 📺 Overview",
+              "### What does this PR do?",
+              "## 🛠️ Technical Context & Implementation",
+              "## 🧪 Testing & Validation",
+              "## 🧼 Checklist",
+          ]
+
+          errors = []
+
+          for heading in REQUIRED_HEADINGS:
+              if heading not in body:
+                  errors.append(f"Missing required section: {heading!r}")
+
+          # At least one type-of-change box must be ticked
+          type_line = next(
+              (l for l in body.splitlines() if "**Type of change:**" in l), None
+          )
+          if type_line is not None and "[x]" not in type_line.lower():
+              errors.append(
+                  "Select at least one type of change — replace [ ] with [x]"
+              )
+
+          # Placeholder text must be replaced
+          if "[e.g., ArgyllCMS wrapper" in body:
+              errors.append("Replace the placeholder in 'Component(s) affected'")
+
+          # The Problem and The Solution must have inline content
+          for field in ("* **The Problem:**", "* **The Solution:**"):
+              idx = body.find(field)
+              if idx != -1:
+                  remainder = body[idx + len(field) :].split("\n")[0].strip()
+                  if not remainder:
+                      errors.append(f"{field} must not be left empty")
+
+          if errors:
+              for e in errors:
+                  print(f"::error::{e}")
+              sys.exit(1)
+
+          print("PR template check passed ✓")
+          PYEOF
+
+# ── Stage 1: Lint ─────────────────────────────────────────────────────────────
   lint-python:
     name: Lint / ruff
     runs-on: ubuntu-latest
@@ -392,6 +456,7 @@ jobs:
   merge-gate:
     name: All checks passed
     needs:
+      - pr-template
       - lint-python
       - lint-shell
       - backend-tests
