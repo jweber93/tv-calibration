@@ -785,6 +785,38 @@ class TestZROImport:
         assert resp.status_code == 400
 
 
+class TestImportRoutesDoNotBlockEventLoop:
+    """Regression test for #504: the import routes must not run blocking,
+    lock-holding disk I/O directly on the asyncio event loop.
+
+    Either the handler is a plain `def` (FastAPI threadpools those
+    automatically), or it's `async def` and offloads the store call via
+    `run_in_threadpool` rather than calling it directly in its own frame.
+    """
+
+    @pytest.mark.parametrize(
+        "route_func, store_method_name",
+        [
+            (server_module.import_zro_csv, "import_zro_bytes"),
+            (server_module.import_generic_csv, "import_generic_bytes"),
+        ],
+    )
+    def test_route_offloads_blocking_store_call(self, route_func, store_method_name):
+        import inspect
+
+        if not inspect.iscoroutinefunction(route_func):
+            return  # plain `def` routes are threadpooled by FastAPI for free
+
+        source = inspect.getsource(route_func)
+        direct_call = f"store.{store_method_name}("
+        assert direct_call not in source, (
+            f"{route_func.__name__} is async but calls store.{store_method_name} "
+            "directly on the event loop instead of offloading via run_in_threadpool"
+        )
+        assert "run_in_threadpool" in source
+        assert f"store.{store_method_name}" in source
+
+
 # ── Step navigation ───────────────────────────────────────────────────────────
 
 class TestStepNavigation:

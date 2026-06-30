@@ -27,6 +27,7 @@ from urllib.parse import urlparse
 import httpx
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
 _MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB limit for CSV uploads
@@ -1433,7 +1434,9 @@ async def import_zro_csv(sid: str, file: UploadFile = File(...)):
             413, f"File too large: {len(contents)} bytes (max {_MAX_UPLOAD_BYTES})"
         )
 
-    session, import_meta = store.import_zro_bytes(sid, file.filename, contents)
+    session, import_meta = await run_in_threadpool(
+        store.import_zro_bytes, sid, file.filename, contents
+    )
     _maybe_trigger_llm(sid, session)
     return {"session": _session_view(session), "import_summary": import_meta}
 
@@ -1450,7 +1453,9 @@ async def import_generic_csv(sid: str, file: UploadFile = File(...)):
             413, f"File too large: {len(contents)} bytes (max {_MAX_UPLOAD_BYTES})"
         )
 
-    session, import_meta = store.import_generic_bytes(sid, file.filename, contents)
+    session, import_meta = await run_in_threadpool(
+        store.import_generic_bytes, sid, file.filename, contents
+    )
     _maybe_trigger_llm(sid, session)
     return {"session": _session_view(session), "import_summary": import_meta}
 
