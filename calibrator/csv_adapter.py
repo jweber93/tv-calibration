@@ -26,12 +26,12 @@ def _nearest_target_pct(stim: float, targets: tuple) -> Optional[float]:
     return min(matches, key=lambda t: abs(stim - t))
 
 
-def _stimulus_pct_from_patch(patch: Patch) -> float:
+def _stimulus_pct_from_patch(patch: Patch, signal_range: str = "auto") -> float:
     """Derive stimulus percentage from a grayscale patch's RGB target values."""
     if not patch.is_grayscale:
         return 0.0
     val = patch.r_target  # r == g == b for grayscale
-    return stimulus_pct_from_code_value(val)
+    return stimulus_pct_from_code_value(val, signal_range)
 
 
 def _bucket_for_grayscale(stim_pct: float, session_step: Optional[str]) -> List[str]:
@@ -72,6 +72,8 @@ def patches_to_session_buckets(
     patches: List[Patch],
     target: CalibrationTarget,
     session_step: Optional[str] = None,
+    signal_range: str = "auto",
+    code_scale: str = "8bit",
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
     Convert a list of generic measurement patches into the session bucket structure.
@@ -96,6 +98,7 @@ def patches_to_session_buckets(
     }
 
     now_iso = datetime.now(timezone.utc).isoformat()
+    decode_range = "full10" if (signal_range == "full" and code_scale == "10bit") else signal_range
 
     for patch in patches:
         if not patch.is_grayscale:
@@ -103,7 +106,7 @@ def patches_to_session_buckets(
                 _build_measurement_dict(patch, now_iso)
             )
         else:
-            stim_pct = _stimulus_pct_from_patch(patch)
+            stim_pct = _stimulus_pct_from_patch(patch, decode_range)
             patch_buckets = _bucket_for_grayscale(stim_pct, session_step)
             meas_dict = _build_measurement_dict(patch, now_iso)
             for bucket in patch_buckets:

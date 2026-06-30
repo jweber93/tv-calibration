@@ -105,7 +105,7 @@ def ciede2000(
         - 0.17 * math.cos(math.radians(hp_bar - 30))
         + 0.24 * math.cos(math.radians(2 * hp_bar))
         + 0.32 * math.cos(math.radians(3 * hp_bar + 6))
-        - 0.20 * math.cos(math.radians(4 * hp_bar - 63))
+        - 0.20 * math.cos(math.radians(4 * hp_bar + 163))
     )
 
     d_ro = 30 * math.exp(-(((hp_bar - 275) / 25) ** 2))
