@@ -1520,6 +1520,7 @@ def session_view(s: Dict[str, Any]) -> Dict[str, Any]:
                 signal_range,
                 code_scale,
                 gamma_levels,
+                target.eotf if target else "gamma",
             ),
             "control_plan": (
                 u8g_gamma_control_plan(
@@ -1531,6 +1532,7 @@ def session_view(s: Dict[str, Any]) -> Dict[str, Any]:
                     signal_range,
                     code_scale,
                     gamma_levels,
+                    target.eotf if target else "gamma",
                 )
                 if s["tv_key"] == "u8g" and target
                 else preset_gamma_control_plan(
@@ -1542,6 +1544,7 @@ def session_view(s: Dict[str, Any]) -> Dict[str, Any]:
                     signal_range,
                     code_scale,
                     gamma_levels,
+                    target.eotf if target else "gamma",
                 )
                 if target
                 else []
@@ -1910,6 +1913,8 @@ class SessionStore:
         elif step == "luminance":
             if not session["lum_measurements"]:
                 raise HTTPException(400, "Take at least one luminance reading first")
+            if session.get("target") is None:
+                raise HTTPException(400, "Target not set. Go back and select a calibration mode.")
             latest = session["lum_measurements"][-1]
             validation = validate_peak_luminance(latest.Y, session["target"])
             if not validation["valid"]:
@@ -2032,6 +2037,7 @@ class SessionStore:
                 )
                 session["repass_decision"]["ceiling_reason"] = ceiling_reason or "Exceeded maximum repass count"
                 session["repass_decision"]["timestamp"] = now().isoformat()
+                session["step"] = "report"
                 self.save_session(sid)
                 return session
 
@@ -2198,7 +2204,13 @@ class SessionStore:
 
         with self._lock:
             session = self.get(sid)
-            bucket_map = patches_to_session_buckets(patches, session["target"], session.get("step"))
+            bucket_map = patches_to_session_buckets(
+                patches,
+                session["target"],
+                session.get("step"),
+                session.get("signal_range", "auto"),
+                session.get("code_scale", "8bit"),
+            )
 
         return self._locked_import(
             sid=sid,

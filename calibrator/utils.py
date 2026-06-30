@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 
 from calcore.colour import ciede2000, xyY_to_xyz, xyz_to_lab
+from calcore.eotf import pq_inverse_eotf
 
 
 def delta_xy(measured_xy, target_xy) -> float:
@@ -56,6 +57,61 @@ def gamma_from_luminance(measured_nits, peak_nits, stimulus_pct):
     if normalised_out <= 0 or normalised_in <= 0 or normalised_out > 1.0:
         return None
     return math.log(normalised_out) / math.log(normalised_in)
+
+
+def is_pq_eotf(eotf: str) -> bool:
+    """True when the EOTF label denotes PQ / SMPTE ST.2084."""
+    e = (eotf or "").lower()
+    return "pq" in e or "2084" in e
+
+
+def eotf_from_luminance(measured_nits, peak_nits, stimulus_pct, eotf="gamma"):
+    """Effective tracking exponent of a measured point under its session EOTF.
+
+    For power-law / BT.1886 EOTFs this returns the plain effective gamma
+    ``log(Y/peak) / log(stim/100)`` — compare it against the target gamma
+    (e.g. 2.2 / 2.4).
+
+    For PQ (SMPTE ST.2084) the panel does not follow a power law, so a plain
+    gamma is meaningless. Instead we encode the *measured* luminance back to a
+    PQ signal with the inverse ST.2084 OETF and report the exponent relative to
+    the stimulus: ``log(pq_signal(Y)) / log(stim/100)``. Perfect PQ tracking
+    yields 1.0 (compare against a target of 1.0, not 2.2); values above 1.0 mean
+    the point is too dark, below 1.0 too bright.
+
+    Examples:
+        PQ reference at 50% stimulus is ~92.25 nits, so a display hitting that
+        tracks perfectly::
+
+            >>> round(eotf_from_luminance(92.25, 1000, 50, "PQ (ST.2084)"), 2)
+            1.0
+
+        A point measuring 250 nits at 50% is far brighter than the 92-nit
+        reference, so tracking drops below 1.0::
+
+            >>> round(eotf_from_luminance(250, 1000, 50, "PQ (ST.2084)"), 2)
+            0.73
+
+        Half the reference luminance (~46 nits) is too dark, so tracking rises
+        above 1.0::
+
+            >>> round(eotf_from_luminance(46.1, 1000, 50, "PQ (ST.2084)"), 2)
+            1.21
+    """
+    # stimulus_pct is in (0, 100) past this guard, so normalised_in is in (0, 1).
+    if stimulus_pct <= 0 or stimulus_pct >= 100 or peak_nits <= 0:
+        return None
+    normalised_in = stimulus_pct / 100.0
+    if is_pq_eotf(eotf):
+        if measured_nits <= 0:
+            return None
+        pq_signal = pq_inverse_eotf(measured_nits)
+        if pq_signal <= 0 or pq_signal >= 1.0:
+            return None
+        return math.log(pq_signal) / math.log(normalised_in)
+    # Power-law and BT.1886 (BT.1886 with a near-zero black floor reduces to a
+    # pure power law, which is the regime SDR panels operate in).
+    return gamma_from_luminance(measured_nits, peak_nits, stimulus_pct)
 
 
 def delta_e_ciede2000_xyY(

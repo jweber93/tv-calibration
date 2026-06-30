@@ -4,13 +4,16 @@ from pathlib import Path
 
 import pytest
 
+from calcore.eotf import pq_eotf, pq_inverse_eotf
 from calibrator import (
     xyY_to_XYZ,
     XYZ_to_lab,
     xyY_to_lab,
     delta_e_cie76,
     delta_xy,
+    eotf_from_luminance,
     gamma_from_luminance,
+    is_pq_eotf,
     rating_emoji,
     direction_hint,
     D65_XY,
@@ -187,6 +190,80 @@ class TestGammaFromLuminance:
 
     def test_above_peak_luminance_returns_none(self):
         assert gamma_from_luminance(130, 120, 50) is None
+
+
+# ---------------------------------------------------------------------------
+# pq_inverse_eotf / is_pq_eotf / eotf_from_luminance
+# ---------------------------------------------------------------------------
+
+class TestPqInverseEotf:
+    @pytest.mark.parametrize("n", [0.1, 0.25, 0.5, 0.75, 0.9])
+    def test_round_trips_with_pq_eotf(self, n):
+        """pq_inverse_eotf is the exact inverse of pq_eotf."""
+        assert pq_inverse_eotf(pq_eotf(n)) == pytest.approx(n, abs=1e-9)
+
+    def test_zero_nits_maps_to_near_zero_signal(self):
+        # PQ encoding of 0 nits is a tiny positive offset, not exactly 0.
+        assert pq_inverse_eotf(0.0) == pytest.approx(0.0, abs=1e-5)
+
+    def test_peak_10000_maps_to_unity(self):
+        assert pq_inverse_eotf(10000.0) == pytest.approx(1.0, abs=1e-9)
+
+
+class TestIsPqEotf:
+    @pytest.mark.parametrize("label", ["pq", "PQ", "PQ (ST.2084)", "st2084", "x2084"])
+    def test_detects_pq(self, label):
+        assert is_pq_eotf(label) is True
+
+    @pytest.mark.parametrize("label", ["gamma", "BT.1886", "2.2", "", None])
+    def test_rejects_non_pq(self, label):
+        assert is_pq_eotf(label) is False
+
+
+class TestEotfFromLuminance:
+    def test_power_law_matches_gamma_from_luminance(self):
+        """Non-PQ EOTFs keep the legacy power-law effective gamma."""
+        peak = 100.0
+        measured = peak * (0.5) ** 2.2
+        assert eotf_from_luminance(measured, peak, 50, "BT.1886") == pytest.approx(
+            gamma_from_luminance(measured, peak, 50)
+        )
+
+    def test_default_eotf_is_power_law(self):
+        peak = 120.0
+        measured = peak * (0.4) ** 2.4
+        assert eotf_from_luminance(measured, peak, 40) == pytest.approx(2.4, abs=0.01)
+
+    @pytest.mark.parametrize("stim", [20, 40, 60, 80])
+    def test_perfect_pq_tracking_is_one(self, stim):
+        """A display that exactly follows PQ reports a tracking value of 1.0."""
+        measured = pq_eotf(stim / 100.0)
+        assert eotf_from_luminance(measured, 1000.0, stim, "PQ (ST.2084)") == pytest.approx(
+            1.0, abs=1e-6
+        )
+
+    def test_pq_too_dark_above_one(self):
+        measured = pq_eotf(0.5) * 0.5  # half the reference luminance
+        assert eotf_from_luminance(measured, 1000.0, 50, "pq") > 1.0
+
+    def test_pq_too_bright_below_one(self):
+        measured = pq_eotf(0.5) * 2.0  # double the reference luminance
+        assert eotf_from_luminance(measured, 1000.0, 50, "pq") < 1.0
+
+    def test_pq_does_not_use_plain_gamma(self):
+        """The PQ path must diverge from the plain power-law value."""
+        measured = pq_eotf(0.5)
+        pq_val = eotf_from_luminance(measured, 1000.0, 50, "pq")
+        plain = eotf_from_luminance(measured, 1000.0, 50, "gamma")
+        assert pq_val == pytest.approx(1.0, abs=1e-6)
+        assert plain != pytest.approx(1.0, abs=0.1)
+
+    def test_pq_zero_nits_returns_none(self):
+        assert eotf_from_luminance(0.0, 1000.0, 50, "pq") is None
+
+    def test_boundary_stimulus_returns_none(self):
+        assert eotf_from_luminance(50, 1000.0, 0, "pq") is None
+        assert eotf_from_luminance(50, 1000.0, 100, "pq") is None
 
 
 # ---------------------------------------------------------------------------
