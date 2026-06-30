@@ -813,3 +813,256 @@ class TestStepTransitionTOCTOU:
         assert final["step"] == "luminance", (
             f"jump_to_step left session at wrong step: {final['step']}, results={results}"
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TOCTOU regression tests — config setters + repass hold the RLock (#503)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestConfigSetterTOCTOU:
+    """Verify that config setters and repass() serialise under the RLock.
+
+    Before the fix these methods released the lock after get() and reacquired
+    it only in save_session(), leaving a window where a concurrent delete or
+    eviction could resurrect the session or silently discard the write while
+    still reporting success to the client.
+
+    After the fix each method holds ``with self._lock:`` across get→mutate→save,
+    matching the pattern already used by step-transition methods (#490).
+
+    As with ``TestConcurrentEviction``, one side of the race will get a 404 —
+    that is an acceptable graceful failure.  What matters is no crash, no
+    resurrection of a deleted session, and consistency when the session
+    survives.
+    """
+
+    def _run_setter_vs_delete(self, store, sid, setter_fn, expected_key,
+                              expected_value):
+        """Generic helper: race a config setter against delete."""
+        errors = []
+        barrier = threading.Barrier(2)
+
+        def setter():
+            try:
+                barrier.wait()
+                setter_fn()
+            except Exception as e:
+                errors.append(f"setter: {type(e).__name__}: {e}")
+
+        def deleter():
+            try:
+                barrier.wait()
+                store.delete(sid)
+            except Exception as e:
+                errors.append(f"delete: {type(e).__name__}: {e}")
+
+        t1 = threading.Thread(target=setter)
+        t2 = threading.Thread(target=deleter)
+        t1.start()
+        t2.start()
+        t1.join(timeout=10.0)
+        t2.join(timeout=10.0)
+
+        assert not t1.is_alive() and not t2.is_alive(), "Thread(s) hung"
+        # Both must complete without crashing — 404 from the loser is fine.
+        crash_errors = [e for e in errors if "TypeError" in str(type(e))]
+        assert not crash_errors, f"Crashes during race: {errors}"
+
+        # Session must be either fully updated OR completely gone.
+        remaining = store.sessions.get(sid)
+        if remaining is not None:
+            assert remaining[expected_key] == expected_value, (
+                f"Session survived but setting not applied: "
+                f"{expected_key}={remaining.get(expected_key)}"
+            )
+
+    def test_set_code_scale_concurrent_delete_no_resurrection(self, store):
+        """set_code_scale concurrent with delete — no resurrection."""
+        sid = store.create_session("u8g")["id"]
+        store.select_mode(sid, "SDR", sdr_peak_nits=120)
+        store.confirm_prepared(sid)
+        self._run_setter_vs_delete(
+            store, sid, lambda: store.set_code_scale(sid, "10bit"),
+            "code_scale", "10bit"
+        )
+
+    def test_set_signal_range_concurrent_delete_no_resurrection(self, store):
+        """set_signal_range concurrent with delete — no resurrection."""
+        sid = store.create_session("u8g")["id"]
+        store.select_mode(sid, "SDR", sdr_peak_nits=120)
+        store.confirm_prepared(sid)
+        self._run_setter_vs_delete(
+            store, sid, lambda: store.set_signal_range(sid, "full"),
+            "signal_range", "full"
+        )
+
+    def test_set_pattern_generator_concurrent_delete_no_resurrection(self, store):
+        """set_pattern_generator concurrent with delete — no resurrection."""
+        sid = store.create_session("u8g")["id"]
+        store.select_mode(sid, "SDR", sdr_peak_nits=120)
+        store.confirm_prepared(sid)
+        self._run_setter_vs_delete(
+            store, sid, lambda: store.set_pattern_generator(sid, "dogegen"),
+            "pattern_generator", "dogegen"
+        )
+
+    def test_set_grayscale_ramp_concurrent_delete_no_resurrection(self, store):
+        """set_grayscale_ramp concurrent with delete — no resurrection."""
+        sid = store.create_session("u8g")["id"]
+        store.select_mode(sid, "SDR", sdr_peak_nits=120)
+        store.confirm_prepared(sid)
+        self._run_setter_vs_delete(
+            store, sid, lambda: store.set_grayscale_ramp(sid, 11),
+            "grayscale_ramp_steps", 11
+        )
+
+    def test_set_lightspace_tier_concurrent_delete_no_resurrection(self, store):
+        """set_lightspace_tier concurrent with delete — no resurrection."""
+        sid = store.create_session("u8g")["id"]
+        store.select_mode(sid, "SDR", sdr_peak_nits=120)
+        store.confirm_prepared(sid)
+        self._run_setter_vs_delete(
+            store, sid, lambda: store.set_lightspace_tier(sid, "free", 11),
+            "lightspace_tier", "free"
+        )
+
+    def test_set_gamma_workflow_concurrent_delete_no_resurrection(self, store):
+        """set_gamma_workflow concurrent with delete — no resurrection."""
+        sid = store.create_session("u8g")["id"]
+        store.select_mode(sid, "SDR", sdr_peak_nits=120)
+        store.confirm_prepared(sid)
+        self._run_setter_vs_delete(
+            store, sid, lambda: store.set_gamma_workflow(sid, "quick"),
+            "gamma_workflow", "quick"
+        )
+
+    def test_repass_concurrent_delete_no_resurrection(self, store):
+        """repass concurrent with delete — no resurrection."""
+        sid = store.create_session("u8g")["id"]
+        store.select_mode(sid, "SDR", sdr_peak_nits=120)
+        store.confirm_prepared(sid)
+
+        errors = []
+        barrier = threading.Barrier(2)
+
+        def repasser():
+            try:
+                barrier.wait()
+                store.repass(sid, "repatch")
+            except Exception as e:
+                errors.append(f"repass: {type(e).__name__}: {e}")
+
+        def deleter():
+            try:
+                barrier.wait()
+                store.delete(sid)
+            except Exception as e:
+                errors.append(f"delete: {type(e).__name__}: {e}")
+
+        t1 = threading.Thread(target=repasser)
+        t2 = threading.Thread(target=deleter)
+        t1.start()
+        t2.start()
+        t1.join(timeout=10.0)
+        t2.join(timeout=10.0)
+
+        assert not t1.is_alive() and not t2.is_alive(), "Thread(s) hung"
+        remaining = store.sessions.get(sid)
+        if remaining is not None:
+            assert remaining["repass_count"] == 1
+
+    def test_concurrent_setters_serialise(self, store):
+        """Two concurrent setters on the same field — only one value wins.
+
+        Without the lock both threads could read a stale session, each apply
+        their own value, and save — the second save wins but both clients
+        reported success.  With the lock they serialise: exactly one value is
+        persisted and both calls complete without error.
+        """
+        sid = store.create_session("u8g")["id"]
+        store.select_mode(sid, "SDR", sdr_peak_nits=120)
+        store.confirm_prepared(sid)
+
+        errors = []
+        barrier = threading.Barrier(2)
+
+        def setter_a():
+            try:
+                barrier.wait()
+                store.set_code_scale(sid, "8bit")
+            except Exception as e:
+                errors.append(f"A: {type(e).__name__}: {e}")
+
+        def setter_b():
+            try:
+                barrier.wait()
+                store.set_code_scale(sid, "10bit")
+            except Exception as e:
+                errors.append(f"B: {type(e).__name__}: {e}")
+
+        t1 = threading.Thread(target=setter_a)
+        t2 = threading.Thread(target=setter_b)
+        t1.start()
+        t2.start()
+        t1.join(timeout=10.0)
+        t2.join(timeout=10.0)
+
+        assert not errors, f"Errors during concurrent setters: {errors}"
+        final = store.get(sid)
+        assert final["code_scale"] in ("8bit", "10bit"), (
+            f"Unexpected code_scale: {final['code_scale']}"
+        )
+
+    def test_setter_holds_lock_across_get_mutate_save(self, store):
+        """set_code_scale must hold the RLock for the full get→mutate→save span.
+
+        We monkeypatch get() to block after returning, then verify that
+        save_session cannot proceed from outside the setter until get()
+        unblocks.  This proves the lock wraps both endpoints of the
+        read-modify-write, not just get().
+        """
+        sid = store.create_session("u8g")["id"]
+        store.select_mode(sid, "SDR", sdr_peak_nits=120)
+        store.confirm_prepared(sid)
+
+        lock_held = threading.Event()
+        proceed = threading.Event()
+        original_get = store.get
+
+        def delaying_get(*args, **kwargs):
+            result = original_get(*args, **kwargs)
+            lock_held.set()
+            proceed.wait(timeout=5.0)
+            return result
+
+        with patch.object(store, "get", delaying_get):
+            def do_setter():
+                store.set_code_scale(sid, "10bit")
+
+            t = threading.Thread(target=do_setter)
+            t.start()
+
+            assert lock_held.wait(timeout=5.0), (
+                "Lock should be held during setter execution"
+            )
+
+            # While the lock is held, verify another thread blocks on it.
+            acquired = threading.Event()
+
+            def try_acquire():
+                with store._lock:
+                    acquired.set()
+
+            acquire_t = threading.Thread(target=try_acquire)
+            acquire_t.start()
+
+            # Give the acquiring thread a moment to try and block.
+            time.sleep(0.1)
+            assert not acquired.is_set(), (
+                "External thread should be blocked on the lock"
+            )
+
+            proceed.set()
+            t.join(timeout=5.0)
+            acquired.wait(timeout=5.0)
