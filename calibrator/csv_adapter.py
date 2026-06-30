@@ -78,6 +78,15 @@ def patches_to_session_buckets(
     """
     Convert a list of generic measurement patches into the session bucket structure.
 
+    Args:
+        patches: List of Patch objects to route
+        target: Calibration target configuration
+        session_step: Current step in calibration workflow (e.g., "pre_grayscale", "post_grayscale")
+        signal_range: Signal range for stimulus calculation ("auto", "full"; default "auto")
+        code_scale: Code scale for stimulus calculation ("8bit", "10bit"; default "8bit")
+            Note: when signal_range="full" and code_scale="10bit", stimulus percentages are
+            recontextualized using decode_range="full10"
+
     Mapping logic:
     - Color patches go to cms_measurements.
     - Grayscale patches are routed by stimulus level:

@@ -370,3 +370,20 @@ class TestEdgeCases:
         patches = [_gray_patch("50% Gray", 128)]
         result = patches_to_session_buckets(patches, SDR_TARGET, "report")
         assert len(result["post_measurements"]) == 1
+
+    def test_10bit_full_range_recontextualization(self):
+        # Test that 10-bit full-range sessions properly recontextualize stimulus percentages
+        # For 10-bit full-range, code values 0-1023 map to signal range [0, 1]
+        # 80% stimulus should map to grayscale bucket (wb_measurements)
+        patches = [
+            _gray_patch("80% Gray", int(0.8 * 1023)),  # ~818 for 10-bit
+            _gray_patch("30% Gray", int(0.3 * 1023)),  # ~307 for 10-bit
+        ]
+        # Without recontextualization (8-bit default): these would map incorrectly
+        # With recontextualization (full10): they should map to wb_measurements
+        result = patches_to_session_buckets(
+            patches, SDR_TARGET, "gamma", signal_range="full", code_scale="10bit"
+        )
+        # Both should be in wb_measurements because they snap to 80% and 30% targets
+        assert len(result["wb_measurements"]) >= 2, "10-bit full-range should route 80%/30% to wb_measurements"
+        assert len(result["gamma_measurements"]) >= 2, "80% should also be in gamma (5-95% snapping)"

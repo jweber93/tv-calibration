@@ -299,3 +299,48 @@ class TestSessionStoreThreadSafety:
         # get() calls evict_expired_sessions() internally — should not deadlock
         session = store.get(list(store.sessions.keys())[0])
         assert session is not None
+
+
+class TestRepassCeilingBehavior:
+    """Test that repass ceiling advances session to report step."""
+
+    @pytest.fixture
+    def store(self, tmp_path):
+        return SessionStore(tmp_path)
+
+    def test_repatch_ceiling_advances_to_report(self, store):
+        """When repatch max passes exceeded, session["step"] should be "report"."""
+        sid = store.create_session("u8g")
+        session = store.get(sid)
+        
+        # Set up session in a measurement step (e.g., color_tuner)
+        session["step"] = "color_tuner"
+        session["mode"] = "SDR"
+        session["target"] = MagicMock()
+        store.save_session(sid)
+        
+        # Simulate exceeding repatch limit by calling repass with repatch action
+        # multiple times (REPATCH_MAX_PASSES = 3)
+        for _ in range(4):
+            session = store.repass(sid, "repatch", reason="test")
+        
+        # After exceeding limit, session should be at report step
+        assert session["step"] == "report", "Repatch ceiling should advance to report step"
+        assert session["repass_decision"]["action"] == "ceiling"
+
+    def test_ceiling_action_sets_decision_without_repatch_count(self, store):
+        """Explicit ceiling action should set repass_decision without incrementing count."""
+        sid = store.create_session("u8g")
+        session = store.get(sid)
+        
+        session["step"] = "color_tuner"
+        session["mode"] = "SDR"
+        session["target"] = MagicMock()
+        store.save_session(sid)
+        
+        # Direct ceiling action
+        session = store.repass(sid, "ceiling", reason="hardware limit")
+        
+        # Should set decision but NOT advance step (ceiling doesn't auto-advance)
+        assert session["repass_decision"]["action"] == "ceiling"
+        assert session["step"] == "color_tuner", "Direct ceiling should not auto-advance step"
