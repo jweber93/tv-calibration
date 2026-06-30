@@ -1520,6 +1520,7 @@ def session_view(s: Dict[str, Any]) -> Dict[str, Any]:
                 signal_range,
                 code_scale,
                 gamma_levels,
+                target.eotf if target else "gamma",
             ),
             "control_plan": (
                 u8g_gamma_control_plan(
@@ -1531,6 +1532,7 @@ def session_view(s: Dict[str, Any]) -> Dict[str, Any]:
                     signal_range,
                     code_scale,
                     gamma_levels,
+                    target.eotf if target else "gamma",
                 )
                 if s["tv_key"] == "u8g" and target
                 else preset_gamma_control_plan(
@@ -1542,6 +1544,7 @@ def session_view(s: Dict[str, Any]) -> Dict[str, Any]:
                     signal_range,
                     code_scale,
                     gamma_levels,
+                    target.eotf if target else "gamma",
                 )
                 if target
                 else []

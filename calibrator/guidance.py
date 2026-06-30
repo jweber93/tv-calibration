@@ -12,7 +12,7 @@ from calcore.models import (
     Measurement,
 )
 from .profiles import TVProfile
-from .utils import delta_xy, gamma_from_luminance, stimulus_pct_from_code_value
+from .utils import delta_xy, eotf_from_luminance, is_pq_eotf, stimulus_pct_from_code_value
 
 GAMMA_TRACKING_LEVELS = (20, 40, 60, 80)
 FINE_GAMMA_TRACKING_LEVELS = tuple(range(5, 100, 5))
@@ -314,7 +314,12 @@ def gamma_recommendations(
     signal_range: str = "auto",
     code_scale: str = "8bit",
     levels: Optional[Tuple[int, ...]] = None,
+    eotf: str = "gamma",
 ) -> List[str]:
+    pq = is_pq_eotf(eotf)
+    # PQ has no power-law gamma; eotf_from_luminance reports tracking relative to
+    # the ST.2084 reference where 1.0 == perfect, so compare against 1.0.
+    effective_target = 1.0 if pq else target_gamma
     workflow_label = GAMMA_WORKFLOW_LABELS.get(workflow, workflow.title())
     rerun_message = (
         "U8G: keep the main preset fixed once close. Make Gamma Calibration moves in 5-point increments, "
@@ -336,7 +341,7 @@ def gamma_recommendations(
         stim_pct = gamma_nominal_pct(m, signal_range, code_scale, levels)
         if stim_pct is None:
             continue
-        eff_gamma = gamma_from_luminance(m.Y, peak_nits, stim_pct)
+        eff_gamma = eotf_from_luminance(m.Y, peak_nits, stim_pct, eotf)
         if eff_gamma is not None:
             gammas.append({"stimulus_pct": stim_pct, "effective_gamma": eff_gamma})
     if not gammas:
@@ -344,35 +349,47 @@ def gamma_recommendations(
 
     avg = sum(m["effective_gamma"] for m in gammas) / len(gammas)
     recs = []
-    if avg < target_gamma - 0.15:
-        recs.append(
-            "U8G: overall tracking is too bright. Switch Gamma preset to BT.1886, or lower 20%/40% Gamma Calibration controls by 5."
-            if tv_key == "u8g"
-            else "Tracking is too bright overall. Try a higher gamma preset or BT.1886."
-        )
-    elif avg > target_gamma + 0.15:
-        recs.append(
-            "U8G: overall tracking is too dark. Switch Gamma preset to 2.2, or raise 20%/40% Gamma Calibration controls by 5."
-            if tv_key == "u8g"
-            else "Tracking is too dark overall. Try a lower gamma preset or 2.2."
-        )
+    if avg < effective_target - 0.15:
+        if pq:
+            recs.append("HDR tracking is too bright overall — midtones sit above the PQ reference. Lower the gamma/EOTF offset or use a darker tracking preset.")
+        else:
+            recs.append(
+                "U8G: overall tracking is too bright. Switch Gamma preset to BT.1886, or lower 20%/40% Gamma Calibration controls by 5."
+                if tv_key == "u8g"
+                else "Tracking is too bright overall. Try a higher gamma preset or BT.1886."
+            )
+    elif avg > effective_target + 0.15:
+        if pq:
+            recs.append("HDR tracking is too dark overall — midtones sit below the PQ reference. Raise the gamma/EOTF offset or use a brighter tracking preset.")
+        else:
+            recs.append(
+                "U8G: overall tracking is too dark. Switch Gamma preset to 2.2, or raise 20%/40% Gamma Calibration controls by 5."
+                if tv_key == "u8g"
+                else "Tracking is too dark overall. Try a lower gamma preset or 2.2."
+            )
     else:
-        recs.append(
-            "U8G: overall gamma is close. Leave the main Gamma preset and use Gamma Calibration only if one region is still off."
-            if tv_key == "u8g"
-            else "Overall gamma is close. Fine-tune only if one region is consistently off."
-        )
+        if pq:
+            recs.append("Overall HDR tracking is close to the PQ reference. Fine-tune only if one region is consistently off.")
+        else:
+            recs.append(
+                "U8G: overall gamma is close. Leave the main Gamma preset and use Gamma Calibration only if one region is still off."
+                if tv_key == "u8g"
+                else "Overall gamma is close. Fine-tune only if one region is consistently off."
+            )
+
+    if pq:
+        recs.append("HDR gamma tracking is measured against the PQ (ST.2084) reference (1.0 = perfect), not the 2.2 SDR gamma target.")
 
     low = [m["effective_gamma"] for m in gammas if m["stimulus_pct"] <= 40]
     high = [m["effective_gamma"] for m in gammas if m["stimulus_pct"] >= 60]
     if low and high:
-        if sum(low) / len(low) < target_gamma - 0.15:
+        if sum(low) / len(low) < effective_target - 0.15:
             recs.append(
                 "U8G: shadows too bright — lower 10%/20% Gamma Calibration controls by 5."
                 if tv_key == "u8g"
                 else "Shadow region is too bright. Lower black detail or use a darker gamma preset."
             )
-        if sum(high) / len(high) > target_gamma + 0.15:
+        if sum(high) / len(high) > effective_target + 0.15:
             recs.append(
                 "U8G: highlights too dark — raise 70%/80% Gamma Calibration controls by 5."
                 if tv_key == "u8g"
@@ -390,16 +407,19 @@ def u8g_gamma_control_plan(
     signal_range: str = "auto",
     code_scale: str = "8bit",
     levels: Optional[Tuple[int, ...]] = None,
+    eotf: str = "gamma",
 ) -> List[Dict[str, Any]]:
+    # PQ tracks against the ST.2084 reference (1.0 == perfect), not target_gamma.
+    effective_target = 1.0 if is_pq_eotf(eotf) else target_gamma
     plan: List[Dict[str, Any]] = []
     for m in measurements:
         stim_pct = gamma_nominal_pct(m, signal_range, code_scale, levels)
         if stim_pct is None:
             continue
-        eff_gamma = gamma_from_luminance(m.Y, peak_nits, stim_pct)
+        eff_gamma = eotf_from_luminance(m.Y, peak_nits, stim_pct, eotf)
         if eff_gamma is None:
             continue
-        delta = eff_gamma - target_gamma
+        delta = eff_gamma - effective_target
         stim_label = f"{round(stim_pct):.0f}%"
         if abs(delta) < 0.10:
             direction, amount, summary = "hold", 0, f"Leave {stim_label} alone"
@@ -435,15 +455,27 @@ def preset_gamma_control_plan(
     signal_range: str = "auto",
     code_scale: str = "8bit",
     levels: Optional[Tuple[int, ...]] = None,
+    eotf: str = "gamma",
 ) -> List[Dict[str, Any]]:
+    pq = is_pq_eotf(eotf)
+    # PQ tracks against the ST.2084 reference (1.0 == perfect), not target_gamma.
+    effective_target = 1.0 if pq else target_gamma
     if not measurements:
         return [
             {
                 "control": "Gamma preset",
                 "direction": "select",
                 "amount": 0,
-                "summary": f"Select the {target_gamma:.1f} preset",
-                "reason": f"Start with the preset closest to your target of {target_gamma:.2f}.",
+                "summary": (
+                    "Select the PQ (ST.2084) tracking preset"
+                    if pq
+                    else f"Select the {target_gamma:.1f} preset"
+                ),
+                "reason": (
+                    "Start with the PQ / HDR tracking preset; HDR tracks the ST.2084 reference, not a 2.2 gamma."
+                    if pq
+                    else f"Start with the preset closest to your target of {target_gamma:.2f}."
+                ),
             }
         ]
     gammas = []
@@ -451,13 +483,14 @@ def preset_gamma_control_plan(
         stim_pct = gamma_nominal_pct(m, signal_range, code_scale, levels)
         if stim_pct is None:
             continue
-        eff = gamma_from_luminance(m.Y, peak_nits, stim_pct)
+        eff = eotf_from_luminance(m.Y, peak_nits, stim_pct, eotf)
         if eff is not None:
             gammas.append(eff)
     if not gammas:
         return []
     avg = sum(gammas) / len(gammas)
-    delta = avg - target_gamma
+    delta = avg - effective_target
+    metric = "PQ tracking" if pq else "Average gamma"
     if abs(delta) < 0.10:
         return [
             {
@@ -465,7 +498,7 @@ def preset_gamma_control_plan(
                 "direction": "hold",
                 "amount": 0,
                 "summary": "Keep current gamma preset",
-                "reason": f"Average gamma {avg:.2f} is within 0.10 of target {target_gamma:.2f}.",
+                "reason": f"{metric} {avg:.2f} is within 0.10 of target {effective_target:.2f}.",
             }
         ]
     if delta > 0:
@@ -475,7 +508,7 @@ def preset_gamma_control_plan(
                 "direction": "down",
                 "amount": 0,
                 "summary": "Try a lower gamma preset",
-                "reason": f"Average gamma {avg:.2f} is above target — image too dark. A lower preset brightens midtones.",
+                "reason": f"{metric} {avg:.2f} is above target {effective_target:.2f} — image too dark. A lower preset brightens midtones.",
             }
         ]
     return [
@@ -484,7 +517,7 @@ def preset_gamma_control_plan(
             "direction": "up",
             "amount": 0,
             "summary": "Try a higher gamma preset",
-            "reason": f"Average gamma {avg:.2f} is below target — image too bright. A higher preset darkens midtones.",
+            "reason": f"{metric} {avg:.2f} is below target {effective_target:.2f} — image too bright. A higher preset darkens midtones.",
         }
     ]
 
