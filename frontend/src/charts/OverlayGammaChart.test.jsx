@@ -48,7 +48,21 @@ describe('OverlayGammaChart', () => {
     expect(container.querySelector('canvas')).toBeInTheDocument();
   });
 
-  it('renders null when both sets are null', () => {
+  it('renders all Session A points when ramp counts differ', () => {
+  const measA = Array.from({ length: 21 }, (_, i) => ({
+    stimulus_pct: i * 5,
+    effective_gamma: 2.2
+  }));
+  const measB = Array.from({ length: 11 }, (_, i) => ({
+    stimulus_pct: i * 10,
+    effective_gamma: 2.3
+  }));
+const { container } = render(<OverlayGammaChart measurementsA={measA} measurementsB={measB} />);
+expect(container.querySelector('canvas')).toBeInTheDocument();
+// Expect 21 distinct x-axis tick labels
+expect(screen.getAllByText(/%$/).length).toBe(21);
+});
+it('renders null when both sets are null', () => {
     const { container } = render(<OverlayGammaChart measurementsA={null} measurementsB={null} />);
     expect(container).toBeEmptyDOMElement();
   });
