@@ -23,6 +23,22 @@ def pq_eotf(n: float) -> float:
     return 10000.0 * ((num / den) ** (1 / m1))
 
 
+def pq_inverse_eotf(nits: float) -> float:
+    # SMPTE ST 2084 forward (OETF): nits -> normalised signal in [0, 1].
+    # Inverse of pq_eotf(). nits are clamped to [0, 10000] to stay in the valid
+    # PQ range; 0 nits encodes to a tiny positive offset (~7e-7), not exactly 0.
+    m1 = 0.1593017578125
+    m2 = 78.84375
+    c1 = 0.8359375
+    c2 = 18.8515625
+    c3 = 18.6875
+    lp = clamp(nits / 10000.0, 0.0, 1.0)
+    lp_m1 = lp ** m1
+    num = c1 + c2 * lp_m1
+    den = 1.0 + c3 * lp_m1
+    return (num / den) ** m2
+
+
 def bt1886_eotf(v: float, lw: float, lb: float, gamma: float = 2.4) -> float:
     v = clamp(v, 0.0, 1.0)
     lw = max(lw, 1e-6)
