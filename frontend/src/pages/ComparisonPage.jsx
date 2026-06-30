@@ -298,6 +298,8 @@ export function ComparisonPage({ profiles }) {
             <OverlayGammaChart
               measurementsA={repA?.gamma_measurements || []}
               measurementsB={repB?.gamma_measurements || []}
+              // Use either target's EOTF for the reference line; a meaningful gamma
+              // comparison assumes both sessions share an EOTF, so either is sufficient.
               eotf={repA?.target?.eotf || repB?.target?.eotf}
             />
           </Card>
