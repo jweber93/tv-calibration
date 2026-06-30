@@ -340,16 +340,21 @@ class TestConcurrentEviction:
 
 
 class TestConcurrentNextStep:
-    """next_step called twice concurrently — only one step advances."""
+    """next_step called twice concurrently — exactly one step advances."""
 
     def test_concurrent_next_step_only_one_advances(
         self, session_at_luminance
     ):
-        """Two threads calling next_step — only one should transition."""
+        """Two threads calling next_step — exactly one must advance, no regression.
+
+        Before the fix, both could read the same step locally and both
+        advance, or a slow thread could roll the session back.  With
+        ``with self._lock:`` wrapping the full check→mutate→save sequence,
+        the second thread sees the already-advanced step and fails with 400.
+        """
         store, sid = session_at_luminance
-        errors = []
-        barrier = threading.Barrier(2)
         results = []
+        barrier = threading.Barrier(2)
 
         def caller(n):
             try:
@@ -366,19 +371,16 @@ class TestConcurrentNextStep:
         t1.join()
         t2.join()
 
-        # At least one should have advanced — ideally exactly one, but
-        # because next_step doesn't hold a lock across the state check,
-        # both could advance. The invariant: the step is at least as far
-        # as luminance, and both calls completed without crashing.
         final = store.get(sid)
-        transitioned_steps = [
-            r[1] for r in results if isinstance(r[1], str) and r[1] != "error"
-        ]
-        assert len(transitioned_steps) >= 1, (
-            f"Expected at least one transition, got {results}"
+        # Exactly one thread must have advanced the step.
+        successes = [r for r in results if not str(r[1]).startswith("error")]
+        assert len(successes) == 1, (
+            f"Expected exactly one successful transition, got {results}"
         )
-        # If both advanced, final step should still be valid
-        assert final["step"] in ("luminance", "white_balance")
+        # The final step must be white_balance — not regressed to luminance.
+        assert final["step"] == "white_balance", (
+            f"Session regressed or stalled: step={final['step']}"
+        )
 
     def test_next_step_while_file_watcher_imports(self, store_with_session):
         """Simulate next_step during an import-like mutation — clean outcome."""
@@ -629,3 +631,175 @@ class TestFileWatcherAndManualUpload:
 
         final = store.get(sid)
         assert len(final["pre_measurements"]) >= 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TOCTOU regression tests — step-transition methods hold the RLock (#490)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestStepTransitionTOCTOU:
+    """Verify that step-transition methods serialise under the RLock.
+
+    Before the fix each method released the lock after get() and reacquired
+    it only in save_session(), leaving a window where a concurrent call could
+    read a stale step, mutate, and save — rolling the session backward.
+    """
+
+    def test_next_step_concurrent_does_not_regress(self, session_at_luminance):
+        """Two concurrent /next calls must not roll back the session step."""
+        store, sid = session_at_luminance
+        results = []
+        barrier = threading.Barrier(2)
+
+        def advance():
+            try:
+                results.append(
+                    store.next_step(sid, luminance_threshold_pct=10).get("step")
+                )
+            except Exception as e:
+                results.append(str(e))
+
+        t1 = threading.Thread(target=advance)
+        t2 = threading.Thread(target=advance)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        final = store.get(sid)
+        assert final["step"] == "white_balance", (
+            f"Session regressed or stalled: step={final['step']}, results={results}"
+        )
+
+    def test_prev_step_concurrent_does_not_advance_forward(self, store):
+        """Two concurrent /prev calls from 'gamma' must not advance the session forward.
+
+        Without the lock both threads read step="gamma", both compute
+        white_balance, and the second save clobbers the first — only one
+        effective back-transition.  With the lock they serialise:
+        gamma→white_balance, then white_balance→luminance, so both calls
+        succeed and the session ends at 'luminance'.
+        """
+        sid = store.create_session("u8g")["id"]
+        store.select_mode(sid, "SDR", sdr_peak_nits=120)
+        store.confirm_prepared(sid)
+        store.get(sid)["step"] = "gamma"
+        store.save_session(sid)
+
+        results = []
+        barrier = threading.Barrier(2)
+
+        def go_back():
+            try:
+                results.append(store.prev_step(sid).get("step"))
+            except Exception as e:
+                results.append(str(e))
+
+        t1 = threading.Thread(target=go_back)
+        t2 = threading.Thread(target=go_back)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        final = store.get(sid)
+        # Neither call should have advanced the session past "gamma".
+        from calibrator.session import STEPS_ORDER
+        gamma_idx = STEPS_ORDER.index("gamma")
+        final_idx = STEPS_ORDER.index(final["step"]) if final["step"] in STEPS_ORDER else gamma_idx
+        assert final_idx < gamma_idx, (
+            f"Session moved forward or stayed at '{final['step']}' (expected before 'gamma')"
+        )
+        # With the RLock both calls serialise: gamma→white_balance, then
+        # white_balance→luminance.  Final step must be 'luminance'.
+        assert final["step"] == "luminance", (
+            f"Expected 'luminance' (both back-steps serialised), got '{final['step']}', results={results}"
+        )
+
+    def test_confirm_prepared_concurrent_only_one_advances(self, store):
+        """Two concurrent confirm_prepared calls — exactly one transitions."""
+        sid = store.create_session("u8g")["id"]
+        store.select_mode(sid, "SDR", sdr_peak_nits=120)
+
+        results = []
+        barrier = threading.Barrier(2)
+
+        def confirm():
+            try:
+                results.append(store.confirm_prepared(sid).get("step"))
+            except Exception as e:
+                results.append(str(e))
+
+        t1 = threading.Thread(target=confirm)
+        t2 = threading.Thread(target=confirm)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        successes = [r for r in results if r == "pre_grayscale"]
+        assert len(successes) == 1, (
+            f"Expected exactly one success, got {results}"
+        )
+        assert store.get(sid)["step"] == "pre_grayscale"
+
+    def test_select_mode_concurrent_only_one_advances(self, store):
+        """Two concurrent select_mode calls — exactly one transitions."""
+        sid = store.create_session("u8g")["id"]
+
+        results = []
+        barrier = threading.Barrier(2)
+
+        def select():
+            try:
+                results.append(store.select_mode(sid, "SDR", sdr_peak_nits=120).get("step"))
+            except Exception as e:
+                results.append(str(e))
+
+        t1 = threading.Thread(target=select)
+        t2 = threading.Thread(target=select)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        successes = [r for r in results if r == "prepare"]
+        assert len(successes) == 1, (
+            f"Expected exactly one success, got {results}"
+        )
+        assert store.get(sid)["step"] == "prepare"
+
+    def test_jump_to_step_concurrent_does_not_advance(self, store):
+        """Two concurrent jump_to_step calls — session ends at the jumped-to step."""
+        sid = store.create_session("u8g")["id"]
+        store.select_mode(sid, "SDR", sdr_peak_nits=120)
+        store.confirm_prepared(sid)
+        store.get(sid)["step"] = "gamma"
+        store.save_session(sid)
+
+        from calibrator.session import STEPS_ORDER
+        target_index = STEPS_ORDER.index("luminance")
+
+        results = []
+        barrier = threading.Barrier(2)
+
+        def jump():
+            try:
+                results.append(store.jump_to_step(sid, target_index).get("step"))
+            except Exception as e:
+                results.append(str(e))
+
+        t1 = threading.Thread(target=jump)
+        t2 = threading.Thread(target=jump)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        final = store.get(sid)
+        # Both calls target the same index; both may succeed (idempotent) but
+        # must not leave the session past the intended step.
+        assert final["step"] == "luminance", (
+            f"jump_to_step left session at wrong step: {final['step']}, results={results}"
+        )
