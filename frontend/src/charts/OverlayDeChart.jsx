@@ -3,20 +3,29 @@ import { Bar } from 'react-chartjs-2';
 import { TICK, GRID, C } from './tokens.js';
 
 export function OverlayDeChart({ measurementsA, measurementsB }) {
-  if (!measurementsA?.length && !measurementsB?.length) return null;
+  if (!(measurementsA || []).length && !(measurementsB || []).length) return null;
+
+  const labelFor = m => m.label ?? (m.stimulus_pct != null ? `${m.stimulus_pct}%` : '');
+
+  const toNum = s => {
+    const n = parseInt(s, 10);
+    return Number.isFinite(n) ? n : null;
+  };
 
   const allLabels = Array.from(new Set([
-    ...measurementsA.map(m => m.label || m.stimulus_pct + '%'),
-    ...measurementsB.map(m => m.label || m.stimulus_pct + '%'),
+    ...(measurementsA || []).map(labelFor),
+    ...(measurementsB || []).map(labelFor),
   ])).sort((a, b) => {
-    const pa = parseInt(a, 10);
-    const pb = parseInt(b, 10);
-    if (!isNaN(pa) && !isNaN(pb)) return pa - pb;
-    return a.localeCompare(b);
+    const pa = toNum(a);
+    const pb = toNum(b);
+    if (pa === null && pb === null) return a.localeCompare(b);
+    if (pa === null) return 1;
+    if (pb === null) return -1;
+    return pa - pb;
   });
 
   function getDelta(measurements, label) {
-    const match = measurements.find(m => (m.label || m.stimulus_pct + '%') === label);
+    const match = (measurements || []).find(m => labelFor(m) === label);
     return match ? match.delta_e : null;
   }
 

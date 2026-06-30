@@ -3,12 +3,12 @@ import { Line } from 'react-chartjs-2';
 import { TICK, GRID, C } from './tokens.js';
 
 export function OverlayGammaChart({ measurementsA, measurementsB }) {
-  const ptsA = (measurementsA || []).filter(m => m.effective_gamma != null);
-  const ptsB = (measurementsB || []).filter(m => m.effective_gamma != null);
+  const ptsA = (measurementsA || []).filter(m => m.effective_gamma != null && m.stimulus_pct != null);
+  const ptsB = (measurementsB || []).filter(m => m.effective_gamma != null && m.stimulus_pct != null);
 
   if (!ptsA.length && !ptsB.length) return null;
 
-  const labelsB = ptsB.map(m => m.stimulus_pct + '%');
+  const labelsB = ptsB.map(m => `${m.stimulus_pct}%`);
 
   const datasets = [
     {
