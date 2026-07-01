@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import math
 import os
 import re
 from typing import List, Literal
@@ -26,6 +27,11 @@ def is_number(s: str) -> bool:
         return False
 
 
+def _is_finite(v: float) -> bool:
+    """Return True if *v* is a finite (non-NaN, non-inf) float."""
+    return math.isfinite(v)
+
+
 def _classify_headerless_row(
     v4: float, v5: float, v6: float, explicit_format: Literal["xyY", "XYZ"],
 ) -> tuple[tuple[float, float, float], tuple[float, float, float] | None]:
@@ -33,12 +39,28 @@ def _classify_headerless_row(
 
     *explicit_format* must be provided by the caller; auto-detection is disabled
     because it can misclassify low-luminance XYZ as xyY.
+
+    Raises ValueError if:
+    - *explicit_format* is ``"xyY"`` and chromaticities are outside the
+      plausible range [0, 0.85).  The CIE 1931 spectral locus fits within
+      (0, 0.85); values above that threshold indicate XYZ data being
+      misinterpreted as xyY (issue #549).
+    - any coordinate is NaN or infinite.
     """
+    if not (_is_finite(v4) and _is_finite(v5) and _is_finite(v6)):
+        raise ValueError(f"Row contains non-finite value (v4={v4}, v5={v5}, v6={v6})")
+
     if explicit_format == "XYZ":
         return (v4, v5, v6), None
 
     # explicit_format == "xyY"
     Y, x, y = v4, v5, v6
+    if not (0.0 <= x < 0.85) or not (0.0 <= y < 0.85):
+        raise ValueError(
+            f"Row has chromaticity x={x}, y={y} — outside plausible range [0, 0.85). "
+            "Did you mean to use format=XYZ (query parameter)? "
+            f"Allowed format values: xyY, XYZ."
+        )
     return xyY_to_xyz(x, y, Y), (Y, x, y)
 
 

@@ -63,11 +63,15 @@ def session_id(client):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _upload_generic(client, sid, csv_bytes):
+def _upload_generic(client, sid, csv_bytes, fmt=None):
     """Upload a generic CSV via the /import/generic endpoint."""
+    params = {}
+    if fmt is not None:
+        params["format"] = fmt
     return client.post(
         f"/api/session/{sid}/import/generic",
         files={"file": ("test.csv", csv_bytes, "text/csv")},
+        params=params,
     )
 
 
@@ -321,18 +325,108 @@ class TestGenericImportPeakLuminance:
 
 
 class TestGenericImportHeaderlessFormat:
-    def test_headerless_csv_parsed(self, client, session_id):
-        """Headerless CSV format should also be supported."""
+    def test_headerless_xyz_csv_requires_format_param(self, client, session_id):
+        """Headerless XYZ CSV without format=XYZ → 400 (plausibility check catches it)."""
         _advance_to_pre_grayscale(client, session_id)
 
-        # Headerless format: index,R,G,B,X,Y,Z
+        # Headerless format: index,R,G,B,X,Y,Z — X=100, Z=60 are way outside xyY range
         csv = _grayscale_csv([
             (0, 128, 128, 128, 5.0, 6.0, 4.0),
             (1, 235, 235, 235, 80.0, 100.0, 60.0),
         ])
 
         resp = _upload_generic(client, session_id, csv.encode())
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert "chromaticity" in detail.lower()
+        assert "xyY, XYZ" in detail
+
+    def test_headerless_xyz_csv_with_format_param(self, client, session_id):
+        """Headerless XYZ CSV with format=XYZ parses correctly."""
+        _advance_to_pre_grayscale(client, session_id)
+
+        csv = _grayscale_csv([
+            (0, 128, 128, 128, 5.0, 6.0, 4.0),
+            (1, 235, 235, 235, 80.0, 100.0, 60.0),
+        ])
+
+        resp = _upload_generic(client, session_id, csv.encode(), fmt="XYZ")
         assert resp.status_code == 200
 
         summary = resp.json()["import_summary"]
         assert summary["total_rows"] == 2
+
+    def test_headerless_xyz_csv_case_insensitive_format(self, client, session_id):
+        """format param is case-insensitive — 'xyz', 'Xyz', 'XYZ' all work."""
+        _advance_to_pre_grayscale(client, session_id)
+
+        csv = _grayscale_csv([(0, 128, 128, 128, 5.0, 6.0, 4.0)])
+
+        for case in ("xyz", "Xyz", "XYZ"):
+            resp = _upload_generic(client, session_id, csv.encode(), fmt=case)
+            assert resp.status_code == 200, f"failed for fmt={case!r}"
+            assert resp.json()["import_summary"]["total_rows"] == 1
+
+    def test_headerless_xyY_csv_with_default_format(self, client, session_id):
+        """Headerless xyY CSV works with default format (xyY)."""
+        _advance_to_pre_grayscale(client, session_id)
+
+        # xyY format: index,R,G,B,Y,x,y
+        lines = [
+            "0,128,128,128,5.0,0.3127,0.3290",
+            "1,235,235,235,100.0,0.3127,0.3290",
+        ]
+        csv = "\n".join(lines)
+
+        resp = _upload_generic(client, session_id, csv.encode())
+        assert resp.status_code == 200
+
+        summary = resp.json()["import_summary"]
+        assert summary["total_rows"] == 2
+
+    def test_headerless_xyY_csv_explicit_format(self, client, session_id):
+        """Headerless xyY CSV with format=xyY also works."""
+        _advance_to_pre_grayscale(client, session_id)
+
+        lines = [
+            "0,128,128,128,5.0,0.3127,0.3290",
+            "1,235,235,235,100.0,0.3127,0.3290",
+        ]
+        csv = "\n".join(lines)
+
+        resp = _upload_generic(client, session_id, csv.encode(), fmt="xyY")
+        assert resp.status_code == 200
+
+        summary = resp.json()["import_summary"]
+        assert summary["total_rows"] == 2
+
+    def test_invalid_format_param_returns_400(self, client, session_id):
+        """Invalid format parameter value returns 400."""
+        _advance_to_pre_grayscale(client, session_id)
+
+        csv = _grayscale_csv([(0, 128, 128, 128, 5.0, 6.0, 4.0)])
+
+        resp = _upload_generic(client, session_id, csv.encode(), fmt="invalid")
+        assert resp.status_code == 400
+        assert "format" in resp.json()["detail"].lower()
+
+    def test_chromaticity_boundary_at_0_85_rejected(self, client, session_id):
+        """x=0.85 is outside the plausible range and should be rejected."""
+        _advance_to_pre_grayscale(client, session_id)
+
+        # xyY: Y=100, x=0.85, y=0.33 — x at the boundary is rejected (exclusive upper bound)
+        csv = "0,128,128,128,100.0,0.85,0.33\n"
+        resp = _upload_generic(client, session_id, csv.encode())
+        assert resp.status_code == 400
+        assert "chromaticity" in resp.json()["detail"].lower()
+
+    def test_chromaticity_boundary_at_0_84_accepted(self, client, session_id):
+        """x=0.84 is inside the plausible range and should be accepted."""
+        _advance_to_pre_grayscale(client, session_id)
+
+        csv = "0,128,128,128,100.0,0.84,0.33\n"
+        resp = _upload_generic(client, session_id, csv.encode())
+        assert resp.status_code == 200
+        assert resp.json()["import_summary"]["total_rows"] == 1
+
+

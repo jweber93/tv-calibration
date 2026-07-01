@@ -2238,12 +2238,27 @@ class SessionStore:
         sid: str,
         filename: Optional[str],
         contents: bytes,
+        format_: str = "xyY",
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Parse and import a generic (non-ZRO) CSV file.
+
+        Parameters
+        ----------
+        sid : str
+            Session ID.
+        filename : Optional[str]
+            Original filename (for import tracking).
+        contents : bytes
+            Raw CSV content.
+        format_ : str, optional
+            Headerless CSV column format — ``"xyY"`` (default) or ``"XYZ"``.
+            Passed as ``format=`` to :func:`parse_measurement_csv`.
+        """
         from .csv_adapter import patches_to_session_buckets
         from calcore.csv_import import parse_measurement_csv
 
         try:
-            patches = parse_measurement_csv(contents, format="xyY")
+            patches = parse_measurement_csv(contents, format=format_)
         except Exception as exc:
             raise HTTPException(400, f"Generic CSV parse error: {exc}") from exc
 
