@@ -16,10 +16,13 @@ The directory is configurable via the TVCAL_HISTORY_DIR environment variable.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 def _history_root() -> Path:
@@ -48,7 +51,11 @@ def record_session(
     wb_final: Optional[Dict[str, Any]] = None,
     cms_final: Optional[Dict[str, Any]] = None,
 ) -> None:
-    """Append a completed calibration session to the per-TV history file.
+    """Upsert a completed calibration session to the per-TV history file.
+
+    Idempotent by *session_id*: if an entry with the same ``session_id``
+    already exists it is updated in-place; otherwise a new line is appended.
+    This prevents duplicate entries on server restart or report re-fetch.
 
     Args:
         tv_key:               TV profile key (e.g. "u8g").
@@ -95,6 +102,7 @@ def record_session(
                                 found = True
                             entries.append(existing)
                         except json.JSONDecodeError:
+                            logger.warning("Skipped corrupted JSON line in %s", path)
                             pass
         except OSError:
             pass
