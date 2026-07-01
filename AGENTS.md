@@ -35,6 +35,11 @@ When I say **"audit codebase"**, execute the Codebase Audit Protocol:
 - For each issue: create formal GitHub issue with title, description, labels
 - Labels: bug, high-priority, math-error, hardware-io
 - Include fix strategy with root cause + implementation plan
+- Rate each fix 1–5 on complexity, then recommend model tier:
+  - **Local / low-cost** (small open models) for tiers 1–2: missing imports,
+    typos, simple null checks, test scaffolding.
+  - **Frontier / high-cost** (GPT-4, Claude) for tiers 3–5: color math
+    corrections, EOTF/gamma fixes, concurrency bugs, matrix ops.
 - Format output suitable for direct AI agent execution
 
 When I say **"audit QE"**, execute the QE Audit Protocol:
@@ -47,7 +52,12 @@ When I say **"audit QE"**, execute the QE Audit Protocol:
 2. Atomic commits, imperative mood, <72 chars, no "fix"/"update"/"misc"
 3. `git push -u origin HEAD`
 4. **Open a draft PR immediately after first push** — do not wait to be asked
-5. PR body **must** include `Closes #[issue-number]` to auto-close the issue on merge
+5. PR body **must** include `Closes #[issue-number]` to auto-close the issue on merge.
+   - If no GitHub issue exists yet, **create one first** before opening the PR.
+   - Exception: pure documentation-only changes (README, AGENTS.md updates) may
+     skip issue creation if the change is self-evident — but still note this in
+     the PR body (e.g. "Doc-only change; no issue created").
+6. **Always follow the PR body structure** from `.pr_body.md` — use its sections (Overview, Technical Context, Files Changed, Testing, Visual Evidence, Checklist) and fill in the relevant content. Do not invent a different structure.
 
 ## Post-Merge Cleanup
 
@@ -65,7 +75,7 @@ When I say **"cleanup"** or **"branch was merged"** or **"PR [number] merged"**,
 - No mocking things that don't need mocking.
 - If blocked on **missing information** (credentials, hardware specs, unclear requirement), stop and report. Minor implementation ambiguity → make a reasonable choice and document it in the commit message. Do not work around genuine blockers.
 - No TODOs or placeholders. Production quality only.
-- **Every task that touches code ends with a pushed branch, an open draft PR, and `Closes #[issue-number]` in the PR body.** No exceptions.
+- **Every task that touches code ends with a pushed branch, an open draft PR, and `Closes #[issue-number]` in the PR body.** No exceptions, except for pure documentation-only changes (README, AGENTS.md updates) where the agent should note "Doc-only change; no issue created" in the PR body instead.
 - **Complete the full task autonomously end-to-end.** Do not pause between steps to ask for confirmation. A paused agent is a broken agent. Keep going until the PR is open.
 
 ## Recipes — copy these patterns

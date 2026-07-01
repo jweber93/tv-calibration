@@ -117,8 +117,8 @@ Probe these hotspots:
 Two tables (Backend, then Frontend), sorted **Critical-first, then by
 Confidence**. Use exactly these columns:
 
-| Severity | Confidence | File:Line | Title | Failure Scenario | Evidence | Root Cause | Fix | Test |
-| -------- | ---------- | --------- | ----- | ---------------- | -------- | ---------- | --- | ---- |
+| Severity | Confidence | File:Line | Title | Failure Scenario | Evidence | Root Cause | Fix | Model Tier | Test |
+| -------- | ---------- | --------- | ----- | ---------------- | -------- | ---------- | --- | ---------- | ---- |
 
 Column definitions:
 
@@ -133,6 +133,15 @@ Column definitions:
 - **Root Cause** — the underlying reason, not the symptom (e.g. "the cache
   returns shared mutable session instances" — not "missing null check").
 - **Fix** — strategy that addresses the root cause.
+- **Model Tier** — rate each fix on a 1–5 complexity scale (1 = trivial, 5 =
+  requires deep color-science + multi-module reasoning). Then recommend:
+  - **Local / low-cost** (small open models, fast inference) for tiers 1–2:
+    missing imports, typo fixes, simple null checks, test scaffolding, formatting.
+  - **Frontier / high-cost** (GPT-4, Claude, etc.) for tiers 3–5: color math
+    corrections (dE2000, CIE transforms), EOTF/gamma fixes, concurrency bugs,
+    matrix operations, multi-step calibration pipeline changes.
+  When in doubt, over-rate — a wrong fix on color math is far more expensive
+  than an extra $0.02 in API cost.
 - **Test** — the regression test that would have caught it. Mirror existing
   patterns: pytest `TestClient` for backend, Vitest+RTL / Playwright for FE.
   If existing coverage already exists, say so; if missing, name the exact new
