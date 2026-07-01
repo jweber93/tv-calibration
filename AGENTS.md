@@ -47,6 +47,31 @@ When I say **"audit QE"**, execute the QE Audit Protocol:
 - Design hardware mocking strategy for headless CI
 - Produce: ci.yml template, pytest structure with fixtures, prioritized roadmap
 
+When I say **"give PR feedback"**, **"review this PR"**, or **"PR feedback for [number/URL]"**, execute the PR Feedback Protocol:
+- Read the full PR description and diff before commenting — no partial reviews
+- **Actionable** means: the finding identifies a defect that would reasonably justify delaying merge until it's fixed or consciously accepted. Prioritize in this order:
+  1. Incorrect behavior
+  2. Security
+  3. Data loss
+  4. Race conditions / concurrency
+  5. Missing or incorrect tests
+  6. CI failures
+  7. Violations of documented project conventions/recipes in this file
+- **No speculation.** Only report issues you can explain from the diff or repo context. If unsure whether something is actually a problem, ask a question instead of reporting a bug
+- Ignore purely stylistic preferences and subjective opinions — but treat style that impacts correctness or maintainability (swallowed errors/exceptions, ignored return values, inconsistent locking, unsafe optional handling) as actionable, not style
+- Before posting, check existing review comments/threads and skip duplicates unless you're adding materially new information
+- Format every finding as:
+  ```
+  Finding:
+  - Severity: blocker | high | medium
+  - File: path:line (reference the changed lines when available — exact line numbers may not survive a rebase)
+  - Problem:
+  - Why it matters:
+  - Suggested fix:
+  ```
+- **Never invent findings to satisfy the review.** If nothing actionable is found, explicitly say the PR was reviewed and no actionable issues were found
+- **Post the review as a comment on the PR** using the GitHub MCP tools — do not leave it only in chat output
+
 ## Git Workflow
 1. `git checkout -b [feat|fix|chore]/[short-slug]`
 2. Atomic commits, imperative mood, <72 chars, no "fix"/"update"/"misc"
