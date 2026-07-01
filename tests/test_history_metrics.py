@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from calibrator import Measurement
+from calibrator.history import load_history, record_session
 import server as server_module
 from server import app, _sessions
 
@@ -223,3 +224,55 @@ class TestHistoryEndpointMetricValuesAreCorrect:
 
         entry = sessions[0]
         assert entry["avg_de"] == expected_report["post_cal"]["avg_de"]
+
+
+class TestRecordSessionIdempotent:
+    """record_session must not duplicate entries with the same session_id."""
+
+    @pytest.fixture(autouse=True)
+    def _history_dir(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("TVCAL_HISTORY_DIR", str(tmp_path))
+
+    def _report(self) -> dict:
+        return {
+            "pre_cal": {"avg_de": 5.0},
+            "post_cal": {"avg_de": 1.2},
+            "gamma": {"avg_gamma": 2.2},
+            "peak_luminance": 500.0,
+            "improvement_pct": 76.0,
+            "white_balance": {"avg_de": 0.8},
+            "color_tuner": {"avg_de": 1.5},
+        }
+
+    def test_second_call_updates_not_duplicates(self):
+        record_session(
+            tv_key="u8g", session_id="sid-1", mode="SDR", report=self._report(),
+            wb_final={"two_point": {"offset_r": 0}}, cms_final={"red_hue": 0},
+        )
+        record_session(
+            tv_key="u8g", session_id="sid-2", mode="SDR", report=self._report(),
+        )
+        entries_before = load_history("u8g", limit=100)
+        assert len(entries_before) == 2
+
+        # Second call with same session_id should update, not duplicate
+        updated_report = self._report()
+        updated_report["post_cal"]["avg_de"] = 0.9
+        record_session(
+            tv_key="u8g", session_id="sid-1", mode="SDR", report=updated_report,
+            wb_final={"two_point": {"offset_r": 1}}, cms_final={"red_hue": 5},
+        )
+        entries = load_history("u8g", limit=100)
+        assert len(entries) == 2, "record_session should not duplicate same session_id"
+        sid1 = [e for e in entries if e["session_id"] == "sid-1"]
+        assert len(sid1) == 1
+        assert sid1[0]["post_grayscale_avg_de"] == 0.9
+        assert sid1[0]["wb_final"] == {"two_point": {"offset_r": 1}}
+
+    def test_first_call_creates_entry(self):
+        record_session(
+            tv_key="u8g", session_id="sid-3", mode="SDR", report=self._report(),
+        )
+        entries = load_history("u8g", limit=100)
+        assert len(entries) == 1
+        assert entries[0]["session_id"] == "sid-3"

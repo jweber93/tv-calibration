@@ -79,8 +79,32 @@ def record_session(
         "cms_final": cms_final or {},
     }
 
-    with open(path, "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(entry) + "\n")
+    # Idempotent upsert: update existing entry if session_id matches, append otherwise.
+    entries: List[Dict[str, Any]] = []
+    found = False
+    if path.exists():
+        try:
+            with open(path, encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if line:
+                        try:
+                            existing = json.loads(line)
+                            if existing.get("session_id") == session_id:
+                                existing.update(entry)
+                                found = True
+                            entries.append(existing)
+                        except json.JSONDecodeError:
+                            pass
+        except OSError:
+            pass
+
+    if not found:
+        entries.append(entry)
+
+    with open(path, "w", encoding="utf-8") as fh:
+        for e in entries:
+            fh.write(json.dumps(e) + "\n")
 
     # Write baseline on the very first session only.
     baseline = _baseline_path(tv_key)

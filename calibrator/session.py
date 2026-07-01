@@ -724,6 +724,9 @@ def serialize_session(s: Dict[str, Any]) -> Dict[str, Any]:
         },
         "repass_count": s.get("repass_count", 0),
         "llm_adjustment_rounds": s.get("llm_adjustment_rounds", []),
+        "tv_settings": s.get("tv_settings", {}),
+        "_history_recorded": s.get("_history_recorded", False),
+        "repass_decision": s.get("repass_decision", {}),
     }
 
 
@@ -792,6 +795,9 @@ def deserialize_session(data: Dict[str, Any]) -> Dict[str, Any]:
         },
         "repass_count": data.get("repass_count", 0),
         "llm_adjustment_rounds": data.get("llm_adjustment_rounds", []),
+        "tv_settings": data.get("tv_settings", {}),
+        "_history_recorded": data.get("_history_recorded", False),
+        "repass_decision": data.get("repass_decision", {}),
     }
 
 
