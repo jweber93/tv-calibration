@@ -7,20 +7,21 @@ export function OverlayDeChart({ measurementsA, measurementsB }) {
 
   const labelFor = m => m.label ?? (m.stimulus_pct != null ? `${m.stimulus_pct}%` : '');
 
-  const toNum = s => {
-    const n = parseInt(s, 10);
-    return Number.isFinite(n) ? n : null;
-  };
+  const stimFor = new Map();
+  for (const m of [...(measurementsA || []), ...(measurementsB || [])]) {
+    const lbl = labelFor(m);
+    if (!stimFor.has(lbl)) stimFor.set(lbl, m.stimulus_pct);
+  }
 
   const allLabels = Array.from(new Set([
     ...(measurementsA || []).map(labelFor),
     ...(measurementsB || []).map(labelFor),
   ])).sort((a, b) => {
-    const pa = toNum(a);
-    const pb = toNum(b);
-    if (pa === null && pb === null) return a.localeCompare(b);
-    if (pa === null) return 1;
-    if (pb === null) return -1;
+    const pa = stimFor.get(a);
+    const pb = stimFor.get(b);
+    if (pa == null && pb == null) return a.localeCompare(b);
+    if (pa == null) return 1;
+    if (pb == null) return -1;
     return pa - pb;
   });
 

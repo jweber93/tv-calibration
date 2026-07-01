@@ -724,6 +724,9 @@ def serialize_session(s: Dict[str, Any]) -> Dict[str, Any]:
         },
         "repass_count": s.get("repass_count", 0),
         "llm_adjustment_rounds": s.get("llm_adjustment_rounds", []),
+        "tv_settings": s.get("tv_settings", {}),
+        "_history_recorded": s.get("_history_recorded", False),
+        "repass_decision": s.get("repass_decision", {}),
     }
 
 
@@ -792,6 +795,9 @@ def deserialize_session(data: Dict[str, Any]) -> Dict[str, Any]:
         },
         "repass_count": data.get("repass_count", 0),
         "llm_adjustment_rounds": data.get("llm_adjustment_rounds", []),
+        "tv_settings": data.get("tv_settings", {}),
+        "_history_recorded": data.get("_history_recorded", False),
+        "repass_decision": data.get("repass_decision", {}),
     }
 
 
@@ -2238,12 +2244,27 @@ class SessionStore:
         sid: str,
         filename: Optional[str],
         contents: bytes,
+        format_: str = "xyY",
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Parse and import a generic (non-ZRO) CSV file.
+
+        Parameters
+        ----------
+        sid : str
+            Session ID.
+        filename : Optional[str]
+            Original filename (for import tracking).
+        contents : bytes
+            Raw CSV content.
+        format_ : str, optional
+            Headerless CSV column format — ``"xyY"`` (default) or ``"XYZ"``.
+            Passed as ``format=`` to :func:`parse_measurement_csv`.
+        """
         from .csv_adapter import patches_to_session_buckets
         from calcore.csv_import import parse_measurement_csv
 
         try:
-            patches = parse_measurement_csv(contents, format="xyY")
+            patches = parse_measurement_csv(contents, format=format_)
         except Exception as exc:
             raise HTTPException(400, f"Generic CSV parse error: {exc}") from exc
 

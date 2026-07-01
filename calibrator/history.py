@@ -16,10 +16,13 @@ The directory is configurable via the TVCAL_HISTORY_DIR environment variable.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 def _history_root() -> Path:
@@ -48,7 +51,11 @@ def record_session(
     wb_final: Optional[Dict[str, Any]] = None,
     cms_final: Optional[Dict[str, Any]] = None,
 ) -> None:
-    """Append a completed calibration session to the per-TV history file.
+    """Upsert a completed calibration session to the per-TV history file.
+
+    Idempotent by *session_id*: if an entry with the same ``session_id``
+    already exists it is updated in-place; otherwise a new line is appended.
+    This prevents duplicate entries on server restart or report re-fetch.
 
     Args:
         tv_key:               TV profile key (e.g. "u8g").
@@ -79,8 +86,33 @@ def record_session(
         "cms_final": cms_final or {},
     }
 
-    with open(path, "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(entry) + "\n")
+    # Idempotent upsert: update existing entry if session_id matches, append otherwise.
+    entries: List[Dict[str, Any]] = []
+    found = False
+    if path.exists():
+        try:
+            with open(path, encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if line:
+                        try:
+                            existing = json.loads(line)
+                            if existing.get("session_id") == session_id:
+                                existing.update(entry)
+                                found = True
+                            entries.append(existing)
+                        except json.JSONDecodeError:
+                            logger.warning("Skipped corrupted JSON line in %s", path)
+                            pass
+        except OSError:
+            pass
+
+    if not found:
+        entries.append(entry)
+
+    with open(path, "w", encoding="utf-8") as fh:
+        for e in entries:
+            fh.write(json.dumps(e) + "\n")
 
     # Write baseline on the very first session only.
     baseline = _baseline_path(tv_key)

@@ -26,7 +26,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -1553,8 +1553,27 @@ async def import_zro_csv(sid: str, file: UploadFile = File(...)):
     return {"session": _session_view(session), "import_summary": import_meta}
 
 
+_ALLOWED_FORMATS = frozenset({"xyY", "XYZ"})
+
+_FORMAT_NORMALIZE = {
+    "xyy": "xyY",
+    "xyz": "XYZ",
+}
+
+
 @app.post("/api/session/{sid}/import/generic")
-async def import_generic_csv(sid: str, file: UploadFile = File(...)):
+async def import_generic_csv(
+    sid: str,
+    file: UploadFile = File(...),
+    format_: str = Query("xyY", alias="format"),
+):
+    fmt = _FORMAT_NORMALIZE.get(format_.strip().lower(), format_.strip())
+    if fmt not in _ALLOWED_FORMATS:
+        raise HTTPException(
+            400,
+            f"Invalid format '{format_}'; must be 'xyY' or 'XYZ'",
+        )
+
     try:
         contents = await file.read()
     except Exception as exc:
@@ -1568,7 +1587,7 @@ async def import_generic_csv(sid: str, file: UploadFile = File(...)):
     # See import_zro_csv above: offload to threadpool so this async route
     # doesn't block the event loop with synchronous, lock-holding disk I/O.
     session, import_meta = await run_in_threadpool(
-        store.import_generic_bytes, sid, file.filename, contents
+        store.import_generic_bytes, sid, file.filename, contents, fmt
     )
     _maybe_trigger_llm(sid, session)
     return {"session": _session_view(session), "import_summary": import_meta}

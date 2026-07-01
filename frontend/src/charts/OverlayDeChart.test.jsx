@@ -143,6 +143,16 @@ describe('OverlayDeChart', () => {
     expect(colorsB).toEqual([C.amber]);
   });
 
+  it('sorts "Black (0%)" and "White (100%)" by stimulus_pct instead of parseInt label', () => {
+    const measurementsA = [
+      { stimulus_pct: 50, label: '50% Gray', delta_e: 1.0 },
+      { stimulus_pct: 100, label: 'White (100%)', delta_e: 2.5 },
+      { stimulus_pct: 0, label: 'Black (0%)', delta_e: 0.5 },
+    ];
+    render(<OverlayDeChart measurementsA={measurementsA} measurementsB={[]} />);
+    expect(lastChartProps.data.labels).toEqual(['Black (0%)', '50% Gray', 'White (100%)']);
+  });
+
   it('matches Session A and Session B severity coloring for the same dE values', () => {
     const measurementsA = [
       { stimulus_pct: 10, delta_e: 1.0 },
