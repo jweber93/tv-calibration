@@ -127,6 +127,22 @@ describe('OverlayDeChart', () => {
     expect(passColor).not.toBe(failColor);
   });
 
+  it('colors the dE === 2 boundary green (passing) for both sessions', () => {
+    const measurements = [{ stimulus_pct: 10, delta_e: 2 }];
+    render(<OverlayDeChart measurementsA={measurements} measurementsB={measurements} />);
+    const [colorsA, colorsB] = lastChartProps.data.datasets.map(d => d.backgroundColor);
+    expect(colorsA).toEqual([C.green]);
+    expect(colorsB).toEqual([C.green]);
+  });
+
+  it('colors the dE === 3 boundary amber (borderline) for both sessions', () => {
+    const measurements = [{ stimulus_pct: 10, delta_e: 3 }];
+    render(<OverlayDeChart measurementsA={measurements} measurementsB={measurements} />);
+    const [colorsA, colorsB] = lastChartProps.data.datasets.map(d => d.backgroundColor);
+    expect(colorsA).toEqual([C.amber]);
+    expect(colorsB).toEqual([C.amber]);
+  });
+
   it('matches Session A and Session B severity coloring for the same dE values', () => {
     const measurementsA = [
       { stimulus_pct: 10, delta_e: 1.0 },

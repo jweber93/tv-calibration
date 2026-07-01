@@ -29,6 +29,7 @@ export function OverlayDeChart({ measurementsA, measurementsB }) {
     return match ? match.delta_e : null;
   }
 
+  // Severity mapping: <=2 green, <=3 amber, >3 red — must match colorsB and tokens.js deColor().
   const colorsA = allLabels.map(l => {
     const v = getDelta(measurementsA, l);
     if (v == null) return C.redFillMissing;
