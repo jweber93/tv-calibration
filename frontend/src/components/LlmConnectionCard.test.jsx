@@ -2,12 +2,14 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { LlmConnectionCard } from './LlmConnectionCard';
-import * as client from '../api/client';
+import { api } from '../api/client';
 
 vi.mock('../api/client', () => ({
-  getLlmStatus: vi.fn(),
-  configureLlm: vi.fn(),
-  probeLlm: vi.fn(),
+  api: {
+    getLlmStatus: vi.fn(),
+    configureLlm: vi.fn(),
+    probeLlm: vi.fn(),
+  },
 }));
 
 const sid = 'test-session-123';
@@ -18,20 +20,20 @@ describe('LlmConnectionCard', () => {
   });
 
   it('shows "Not configured" when getLlmStatus returns configured:false', async () => {
-    client.getLlmStatus.mockResolvedValue({ configured: false });
+    api.getLlmStatus.mockResolvedValue({ configured: false });
     render(<LlmConnectionCard sid={sid} />);
     expect(await screen.findByText('Not configured')).toBeInTheDocument();
   });
 
   it('shows green reachable badge with model when reachable', async () => {
-    client.getLlmStatus.mockResolvedValue({ configured: true, reachable: true, model: 'llama3' });
+    api.getLlmStatus.mockResolvedValue({ configured: true, reachable: true, model: 'llama3' });
     render(<LlmConnectionCard sid={sid} />);
     expect(await screen.findByText('Reachable (llama3)')).toBeInTheDocument();
   });
 
   it('shows error when configured but unreachable', async () => {
-    client.getLlmStatus.mockResolvedValue({ configured: true, reachable: false, error: 'HTTP 401: Unauthorized' });
-    client.probeLlm.mockResolvedValue({ configured: true, reachable: false, error: 'HTTP 401: Unauthorized' });
+    api.getLlmStatus.mockResolvedValue({ configured: true, reachable: false, error: 'HTTP 401: Unauthorized' });
+    api.probeLlm.mockResolvedValue({ configured: true, reachable: false, error: 'HTTP 401: Unauthorized' });
     render(<LlmConnectionCard sid={sid} />);
     await screen.findByText('Not configured');
     await userEvent.click(screen.getByText('Test connection'));
@@ -39,8 +41,8 @@ describe('LlmConnectionCard', () => {
   });
 
   it('clicking Save calls configureLlm with entered field values', async () => {
-    client.getLlmStatus.mockResolvedValue({ configured: false });
-    client.configureLlm.mockResolvedValue({ configured: true, model: 'llama3' });
+    api.getLlmStatus.mockResolvedValue({ configured: false });
+    api.configureLlm.mockResolvedValue({ configured: true, model: 'llama3' });
     render(<LlmConnectionCard sid={sid} />);
     await screen.findByText('Not configured');
 
@@ -48,12 +50,12 @@ describe('LlmConnectionCard', () => {
     await userEvent.type(screen.getByPlaceholderText('llama3'), 'llama3');
     await userEvent.click(screen.getByText('Save'));
 
-    expect(client.configureLlm).toHaveBeenCalledOnce();
-    expect(client.configureLlm).toHaveBeenCalledWith(sid, { endpoint: 'http://localhost:11434/v1', model: 'llama3' });
+    expect(api.configureLlm).toHaveBeenCalledOnce();
+    expect(api.configureLlm).toHaveBeenCalledWith(sid, { endpoint: 'http://localhost:11434/v1', model: 'llama3' });
   });
 
   it('prefills endpoint and model from status on mount when already configured', async () => {
-    client.getLlmStatus.mockResolvedValue({ configured: true, reachable: true, model: 'gpt-4', endpoint: 'https://api.openai.com/v1' });
+    api.getLlmStatus.mockResolvedValue({ configured: true, reachable: true, model: 'gpt-4', endpoint: 'https://api.openai.com/v1' });
     render(<LlmConnectionCard sid={sid} />);
     const endpointInput = await screen.findByDisplayValue('https://api.openai.com/v1');
     expect(endpointInput).toBeInTheDocument();
@@ -61,9 +63,9 @@ describe('LlmConnectionCard', () => {
   });
 
   it('disables buttons while saving', async () => {
-    client.getLlmStatus.mockResolvedValue({ configured: false });
+    api.getLlmStatus.mockResolvedValue({ configured: false });
     let resolveConfigure;
-    client.configureLlm.mockImplementation(() => new Promise(r => { resolveConfigure = r; }));
+    api.configureLlm.mockImplementation(() => new Promise(r => { resolveConfigure = r; }));
     render(<LlmConnectionCard sid={sid} />);
     await screen.findByText('Not configured');
 
@@ -83,7 +85,7 @@ describe('LlmConnectionCard', () => {
 
   it('calls onConfigureLlm callback when provided instead of raw API', async () => {
     const onConfigureLlm = vi.fn().mockResolvedValue({ configured: true, model: 'llama3' });
-    client.getLlmStatus.mockResolvedValue({ configured: false });
+    api.getLlmStatus.mockResolvedValue({ configured: false });
     render(<LlmConnectionCard sid={sid} onConfigureLlm={onConfigureLlm} />);
     await screen.findByText('Not configured');
 
@@ -93,12 +95,12 @@ describe('LlmConnectionCard', () => {
 
     expect(onConfigureLlm).toHaveBeenCalledOnce();
     expect(onConfigureLlm).toHaveBeenCalledWith({ endpoint: 'http://localhost:11434/v1', model: 'llama3' });
-    expect(client.configureLlm).not.toHaveBeenCalled();
+    expect(api.configureLlm).not.toHaveBeenCalled();
   });
 
   it('trims whitespace from endpoint, model, and api_key on save', async () => {
-    client.getLlmStatus.mockResolvedValue({ configured: false });
-    client.configureLlm.mockResolvedValue({ configured: true, model: 'llama3' });
+    api.getLlmStatus.mockResolvedValue({ configured: false });
+    api.configureLlm.mockResolvedValue({ configured: true, model: 'llama3' });
     render(<LlmConnectionCard sid={sid} />);
     await screen.findByText('Not configured');
 
@@ -106,12 +108,12 @@ describe('LlmConnectionCard', () => {
     await userEvent.type(screen.getByPlaceholderText('llama3'), '  llama3  ');
     await userEvent.click(screen.getByText('Save'));
 
-    expect(client.configureLlm).toHaveBeenCalledWith(sid, { endpoint: 'http://localhost:11434/v1', model: 'llama3' });
+    expect(api.configureLlm).toHaveBeenCalledWith(sid, { endpoint: 'http://localhost:11434/v1', model: 'llama3' });
   });
 
   it('clicking Test connection probes current field values, not saved config', async () => {
-    client.getLlmStatus.mockResolvedValue({ configured: false });
-    client.probeLlm.mockResolvedValue({ configured: true, reachable: true, model: 'llama3' });
+    api.getLlmStatus.mockResolvedValue({ configured: false });
+    api.probeLlm.mockResolvedValue({ configured: true, reachable: true, model: 'llama3' });
     render(<LlmConnectionCard sid={sid} />);
     await screen.findByText('Not configured');
 
@@ -119,14 +121,14 @@ describe('LlmConnectionCard', () => {
     await userEvent.type(screen.getByPlaceholderText('llama3'), 'llama3');
     await userEvent.click(screen.getByText('Test connection'));
 
-    expect(client.probeLlm).toHaveBeenCalledOnce();
-    expect(client.probeLlm).toHaveBeenCalledWith(sid, { endpoint: 'http://localhost:11434/v1', model: 'llama3' });
+    expect(api.probeLlm).toHaveBeenCalledOnce();
+    expect(api.probeLlm).toHaveBeenCalledWith(sid, { endpoint: 'http://localhost:11434/v1', model: 'llama3' });
     expect(await screen.findByText('Reachable (llama3)')).toBeInTheDocument();
   });
 
   it('Test connection does not call configureLlm', async () => {
-    client.getLlmStatus.mockResolvedValue({ configured: false });
-    client.probeLlm.mockResolvedValue({ configured: true, reachable: true, model: 'llama3' });
+    api.getLlmStatus.mockResolvedValue({ configured: false });
+    api.probeLlm.mockResolvedValue({ configured: true, reachable: true, model: 'llama3' });
     render(<LlmConnectionCard sid={sid} />);
     await screen.findByText('Not configured');
 
@@ -134,6 +136,6 @@ describe('LlmConnectionCard', () => {
     await userEvent.type(screen.getByPlaceholderText('llama3'), 'llama3');
     await userEvent.click(screen.getByText('Test connection'));
 
-    expect(client.configureLlm).not.toHaveBeenCalled();
+    expect(api.configureLlm).not.toHaveBeenCalled();
   });
 });

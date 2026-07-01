@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button } from './Button';
-import * as api from '../api/client';
+import { api } from '../api/client';
 
 export function LlmConnectionCard({ sid, onConfigureLlm }) {
   const [endpoint, setEndpoint] = useState('');
