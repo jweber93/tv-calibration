@@ -325,12 +325,20 @@ def _group_into_sessions(rows: List[_Row]) -> List[List[_Row]]:
 
 
 def _session_type(group: List[_Row]) -> str:
-    """Infer whether a session group is primarily 'colour' or 'grayscale'."""
+    """Infer whether a session group is 'colour', 'grayscale', or 'unknown'.
+
+    'unknown' covers groups where no row matches any recognized colour or
+    grayscale patch signature (e.g. a trailing block of intermediate-
+    saturation CMS check patches) — these must not be treated as a real
+    grayscale pass, or they'd silently displace the genuine post-cal ramp.
+    """
     types = [_classify(r.r, r.g, r.b) for r in group]
     colour_count = sum(
         1 for t in types if t in {"red", "green", "blue", "cyan", "magenta", "yellow"}
     )
     gray_count = sum(1 for t in types if t in {"grayscale", "black", "white"})
+    if colour_count == 0 and gray_count == 0:
+        return "unknown"
     if colour_count > gray_count:
         return "colour"
     return "grayscale"
@@ -456,7 +464,7 @@ def parse_zro_csv(source: str | bytes | io.IOBase) -> ZROImportResult:
     # ── classify each session group ──────────────────────────────────────────
     # We need to know the total number of grayscale passes before processing
     # so we can distinguish pre, mid, and post.
-    grayscale_groups = [g for g in groups if _session_type(g) != "colour"]
+    grayscale_groups = [g for g in groups if _session_type(g) == "grayscale"]
     n_grayscale = len(grayscale_groups)
     result.grayscale_sessions = n_grayscale
 
@@ -468,7 +476,7 @@ def parse_zro_csv(source: str | bytes | io.IOBase) -> ZROImportResult:
             result.colour_sessions += 1
             _process_colour_group(group, result)
 
-        else:  # grayscale (or mixed — treat as grayscale)
+        elif stype == "grayscale":  # includes mixed groups won by grayscale
             is_last = (grayscale_group_index == n_grayscale - 1)
             _process_grayscale_group(group, result, grayscale_group_index, is_last)
             grayscale_group_index += 1
@@ -476,6 +484,11 @@ def parse_zro_csv(source: str | bytes | io.IOBase) -> ZROImportResult:
             # that is dominated by grayscale rows from previous steps.  Always
             # extract any colour-type rows so they reach cms_measurements.
             _extract_colour_rows(group, result)
+
+        else:  # "unknown" — no recognizable patch in this group; don't
+            # consume a pre/mid/post pass slot, just count the rows as
+            # unclassifiable.
+            result.unknown_rows += len(group)
 
     return result
 
