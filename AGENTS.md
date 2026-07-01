@@ -57,8 +57,7 @@ When I say **"audit QE"**, execute the QE Audit Protocol:
    - Exception: pure documentation-only changes (README, AGENTS.md updates) may
      skip issue creation if the change is self-evident — but still note this in
      the PR body (e.g. "Doc-only change; no issue created").
-6. **Always use the PR body template** from `.pr_body.md` — copy it verbatim and
-   fill in the sections. Do not write custom PR bodies.
+6. **Always follow the PR body structure** from `.pr_body.md` — use its sections (Overview, Technical Context, Files Changed, Testing, Visual Evidence, Checklist) and fill in the relevant content. Do not invent a different structure.
 
 ## Post-Merge Cleanup
 
@@ -76,7 +75,7 @@ When I say **"cleanup"** or **"branch was merged"** or **"PR [number] merged"**,
 - No mocking things that don't need mocking.
 - If blocked on **missing information** (credentials, hardware specs, unclear requirement), stop and report. Minor implementation ambiguity → make a reasonable choice and document it in the commit message. Do not work around genuine blockers.
 - No TODOs or placeholders. Production quality only.
-- **Every task that touches code ends with a pushed branch, an open draft PR, and `Closes #[issue-number]` in the PR body.** No exceptions.
+- **Every task that touches code ends with a pushed branch, an open draft PR, and `Closes #[issue-number]` in the PR body.** No exceptions, except for pure documentation-only changes (README, AGENTS.md updates) where the agent should note "Doc-only change; no issue created" in the PR body instead.
 - **Complete the full task autonomously end-to-end.** Do not pause between steps to ask for confirmation. A paused agent is a broken agent. Keep going until the PR is open.
 
 ## Recipes — copy these patterns
