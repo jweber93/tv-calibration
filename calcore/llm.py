@@ -52,6 +52,16 @@ def _extract_json(text: str) -> str:
     return text[start:]
 
 
+def _safe_float(value: Any) -> Optional[float]:
+    """Coerce a client-supplied value to float, or None if it isn't numeric."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _top_offenders(summary: Summary) -> Dict[str, Any]:
     """Extract worst-N patches by ΔE for compact LLM context (no raw XYZ)."""
     result: Dict[str, Any] = {}
@@ -888,7 +898,7 @@ def query_pass_decision(
     colors: Dict[str, List[Dict[str, Any]]] = {}
     for m in measurements:
         label = (m.get("label") or "").strip()
-        de = m.get("delta_e")
+        de = _safe_float(m.get("delta_e"))
         if de is None:
             continue
         stim_pct = m.get("stimulus_pct", 0)
@@ -908,12 +918,15 @@ def query_pass_decision(
                 "label": label,
                 "dE": round(de, 2),
                 "stimulus_pct": stim_pct,
-                "effective_gamma": m.get("effective_gamma"),
+                "effective_gamma": _safe_float(m.get("effective_gamma")),
                 "x": m.get("x"),
                 "y": m.get("y"),
                 "Y": m.get("Y"),
-                "cct": m.get("cct"),
+                "cct": _safe_float(m.get("cct")),
             })
+
+    if not grayscale and not colors:
+        return None
 
     # Compute per-region stats
     def _region_stats(items: List[Dict]) -> Optional[Dict]:
