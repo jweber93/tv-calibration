@@ -27,6 +27,7 @@ from urllib.parse import urlparse
 import httpx
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
 _MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB limit for CSV uploads
@@ -1433,7 +1434,13 @@ async def import_zro_csv(sid: str, file: UploadFile = File(...)):
             413, f"File too large: {len(contents)} bytes (max {_MAX_UPLOAD_BYTES})"
         )
 
-    session, import_meta = store.import_zro_bytes(sid, file.filename, contents)
+    # Offload blocking, lock-holding disk I/O to the threadpool: this route is
+    # `async def` (for `await file.read()`), so unlike plain `def` handlers it
+    # is not threadpooled automatically and would otherwise stall the event
+    # loop for the duration of the import (#504).
+    session, import_meta = await run_in_threadpool(
+        store.import_zro_bytes, sid, file.filename, contents
+    )
     _maybe_trigger_llm(sid, session)
     return {"session": _session_view(session), "import_summary": import_meta}
 
@@ -1450,7 +1457,11 @@ async def import_generic_csv(sid: str, file: UploadFile = File(...)):
             413, f"File too large: {len(contents)} bytes (max {_MAX_UPLOAD_BYTES})"
         )
 
-    session, import_meta = store.import_generic_bytes(sid, file.filename, contents)
+    # See import_zro_csv above: offload to threadpool so this async route
+    # doesn't block the event loop with synchronous, lock-holding disk I/O.
+    session, import_meta = await run_in_threadpool(
+        store.import_generic_bytes, sid, file.filename, contents
+    )
     _maybe_trigger_llm(sid, session)
     return {"session": _session_view(session), "import_summary": import_meta}
 
