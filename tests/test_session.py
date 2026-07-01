@@ -10,6 +10,7 @@ from calibrator.session import (
     SessionStore,
     deserialize_session,
     deserialize_measurement,
+    serialize_session,
 )
 
 
@@ -350,3 +351,71 @@ class TestRepassCeilingBehavior:
         # Should set decision but NOT advance step (ceiling doesn't auto-advance)
         assert session["repass_decision"]["action"] == "ceiling"
         assert session["step"] == "color_tuner", "Direct ceiling should not auto-advance step"
+
+
+class TestSerializeDeserializeRoundTrip:
+    """Serialize → deserialize round-trip preserves all keys."""
+
+    def _minimal_session(self) -> dict:
+        return {
+            "id": "sid-001",
+            "tv_key": "u8g",
+            "tv_name": "Hisense U8G",
+            "step": "report",
+            "mode": "SDR",
+            "gamma_workflow": "quick",
+            "signal_range": "full",
+            "code_scale": "8bit",
+            "lightspace_tier": "free",
+            "pattern_generator": "dogegen",
+            "grayscale_ramp_steps": 11,
+            "sdr_peak_nits": None,
+            "pre_measurements": [],
+            "post_measurements": [],
+            "wb_measurements": [],
+            "lum_measurements": [],
+            "gamma_measurements": [],
+            "cms_measurements": [],
+            "peak_luminance": 500.0,
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "last_accessed_at": "2026-01-01T00:00:00+00:00",
+            "zro_imports": [],
+            "llm_config": {"endpoint": "", "model": "", "temperature": 0.2, "timeout": 30.0},
+        }
+
+    def test_round_trip_preserves_tv_settings(self):
+        session = self._minimal_session()
+        session["tv_settings"] = {
+            "two_point_wb": {"offset_r": 1, "offset_g": 2, "offset_b": 3},
+            "multipoint_wb": {},
+            "cms_sliders": {"red_hue": 0},
+        }
+        serialized = serialize_session(session)
+        deserialized = deserialize_session(serialized)
+        assert deserialized["tv_settings"] == session["tv_settings"]
+
+    def test_round_trip_preserves_history_recorded(self):
+        session = self._minimal_session()
+        session["_history_recorded"] = True
+        serialized = serialize_session(session)
+        deserialized = deserialize_session(serialized)
+        assert deserialized["_history_recorded"] is True
+
+    def test_round_trip_preserves_repass_decision(self):
+        session = self._minimal_session()
+        session["repass_decision"] = {
+            "action": "ceiling",
+            "reason": "Exceeded max repasses",
+            "timestamp": "2026-01-01T00:00:00+00:00",
+        }
+        serialized = serialize_session(session)
+        deserialized = deserialize_session(serialized)
+        assert deserialized["repass_decision"] == session["repass_decision"]
+
+    def test_round_trip_defaults_when_missing(self):
+        session = self._minimal_session()
+        serialized = serialize_session(session)
+        deserialized = deserialize_session(serialized)
+        assert deserialized["tv_settings"] == {}
+        assert deserialized["_history_recorded"] is False
+        assert deserialized["repass_decision"] == {}
