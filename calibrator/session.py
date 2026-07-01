@@ -2238,12 +2238,13 @@ class SessionStore:
         sid: str,
         filename: Optional[str],
         contents: bytes,
+        fmt: str = "xyY",
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         from .csv_adapter import patches_to_session_buckets
         from calcore.csv_import import parse_measurement_csv
 
         try:
-            patches = parse_measurement_csv(contents, format="xyY")
+            patches = parse_measurement_csv(contents, format=fmt)
         except Exception as exc:
             raise HTTPException(400, f"Generic CSV parse error: {exc}") from exc
 

@@ -63,11 +63,15 @@ def session_id(client):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _upload_generic(client, sid, csv_bytes):
+def _upload_generic(client, sid, csv_bytes, fmt=None):
     """Upload a generic CSV via the /import/generic endpoint."""
+    params = {}
+    if fmt is not None:
+        params["format"] = fmt
     return client.post(
         f"/api/session/{sid}/import/generic",
         files={"file": ("test.csv", csv_bytes, "text/csv")},
+        params=params,
     )
 
 
@@ -321,18 +325,74 @@ class TestGenericImportPeakLuminance:
 
 
 class TestGenericImportHeaderlessFormat:
-    def test_headerless_csv_parsed(self, client, session_id):
-        """Headerless CSV format should also be supported."""
+    def test_headerless_xyz_csv_requires_format_param(self, client, session_id):
+        """Headerless XYZ CSV without format=XYZ → 400 (plausibility check catches it)."""
         _advance_to_pre_grayscale(client, session_id)
 
-        # Headerless format: index,R,G,B,X,Y,Z
+        # Headerless format: index,R,G,B,X,Y,Z — X=100, Z=60 are way outside xyY range
         csv = _grayscale_csv([
             (0, 128, 128, 128, 5.0, 6.0, 4.0),
             (1, 235, 235, 235, 80.0, 100.0, 60.0),
         ])
 
         resp = _upload_generic(client, session_id, csv.encode())
+        assert resp.status_code == 400
+        assert "chromaticity" in resp.json()["detail"].lower()
+
+    def test_headerless_xyz_csv_with_format_param(self, client, session_id):
+        """Headerless XYZ CSV with format=XYZ parses correctly."""
+        _advance_to_pre_grayscale(client, session_id)
+
+        csv = _grayscale_csv([
+            (0, 128, 128, 128, 5.0, 6.0, 4.0),
+            (1, 235, 235, 235, 80.0, 100.0, 60.0),
+        ])
+
+        resp = _upload_generic(client, session_id, csv.encode(), fmt="XYZ")
         assert resp.status_code == 200
 
         summary = resp.json()["import_summary"]
         assert summary["total_rows"] == 2
+
+    def test_headerless_xyY_csv_with_default_format(self, client, session_id):
+        """Headerless xyY CSV works with default format (xyY)."""
+        _advance_to_pre_grayscale(client, session_id)
+
+        # xyY format: index,R,G,B,Y,x,y
+        lines = [
+            "0,128,128,128,5.0,0.3127,0.3290",
+            "1,235,235,235,100.0,0.3127,0.3290",
+        ]
+        csv = "\n".join(lines)
+
+        resp = _upload_generic(client, session_id, csv.encode())
+        assert resp.status_code == 200
+
+        summary = resp.json()["import_summary"]
+        assert summary["total_rows"] == 2
+
+    def test_headerless_xyY_csv_explicit_format(self, client, session_id):
+        """Headerless xyY CSV with format=xyY also works."""
+        _advance_to_pre_grayscale(client, session_id)
+
+        lines = [
+            "0,128,128,128,5.0,0.3127,0.3290",
+            "1,235,235,235,100.0,0.3127,0.3290",
+        ]
+        csv = "\n".join(lines)
+
+        resp = _upload_generic(client, session_id, csv.encode(), fmt="xyY")
+        assert resp.status_code == 200
+
+        summary = resp.json()["import_summary"]
+        assert summary["total_rows"] == 2
+
+    def test_invalid_format_param_returns_400(self, client, session_id):
+        """Invalid format parameter value returns 400."""
+        _advance_to_pre_grayscale(client, session_id)
+
+        csv = _grayscale_csv([(0, 128, 128, 128, 5.0, 6.0, 4.0)])
+
+        resp = _upload_generic(client, session_id, csv.encode(), fmt="invalid")
+        assert resp.status_code == 400
+        assert "format" in resp.json()["detail"].lower()

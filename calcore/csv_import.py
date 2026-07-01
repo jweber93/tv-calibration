@@ -33,12 +33,20 @@ def _classify_headerless_row(
 
     *explicit_format* must be provided by the caller; auto-detection is disabled
     because it can misclassify low-luminance XYZ as xyY.
+
+    Raises ValueError if chromaticities are outside the plausible range
+    (x, y ∈ (0, 0.85)), which catches headerless XYZ data mislabelled as xyY.
     """
     if explicit_format == "XYZ":
         return (v4, v5, v6), None
 
     # explicit_format == "xyY"
     Y, x, y = v4, v5, v6
+    if not (0.0 <= x < 0.85) or not (0.0 <= y < 0.85):
+        raise ValueError(
+            f"Row has chromaticity x={x}, y={y} — outside plausible range [0, 0.85). "
+            "Did you mean to use format=XYZ?"
+        )
     return xyY_to_xyz(x, y, Y), (Y, x, y)
 
 
