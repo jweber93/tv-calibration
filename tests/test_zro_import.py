@@ -407,6 +407,25 @@ class TestParseZroCsv:
         r = parse_zro_csv(TWO_GRAYSCALE_CSV)
         assert len(r.post_measurements) == 11
 
+    def test_unknown_trailing_group_does_not_consume_pass_slot(self):
+        # Pre-cal ramp, post-cal ramp, then a trailing group of
+        # intermediate-saturation CMS check patches (e.g. a "relax CMS
+        # target to 75%" verification step) that don't match any
+        # primary/secondary/grayscale patch signature. This trailing group
+        # must not be misclassified as a third grayscale pass, which would
+        # bump the real post-cal ramp into mid_measurements.
+        csv_bytes = (
+            TWO_GRAYSCALE_CSV
+            + b"\n"
+            + b"15/03/2026 11:04:20\t235\t80\t80\t20.0\t0.45\t0.35\t 360ms\n"
+            + b"15/03/2026 11:04:23\t80\t235\t80\t40.0\t0.30\t0.55\t 360ms\n"
+            + b"15/03/2026 11:04:26\t80\t80\t235\t15.0\t0.20\t0.10\t 360ms"
+        )
+        r = parse_zro_csv(csv_bytes)
+        assert r.grayscale_sessions == 2
+        assert len(r.post_measurements) == 11
+        assert len(r.mid_measurements) == 0
+
     # ── Input format variants ───────────────────────────────────────────────
 
     def test_accepts_bytes(self):
