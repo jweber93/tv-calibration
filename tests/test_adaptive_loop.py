@@ -262,6 +262,78 @@ class TestQueryPassDecision:
         assert result is not None
         assert result.action == "accept"  # falls back
 
+    def test_non_numeric_delta_e_returns_none_not_raise(self):
+        """Non-numeric delta_e values must degrade to None, never raise."""
+        llm = MagicMock()
+        llm.endpoint = "http://localhost:4000"
+        llm.model = "test-model"
+        llm.api_key = ""
+        llm.timeout = 30.0
+
+        result = query_pass_decision(
+            measurements=[{"label": "White 50%", "delta_e": "bad"}],
+            phase="pre_grayscale",
+            signal_range="full",
+            code_scale="8bit",
+            target_gamma=2.2,
+            target_peak_nits=120.0,
+            target_white_point=[0.3127, 0.3290],
+            target_gamut="bt709",
+            llm=llm,
+        )
+
+        assert result is None
+
+    def test_non_numeric_effective_gamma_and_cct_do_not_raise(self):
+        """Non-numeric effective_gamma/cct on an otherwise-valid measurement must not raise."""
+        llm = MagicMock()
+        llm.endpoint = "http://localhost:4000"
+        llm.model = "test-model"
+        llm.api_key = ""
+        llm.timeout = 30.0
+
+        mock_response = {
+            "choices": [{
+                "message": {
+                    "content": json.dumps({
+                        "action": "accept",
+                        "patches": [],
+                        "reason": "test",
+                        "confidence": 0.9,
+                        "repass_count": 0,
+                        "ceiling_reason": None,
+                    })
+                }
+            }]
+        }
+
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps(mock_response).encode()
+            mock_urlopen.return_value.__enter__ = lambda s: mock_resp
+            mock_urlopen.return_value.__exit__ = lambda s, *a: None
+
+            result = query_pass_decision(
+                measurements=[{
+                    "label": "White 50%",
+                    "delta_e": 1.2,
+                    "stimulus_pct": 50,
+                    "effective_gamma": "bad",
+                    "cct": "bad",
+                }],
+                phase="pre_grayscale",
+                signal_range="full",
+                code_scale="8bit",
+                target_gamma=2.2,
+                target_peak_nits=120.0,
+                target_white_point=[0.3127, 0.3290],
+                target_gamut="bt709",
+                llm=llm,
+            )
+
+        assert result is not None
+        assert result.action == "accept"
+
 
 class TestTVProfileThresholds:
     """Quality gate thresholds in TV profiles."""

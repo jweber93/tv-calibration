@@ -1698,6 +1698,22 @@ class TestLLMIntegration:
         server_module._llm_unsubscribe(session_id, q)
 
 
+class TestPassDecisionEndpoint:
+    def test_non_numeric_delta_e_returns_200_not_500(self, client, session_id):
+        """Malformed measurement payloads must degrade gracefully, never 500 (#501)."""
+        client.post(f"/api/session/{session_id}/llm/configure",
+                    json={"endpoint": "http://localhost:4000", "model": "gpt-4o"})
+        resp = client.post(
+            f"/api/session/{session_id}/pass-decision",
+            json={"measurements": [
+                {"label": "White 50%", "delta_e": "bad", "stimulus_pct": 50}
+            ]},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["action"] == "accept"
+
+
 # ── Issue #188: Periodic session TTL eviction ──────────────────────────────────
 
 class TestSessionTTLCleanup:
