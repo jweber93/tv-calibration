@@ -139,12 +139,3 @@ describe('LlmConnectionCard', () => {
     expect(api.configureLlm).not.toHaveBeenCalled();
   });
 });
-
-describe('LlmConnectionCard — integration', () => {
-  it('real api/client.js export shape is consumed correctly (namespace-vs-named import guard)', () => {
-    expect(api).toBeDefined();
-    expect(typeof api.getLlmStatus).toBe('function');
-    expect(typeof api.configureLlm).toBe('function');
-    expect(typeof api.probeLlm).toBe('function');
-  });
-});

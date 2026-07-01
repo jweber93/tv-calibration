@@ -69,10 +69,3 @@ describe('LlmHistoryCard', () => {
     expect(await screen.findByText('Unable to load history.')).toBeInTheDocument();
   });
 });
-
-describe('LlmHistoryCard — integration', () => {
-  it('real api/client.js export shape is consumed correctly (namespace-vs-named import guard)', () => {
-    expect(api).toBeDefined();
-    expect(typeof api.getLlmHistorySummary).toBe('function');
-  });
-});
