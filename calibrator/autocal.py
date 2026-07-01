@@ -44,6 +44,10 @@ class ControllerConfig:
     )
     # Bounds how far a learned secant gain may deviate (multiplicatively) from the
     # assumed gain in one step, so a single noisy Δerror can't size an absurd step.
+    # Tighter (closer to 1.0) makes gain learning slower to adapt to a TV's real
+    # response but more resistant to a single noisy reading; looser risks one bad
+    # measurement sizing a wild step. 8.0 was chosen empirically as the point
+    # where the synthetic-model tests converge reliably without either failure mode.
     secant_gain_clamp: float = 8.0
 
 

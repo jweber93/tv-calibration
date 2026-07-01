@@ -376,6 +376,10 @@ _autocal_loops: Dict[str, AutocalLoop] = {}
 _autocal_loops_lock = threading.Lock()
 _autocal_queues: Dict[str, List[queue.Queue]] = {}
 _autocal_queues_lock = threading.Lock()
+# Full history of the most recently completed run per session, for
+# GET /api/session/{sid}/autocal/history — cleared only by a new run starting.
+_autocal_last_run: Dict[str, Dict[str, Any]] = {}
+_autocal_history_lock = threading.Lock()
 _AUTOCAL_BRIDGE_TIMEOUT = 30.0
 _AUTOCAL_POLL_INTERVAL = 0.5
 
@@ -396,6 +400,9 @@ _AUTOCAL_DEFAULTS: Dict[str, Any] = {
     "apply_mode": "manual",
     "damping": ControllerConfig().damping,
     "max_iterations": 8,
+    "skip_stalled_controls": False,
+    "bridge_timeout": _AUTOCAL_BRIDGE_TIMEOUT,
+    "bridge_poll_interval": _AUTOCAL_POLL_INTERVAL,
 }
 
 _prefs: Dict[str, Any] = {
@@ -509,6 +516,9 @@ class PrefsReq(BaseModel):
     autocal_apply_mode: Optional[str] = None
     autocal_damping: Optional[float] = None
     autocal_max_iterations: Optional[int] = None
+    autocal_skip_stalled_controls: Optional[bool] = None
+    autocal_bridge_timeout: Optional[float] = None
+    autocal_bridge_poll_interval: Optional[float] = None
 
 
 class AutocalRunReq(BaseModel):
@@ -516,6 +526,9 @@ class AutocalRunReq(BaseModel):
     apply_mode: Optional[str] = None
     damping: Optional[float] = None
     max_iterations: Optional[int] = None
+    skip_stalled_controls: Optional[bool] = None
+    bridge_timeout: Optional[float] = None
+    bridge_poll_interval: Optional[float] = None
     device: Optional[str] = None
 
 
@@ -2422,6 +2435,16 @@ def save_prefs_endpoint(req: PrefsReq):
         if not (1 <= req.autocal_max_iterations <= 50):
             raise HTTPException(400, "autocal_max_iterations must be between 1 and 50")
         autocal_prefs["max_iterations"] = req.autocal_max_iterations
+    if req.autocal_skip_stalled_controls is not None:
+        autocal_prefs["skip_stalled_controls"] = req.autocal_skip_stalled_controls
+    if req.autocal_bridge_timeout is not None:
+        if not (1.0 <= req.autocal_bridge_timeout <= 120.0):
+            raise HTTPException(400, "autocal_bridge_timeout must be between 1 and 120 seconds")
+        autocal_prefs["bridge_timeout"] = req.autocal_bridge_timeout
+    if req.autocal_bridge_poll_interval is not None:
+        if not (0.05 <= req.autocal_bridge_poll_interval <= 5.0):
+            raise HTTPException(400, "autocal_bridge_poll_interval must be between 0.05 and 5 seconds")
+        autocal_prefs["bridge_poll_interval"] = req.autocal_bridge_poll_interval
     _save_prefs()
     return {"ok": True, **_prefs}
 
@@ -2453,6 +2476,26 @@ def zro_trigger():
 # ── Autocal: guided closed-loop measure → correct → apply → re-measure ───────
 
 
+def _iteration_event_to_dict(event: Any) -> Dict[str, Any]:
+    return {
+        "colour": event.colour,
+        "control": event.control,
+        "iteration": event.iteration,
+        "error": event.error,
+        "step": event.correction.step,
+        "new_value": event.correction.new_value,
+        "damping": event.correction.damping,
+        "gain": event.correction.gain,
+        "gain_source": event.correction.gain_source,
+        "oscillating": event.correction.oscillating,
+        "stalled": event.correction.stalled,
+        "out_of_range": event.correction.out_of_range,
+        "reason": event.correction.reason,
+        "apply_ok": event.apply_result.ok,
+        "apply_message": event.apply_result.message,
+    }
+
+
 def _run_autocal_background(
     sid: str,
     loop: AutocalLoop,
@@ -2460,31 +2503,21 @@ def _run_autocal_background(
     patch_for_colour: Any,
 ) -> None:
     def on_iteration(event: Any) -> None:
-        _autocal_broadcast(
-            sid,
-            {
-                "event": "autocal_iteration",
-                "data": {
-                    "colour": event.colour,
-                    "control": event.control,
-                    "iteration": event.iteration,
-                    "error": event.error,
-                    "step": event.correction.step,
-                    "new_value": event.correction.new_value,
-                    "damping": event.correction.damping,
-                    "oscillating": event.correction.oscillating,
-                    "reason": event.correction.reason,
-                    "apply_ok": event.apply_result.ok,
-                    "apply_message": event.apply_result.message,
-                },
-            },
-        )
+        _autocal_broadcast(sid, {"event": "autocal_iteration", "data": _iteration_event_to_dict(event)})
 
     loop.on_iteration = on_iteration
     _autocal_broadcast(sid, {"event": "autocal_start", "data": {"colours": colours}})
     try:
         result = loop.run(colours, patch_for_colour)
+        history_payload: Dict[str, Any] = {"colours": {}, "cancelled": result.cancelled}
         for colour, cr in result.colours.items():
+            history_payload["colours"][colour] = {
+                "converged": cr.converged,
+                "reason": cr.stopped_reason,
+                "delta_e": cr.delta_e,
+                "iterations": cr.iterations,
+                "history": [_iteration_event_to_dict(e) for e in cr.history],
+            }
             _autocal_broadcast(
                 sid,
                 {
@@ -2498,6 +2531,8 @@ def _run_autocal_background(
                     },
                 },
             )
+        with _autocal_history_lock:
+            _autocal_last_run[sid] = history_payload
         _autocal_broadcast(sid, {"event": "autocal_done", "data": {"cancelled": result.cancelled}})
     except Exception as exc:
         logger.error("Autocal run failed  sid=%s error=%s", sid, exc, exc_info=True)
@@ -2541,12 +2576,33 @@ def autocal_run(sid: str, req: AutocalRunReq):
     )
     if not (1 <= max_iterations <= 50):
         raise HTTPException(400, "max_iterations must be between 1 and 50.")
+    skip_stalled_controls = (
+        req.skip_stalled_controls
+        if req.skip_stalled_controls is not None
+        else autocal_prefs.get("skip_stalled_controls", False)
+    )
+    bridge_timeout = (
+        req.bridge_timeout
+        if req.bridge_timeout is not None
+        else autocal_prefs.get("bridge_timeout", _AUTOCAL_BRIDGE_TIMEOUT)
+    )
+    if not (1.0 <= bridge_timeout <= 120.0):
+        raise HTTPException(400, "bridge_timeout must be between 1 and 120 seconds.")
+    bridge_poll_interval = (
+        req.bridge_poll_interval
+        if req.bridge_poll_interval is not None
+        else autocal_prefs.get("bridge_poll_interval", _AUTOCAL_POLL_INTERVAL)
+    )
+    if not (0.05 <= bridge_poll_interval <= 5.0):
+        raise HTTPException(400, "bridge_poll_interval must be between 0.05 and 5 seconds.")
 
     apply_target: ApplyTarget = (
         ManualApplyTarget() if apply_mode == "manual" else AdbApplyTarget(device=req.device)
     )
     config = ControllerConfig(damping=damping)
-    measurement_source = _SessionCmsMeasurementSource(sid)
+    measurement_source = _SessionCmsMeasurementSource(
+        sid, timeout=bridge_timeout, poll_interval=bridge_poll_interval
+    )
     loop = AutocalLoop(
         measurement_source,
         apply_target,
@@ -2556,9 +2612,12 @@ def autocal_run(sid: str, req: AutocalRunReq):
         code_scale=session.get("code_scale", "8bit"),
         config=config,
         max_iterations=max_iterations,
+        skip_stalled_controls=skip_stalled_controls,
     )
     with _autocal_loops_lock:
         _autocal_loops[sid] = loop
+    with _autocal_history_lock:
+        _autocal_last_run.pop(sid, None)
 
     signal_range = session.get("signal_range", "auto")
     code_scale = session.get("code_scale", "8bit")
@@ -2582,6 +2641,9 @@ def autocal_run(sid: str, req: AutocalRunReq):
         "apply_mode": apply_mode,
         "damping": damping,
         "max_iterations": max_iterations,
+        "skip_stalled_controls": skip_stalled_controls,
+        "bridge_timeout": bridge_timeout,
+        "bridge_poll_interval": bridge_poll_interval,
     }
 
 
@@ -2594,6 +2656,16 @@ def autocal_stop(sid: str):
         return {"status": "not_running"}
     loop.cancel()
     return {"status": "stopping"}
+
+
+@app.get("/api/session/{sid}/autocal/history")
+def autocal_history(sid: str):
+    store.get(sid)  # raises 404 if session doesn't exist
+    with _autocal_history_lock:
+        recorded = _autocal_last_run.get(sid)
+    if recorded is None:
+        return {"available": False}
+    return {"available": True, **recorded}
 
 
 @app.get("/api/session/{sid}/autocal/stream")

@@ -139,3 +139,43 @@ class TestAutocalLoopConvergence:
 
         for control in CMS_CONTROLS:
             assert -10 <= state["Red"][control] <= 10
+
+    def test_skip_stalled_controls_stops_iterating_saturated_control(self):
+        # Saturation/Brightness start at their true optimum (converged from the
+        # first measurement); Hue's optimum is unreachable, so it saturates at
+        # a control rail and reports stalled=True.
+        state = {"Red": dict.fromkeys(CMS_CONTROLS, 0)}
+        true_optimal = {"Red": {"Hue": 400, "Saturation": 0, "Brightness": 0}}
+        source = SyntheticCmsSource(state, true_optimal)
+        loop = AutocalLoop(
+            source,
+            RecordingApplyTarget(),
+            TARGET,
+            CMS_CONTROLS,
+            max_iterations=6,
+            skip_stalled_controls=True,
+        )
+
+        result = loop.run(["Red"], _patch_for_colour, initial_values=state)
+
+        colour_result = result.colours["Red"]
+        hue_events = [e for e in colour_result.history if e.control == "Hue"]
+        assert any(e.correction.stalled for e in hue_events)
+        stall_iteration = next(e.iteration for e in hue_events if e.correction.stalled)
+        # No further Hue corrections were attempted after it stalled.
+        assert all(e.iteration <= stall_iteration for e in hue_events)
+        assert -10 <= state["Red"]["Hue"] <= 10
+
+    def test_skip_stalled_controls_off_by_default(self):
+        state = {"Red": dict.fromkeys(CMS_CONTROLS, 0)}
+        true_optimal = {"Red": {"Hue": 400, "Saturation": 0, "Brightness": 0}}
+        source = SyntheticCmsSource(state, true_optimal)
+        loop = AutocalLoop(source, RecordingApplyTarget(), TARGET, CMS_CONTROLS, max_iterations=6)
+
+        assert loop.skip_stalled_controls is False
+        result = loop.run(["Red"], _patch_for_colour, initial_values=state)
+
+        colour_result = result.colours["Red"]
+        hue_events = [e for e in colour_result.history if e.control == "Hue"]
+        # Without the opt-in flag, Hue keeps getting a correction attempt every iteration.
+        assert len(hue_events) == colour_result.iterations

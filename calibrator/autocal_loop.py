@@ -70,6 +70,7 @@ class AutocalLoop:
         code_scale: str = "8bit",
         config: ControllerConfig = DEFAULT_CONFIG,
         max_iterations: int = 8,
+        skip_stalled_controls: bool = False,
         on_iteration: Optional[Callable[[IterationEvent], None]] = None,
     ) -> None:
         self.measurement_source = measurement_source
@@ -80,6 +81,11 @@ class AutocalLoop:
         self.code_scale = code_scale
         self.config = config
         self.max_iterations = max_iterations
+        # Opt-in: once a control reports stalled=True (saturated at its control
+        # range with error still outside the deadband), stop spending iterations
+        # on it so the remaining controls converge faster. Off by default so
+        # existing callers keep iterating all controls every pass.
+        self.skip_stalled_controls = skip_stalled_controls
         self.on_iteration = on_iteration
         self._cancel = threading.Event()
 
@@ -109,6 +115,7 @@ class AutocalLoop:
         controller = CmsCorrectionController(self.config)
         history: List[IterationEvent] = []
         last_de: Optional[float] = None
+        stalled_controls: set = set()
 
         for iteration in range(1, self.max_iterations + 1):
             if self._cancel.is_set():
@@ -120,7 +127,11 @@ class AutocalLoop:
                 return ColourResult(colour, iteration - 1, True, "quality gate met", last_de, history)
 
             hints = cms_hints(measurement, self.target, colour)
-            for control in self.cms_controls:
+            active_controls = [c for c in self.cms_controls if c not in stalled_controls]
+            if self.skip_stalled_controls and not active_controls:
+                return ColourResult(colour, iteration - 1, False, "all controls stalled", last_de, history)
+
+            for control in active_controls:
                 key = CONTROL_ERROR_KEY[control]
                 if key not in hints:
                     continue
@@ -130,6 +141,8 @@ class AutocalLoop:
                 apply_result = self.apply_target.apply(result, colour=colour)
                 if apply_result.ok:
                     values[control] = result.new_value
+                if self.skip_stalled_controls and result.stalled:
+                    stalled_controls.add(control)
                 event = IterationEvent(colour, control, iteration, error, result, apply_result)
                 history.append(event)
                 if self.on_iteration:

@@ -481,16 +481,24 @@ A Calman-style closed loop that automates Color Tuner convergence: measure → c
 - **Manual apply** (works on every TV): the loop tells you exactly which CMS control to change and by how much; you make the change on the TV and the loop re-measures.
 - **Auto apply** (ADB-capable TVs): the loop pushes the correction directly via ADB with read-back verification.
 - The correction step is a damped, oscillation-safe controller (`calibrator/autocal.py`) — not a raw proportional gain — so it converges instead of hunting back and forth across the target.
+- `skip_stalled_controls` (opt-in): once a control saturates at its ±10 boundary without resolving its error, stop spending iterations on it so the remaining controls converge faster.
 
 **API:**
 
 ```
-POST /api/session/{sid}/autocal/run    { colours?, apply_mode?, damping?, max_iterations?, device? }
+POST /api/session/{sid}/autocal/run      { colours?, apply_mode?, damping?, max_iterations?,
+                                            skip_stalled_controls?, bridge_timeout?,
+                                            bridge_poll_interval?, device? }
 POST /api/session/{sid}/autocal/stop
-GET  /api/session/{sid}/autocal/stream  → SSE: autocal_start, autocal_iteration, autocal_colour_done, autocal_done, autocal_error
+GET  /api/session/{sid}/autocal/history  → full per-primary iteration history for the most recently
+                                            completed run (error, damping, gain source, oscillation/
+                                            stall flags) — useful for tuning damping or diagnosing why
+                                            a loop converged, stalled, or oscillated
+GET  /api/session/{sid}/autocal/stream   → SSE: autocal_start, autocal_iteration, autocal_colour_done,
+                                            autocal_done, autocal_error
 ```
 
-`apply_mode`, `damping`, and `max_iterations` default to the values saved in `.prefs.json` (`autocal.apply_mode`, `autocal.damping`, `autocal.max_iterations`) when omitted from the request; set them via `POST /api/prefs` with `autocal_apply_mode` / `autocal_damping` / `autocal_max_iterations`.
+`apply_mode`, `damping`, `max_iterations`, `skip_stalled_controls`, `bridge_timeout` (seconds, how long to wait for a triggered measurement to land before giving up), and `bridge_poll_interval` (seconds, how often to check) all default to the values saved in `.prefs.json` (`autocal.*`) when omitted from the request; set them via `POST /api/prefs` with `autocal_apply_mode` / `autocal_damping` / `autocal_max_iterations` / `autocal_skip_stalled_controls` / `autocal_bridge_timeout` / `autocal_bridge_poll_interval`.
 
 ### Server Logs Panel
 
@@ -808,6 +816,7 @@ The LLM prompt contains **only pre-aggregated data** — no raw per-patch XYZ ar
 | `POST` | `/api/session/{sid}/suggested-patches/run` | Forward suggested patches to the ZRO Bridge |
 | `POST` | `/api/session/{sid}/autocal/run` | Start the guided CMS autocal loop (measure → correct → apply → re-measure) |
 | `POST` | `/api/session/{sid}/autocal/stop` | Cooperatively cancel a running autocal loop |
+| `GET` | `/api/session/{sid}/autocal/history` | Full per-primary iteration history for the most recently completed autocal run |
 | `GET` | `/api/session/{sid}/autocal/stream` | SSE stream of per-iteration autocal progress |
 
 SSE stream (`GET /api/session/{sid}/llm/stream`) now emits two event types:

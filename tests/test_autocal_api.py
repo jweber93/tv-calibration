@@ -6,6 +6,8 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from calcore.models import Measurement
+from calibrator.guidance import target_nits_for_colour, target_xy_for_colour
 import server as server_module
 from server import app, _sessions
 
@@ -82,6 +84,18 @@ class TestAutocalRunValidation:
         resp = client.post("/api/session/does-not-exist/autocal/run", json={})
         assert resp.status_code == 404
 
+    def test_bridge_timeout_out_of_range_rejected(self, client, session_id):
+        resp = client.post(
+            f"/api/session/{session_id}/autocal/run", json={"bridge_timeout": 200}
+        )
+        assert resp.status_code == 400
+
+    def test_bridge_poll_interval_out_of_range_rejected(self, client, session_id):
+        resp = client.post(
+            f"/api/session/{session_id}/autocal/run", json={"bridge_poll_interval": 10}
+        )
+        assert resp.status_code == 400
+
 
 class TestAutocalRunLifecycle:
     def test_run_starts_and_rejects_concurrent_run(self, client, session_id):
@@ -139,6 +153,35 @@ class TestAutocalRunLifecycle:
             assert loop is None or loop.cancelled
             block.set()
 
+    def test_run_response_echoes_and_passes_through_new_fields(self, client, session_id):
+        block = threading.Event()
+
+        def fake_measure(self, patch_obj):
+            block.wait(timeout=5.0)
+            raise TimeoutError("stopped")
+
+        with patch("server._SessionCmsMeasurementSource.measure", fake_measure):
+            resp = client.post(
+                f"/api/session/{session_id}/autocal/run",
+                json={
+                    "colours": ["Red"],
+                    "skip_stalled_controls": True,
+                    "bridge_timeout": 15.0,
+                    "bridge_poll_interval": 1.0,
+                },
+            )
+            body = resp.json()
+            assert body["skip_stalled_controls"] is True
+            assert body["bridge_timeout"] == 15.0
+            assert body["bridge_poll_interval"] == 1.0
+
+            assert _wait_until(lambda: session_id in server_module._autocal_loops)
+            loop = server_module._autocal_loops[session_id]
+            assert loop.skip_stalled_controls is True
+
+            block.set()
+            _wait_until(lambda: session_id not in server_module._autocal_loops)
+
 
 class TestAutocalStream:
     def test_unknown_session_404s(self, client):
@@ -147,6 +190,44 @@ class TestAutocalStream:
         # which likewise only cover the 404-before-streaming-starts path.
         resp = client.get("/api/session/does-not-exist/autocal/stream")
         assert resp.status_code == 404
+
+
+class TestAutocalHistory:
+    def test_no_history_before_any_run(self, client, session_id):
+        resp = client.get(f"/api/session/{session_id}/autocal/history")
+        assert resp.status_code == 200
+        assert resp.json() == {"available": False}
+
+    def test_unknown_session_404s(self, client):
+        resp = client.get("/api/session/does-not-exist/autocal/history")
+        assert resp.status_code == 404
+
+    def test_history_recorded_after_converged_run(self, client, session_id):
+        session = server_module.store.get(session_id)
+        target = session["target"]
+        target_xy = target_xy_for_colour(target, "Red")
+        target_nits = target_nits_for_colour(target, "Red")
+
+        def fake_measure(self, patch_obj):
+            return Measurement(
+                x=target_xy[0], y=target_xy[1], Y=target_nits, label="Red", stimulus_rgb=(1023, 0, 0)
+            )
+
+        with patch("server._SessionCmsMeasurementSource.measure", fake_measure):
+            client.post(
+                f"/api/session/{session_id}/autocal/run",
+                json={"colours": ["Red"], "max_iterations": 2},
+            )
+            assert _wait_until(lambda: session_id not in server_module._autocal_loops)
+
+        resp = client.get(f"/api/session/{session_id}/autocal/history")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["available"] is True
+        red = body["colours"]["Red"]
+        assert red["converged"] is True
+        assert red["delta_e"] < 3.0
+        assert red["history"] == []  # converged on the first measurement; no corrections needed
 
 
 class TestAutocalPrefs:
@@ -175,6 +256,29 @@ class TestAutocalPrefs:
 
     def test_save_prefs_rejects_bad_damping(self, client):
         resp = client.post("/api/prefs", json={"autocal_damping": 0.0})
+        assert resp.status_code == 400
+
+    def test_save_prefs_updates_new_autocal_fields(self, client):
+        resp = client.post(
+            "/api/prefs",
+            json={
+                "autocal_skip_stalled_controls": True,
+                "autocal_bridge_timeout": 45.0,
+                "autocal_bridge_poll_interval": 1.5,
+            },
+        )
+        assert resp.status_code == 200
+        autocal = resp.json()["autocal"]
+        assert autocal["skip_stalled_controls"] is True
+        assert autocal["bridge_timeout"] == 45.0
+        assert autocal["bridge_poll_interval"] == 1.5
+
+    def test_save_prefs_rejects_bad_bridge_timeout(self, client):
+        resp = client.post("/api/prefs", json={"autocal_bridge_timeout": 500})
+        assert resp.status_code == 400
+
+    def test_save_prefs_rejects_bad_bridge_poll_interval(self, client):
+        resp = client.post("/api/prefs", json={"autocal_bridge_poll_interval": 20})
         assert resp.status_code == 400
 
     def test_run_uses_saved_prefs_as_defaults(self, client, session_id):
