@@ -474,6 +474,24 @@ For supported TVs, the app can apply color management settings directly over And
 
 ADB must be installed and your TV must have ADB debugging enabled over the network. The ADB status card appears on measurement steps when a compatible device is detected.
 
+### Autocal (Guided CMS Loop)
+
+A Calman-style closed loop that automates Color Tuner convergence: measure → compute the correction → apply it → re-measure, iterating per primary until each is within tolerance (ΔE < 3.0) or the iteration cap is hit.
+
+- **Manual apply** (works on every TV): the loop tells you exactly which CMS control to change and by how much; you make the change on the TV and the loop re-measures.
+- **Auto apply** (ADB-capable TVs): the loop pushes the correction directly via ADB with read-back verification.
+- The correction step is a damped, oscillation-safe controller (`calibrator/autocal.py`) — not a raw proportional gain — so it converges instead of hunting back and forth across the target.
+
+**API:**
+
+```
+POST /api/session/{sid}/autocal/run    { colours?, apply_mode?, damping?, max_iterations?, device? }
+POST /api/session/{sid}/autocal/stop
+GET  /api/session/{sid}/autocal/stream  → SSE: autocal_start, autocal_iteration, autocal_colour_done, autocal_done, autocal_error
+```
+
+`apply_mode`, `damping`, and `max_iterations` default to the values saved in `.prefs.json` (`autocal.apply_mode`, `autocal.damping`, `autocal.max_iterations`) when omitted from the request; set them via `POST /api/prefs` with `autocal_apply_mode` / `autocal_damping` / `autocal_max_iterations`.
+
 ### Server Logs Panel
 
 A live server log stream is available in the UI for debugging. The panel tails the FastAPI process log in real time via `GET /api/logs/stream` (SSE). Log entries include CSV import events, LLM trigger attempts, Dogegen process lifecycle, and any server-side errors. The panel is collapsed by default; expand it from the header bar.
@@ -652,8 +670,9 @@ tests/                API, unit, and integration tests
 tools/                Reference CSV sequences for ZRO workflows
 
 .prefs.json           Persisted user preferences — watch path, LLM endpoint, Dogegen
-                      config, ZRO bridge URL. Auto-created; gitignored. Written
-                      atomically on every UI change; loaded at server startup.
+                      config, ZRO bridge URL, autocal apply mode/damping/iteration
+                      cap. Auto-created; gitignored. Written atomically on every
+                      UI change; loaded at server startup.
 
 .calibration-history/ Per-TV session history (auto-created; gitignored)
   {tv_key}/
@@ -787,6 +806,9 @@ The LLM prompt contains **only pre-aggregated data** — no raw per-patch XYZ ar
 | `POST` | `/api/report/compare/delta_summary?a={id}&b={id}` | LLM-authored plain-English delta summary |
 | `GET` | `/api/session/{sid}/suggested-patches?budget=30` | LLM-optimized patch list from residual analysis |
 | `POST` | `/api/session/{sid}/suggested-patches/run` | Forward suggested patches to the ZRO Bridge |
+| `POST` | `/api/session/{sid}/autocal/run` | Start the guided CMS autocal loop (measure → correct → apply → re-measure) |
+| `POST` | `/api/session/{sid}/autocal/stop` | Cooperatively cancel a running autocal loop |
+| `GET` | `/api/session/{sid}/autocal/stream` | SSE stream of per-iteration autocal progress |
 
 SSE stream (`GET /api/session/{sid}/llm/stream`) now emits two event types:
 
