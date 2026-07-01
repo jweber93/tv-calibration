@@ -1,6 +1,15 @@
 import { render, screen } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { OverlayDeChart } from './OverlayDeChart';
+import { C } from './tokens.js';
+
+let lastChartProps = null;
+vi.mock('react-chartjs-2', () => ({
+  Bar: (props) => {
+    lastChartProps = props;
+    return <canvas />;
+  },
+}));
 
 describe('OverlayDeChart', () => {
   it('renders nothing when both measurement sets are empty', () => {
@@ -104,5 +113,34 @@ describe('OverlayDeChart', () => {
   it('renders nothing when both sets are undefined', () => {
     const { container } = render(<OverlayDeChart measurementsA={undefined} measurementsB={undefined} />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('colors Session A passing patches (dE <= 2) differently from failing patches (dE > 3)', () => {
+    const measurementsA = [
+      { stimulus_pct: 10, delta_e: 0.5 },
+      { stimulus_pct: 50, delta_e: 8.0 },
+    ];
+    render(<OverlayDeChart measurementsA={measurementsA} measurementsB={[]} />);
+    const [passColor, failColor] = lastChartProps.data.datasets[0].backgroundColor;
+    expect(passColor).toBe(C.green);
+    expect(failColor).toBe(C.red);
+    expect(passColor).not.toBe(failColor);
+  });
+
+  it('matches Session A and Session B severity coloring for the same dE values', () => {
+    const measurementsA = [
+      { stimulus_pct: 10, delta_e: 1.0 },
+      { stimulus_pct: 50, delta_e: 2.5 },
+      { stimulus_pct: 90, delta_e: 5.0 },
+    ];
+    const measurementsB = [
+      { stimulus_pct: 10, delta_e: 1.0 },
+      { stimulus_pct: 50, delta_e: 2.5 },
+      { stimulus_pct: 90, delta_e: 5.0 },
+    ];
+    render(<OverlayDeChart measurementsA={measurementsA} measurementsB={measurementsB} />);
+    const [colorsA, colorsB] = lastChartProps.data.datasets.map(d => d.backgroundColor);
+    expect(colorsA).toEqual(colorsB);
+    expect(colorsA).toEqual([C.green, C.amber, C.red]);
   });
 });
