@@ -47,6 +47,14 @@ When I say **"audit QE"**, execute the QE Audit Protocol:
 - Design hardware mocking strategy for headless CI
 - Produce: ci.yml template, pytest structure with fixtures, prioritized roadmap
 
+When I say **"give PR feedback"**, **"review this PR"**, or **"PR feedback for [number/URL]"**, execute the PR Feedback Protocol:
+- Read the full PR diff and description before commenting — no partial reviews
+- Keep feedback **targeted on actionable items only**: correctness bugs, security issues, broken/missing tests, CI failures, and violations of conventions or recipes in this file
+- Skip stylistic nitpicks, subjective preferences, and restating what the diff already shows — every finding must require a concrete code change
+- Each finding cites file + line and states the fix, not just the problem
+- If nothing actionable is found, say so explicitly rather than inventing filler
+- **Post the findings as a comment on the PR** (GitHub MCP tools) — do not leave the review only in chat output. If there are zero actionable findings, post that too, so the PR has a record of the review
+
 ## Git Workflow
 1. `git checkout -b [feat|fix|chore]/[short-slug]`
 2. Atomic commits, imperative mood, <72 chars, no "fix"/"update"/"misc"
