@@ -52,7 +52,13 @@ When I say **"audit QE"**, execute the QE Audit Protocol:
 2. Atomic commits, imperative mood, <72 chars, no "fix"/"update"/"misc"
 3. `git push -u origin HEAD`
 4. **Open a draft PR immediately after first push** — do not wait to be asked
-5. PR body **must** include `Closes #[issue-number]` to auto-close the issue on merge
+5. PR body **must** include `Closes #[issue-number]` to auto-close the issue on merge.
+   - If no GitHub issue exists yet, **create one first** before opening the PR.
+   - Exception: pure documentation-only changes (README, AGENTS.md updates) may
+     skip issue creation if the change is self-evident — but still note this in
+     the PR body (e.g. "Doc-only change; no issue created").
+6. **Always use the PR body template** from `.pr_body.md` — copy it verbatim and
+   fill in the sections. Do not write custom PR bodies.
 
 ## Post-Merge Cleanup
 
