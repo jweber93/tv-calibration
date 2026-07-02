@@ -37,8 +37,11 @@ def _reset_globals():
             "code_scale": "8bit",
             "pattern_generator": "dogegen",
         },
+        "autocal": dict(server_module._AUTOCAL_DEFAULTS),
     }
     server_module._llm_queues.clear()
+    server_module._autocal_loops.clear()
+    server_module._autocal_queues.clear()
 
 
 @pytest.fixture(autouse=True)
