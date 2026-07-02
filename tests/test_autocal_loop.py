@@ -4,7 +4,7 @@ import math
 import pytest
 
 from calcore.models import CalMode, CalibrationTarget, Measurement, Patch
-from calibrator.autocal_apply import ApplyResult, ApplyTarget, MeasurementSource
+from calibrator.autocal_apply import ApplyResult, ApplyTarget, ManualApplyTarget, MeasurementSource
 from calibrator.autocal_loop import AutocalLoop
 from calibrator.guidance import target_nits_for_colour, target_xy_for_colour
 
@@ -179,3 +179,67 @@ class TestAutocalLoopConvergence:
         hue_events = [e for e in colour_result.history if e.control == "Hue"]
         # Without the opt-in flag, Hue keeps getting a correction attempt every iteration.
         assert len(hue_events) == colour_result.iterations
+
+
+class TestManualConfirmationGate:
+    """Item 1e/1f: a manual (or ADB-fallen-back) apply must pause the loop
+    until the caller confirms the user actually made the change, or the
+    controller's tracked 'current value' drifts from TV reality."""
+
+    def test_no_pause_without_confirm_step_configured(self):
+        # Backward compatibility: omitting confirm_step (the pre-1e/1f default)
+        # never blocks, even though ManualApplyTarget sets requires_user_action.
+        state = {"Red": dict.fromkeys(CMS_CONTROLS, 0)}
+        true_optimal = {"Red": {"Hue": 4, "Saturation": -3, "Brightness": 2}}
+        source = SyntheticCmsSource(state, true_optimal)
+        loop = AutocalLoop(source, ManualApplyTarget(), TARGET, CMS_CONTROLS, max_iterations=12)
+
+        result = loop.run(["Red"], _patch_for_colour, initial_values=state)
+
+        assert result.colours["Red"].converged is True
+
+    def test_pauses_on_manual_apply_until_confirmed(self):
+        state = {"Red": dict.fromkeys(CMS_CONTROLS, 0)}
+        true_optimal = {"Red": {"Hue": 4, "Saturation": -3, "Brightness": 2}}
+        source = SyntheticCmsSource(state, true_optimal)
+        loop = AutocalLoop(source, ManualApplyTarget(), TARGET, CMS_CONTROLS, max_iterations=12)
+
+        waited = []
+        loop.on_waiting = lambda colour, iteration: waited.append((colour, iteration))
+        loop.confirm_step = lambda: True  # always confirms immediately
+
+        result = loop.run(["Red"], _patch_for_colour, initial_values=state)
+
+        assert result.colours["Red"].converged is True
+        assert waited  # the gate actually fired at least once
+
+    def test_confirm_step_returning_false_cancels_the_colour(self):
+        state = {"Red": dict.fromkeys(CMS_CONTROLS, 0)}
+        true_optimal = {"Red": {"Hue": 4, "Saturation": -3, "Brightness": 2}}
+        source = SyntheticCmsSource(state, true_optimal)
+        loop = AutocalLoop(source, ManualApplyTarget(), TARGET, CMS_CONTROLS, max_iterations=12)
+        loop.confirm_step = lambda: False  # simulates an abandoned/cancelled wait
+
+        result = loop.run(["Red"], _patch_for_colour, initial_values=state)
+
+        colour_result = result.colours["Red"]
+        assert colour_result.converged is False
+        assert colour_result.stopped_reason == "cancelled"
+        # Only ran the one iteration before the gate refused to proceed.
+        assert colour_result.iterations == 1
+
+    def test_no_pause_when_correction_needs_no_change(self):
+        # Already-converged colours never call apply(), so confirm_step must
+        # not be invoked (nothing for the user to act on).
+        state = {"Red": {"Hue": 4, "Saturation": -3, "Brightness": 2}}
+        true_optimal = {"Red": {"Hue": 4, "Saturation": -3, "Brightness": 2}}
+        source = SyntheticCmsSource(state, true_optimal)
+        loop = AutocalLoop(source, ManualApplyTarget(), TARGET, CMS_CONTROLS, max_iterations=12)
+
+        calls = []
+        loop.confirm_step = lambda: calls.append(1) or True
+
+        result = loop.run(["Red"], _patch_for_colour, initial_values=state)
+
+        assert result.colours["Red"].converged is True
+        assert calls == []

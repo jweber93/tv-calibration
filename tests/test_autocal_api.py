@@ -183,6 +183,83 @@ class TestAutocalRunLifecycle:
             _wait_until(lambda: session_id not in server_module._autocal_loops)
 
 
+class TestAutocalConfirm:
+    def test_not_running_when_no_loop(self, client, session_id):
+        resp = client.post(f"/api/session/{session_id}/autocal/confirm")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "not_running"
+
+    def test_unknown_session_404s(self, client):
+        resp = client.post("/api/session/does-not-exist/autocal/confirm")
+        assert resp.status_code == 404
+
+    def test_confirm_unblocks_manual_apply_pause(self, client, session_id):
+        session = server_module.store.get(session_id)
+        target = session["target"]
+        target_xy = target_xy_for_colour(target, "Red")
+        target_nits = target_nits_for_colour(target, "Red")
+
+        # First measurement is off-target (forces one manual correction + pause);
+        # every measurement after that reports the converged reading.
+        call_count = {"n": 0}
+
+        def fake_measure(self, patch_obj):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return Measurement(x=target_xy[0] + 0.05, y=target_xy[1], Y=target_nits, label="Red", stimulus_rgb=(1023, 0, 0))
+            return Measurement(x=target_xy[0], y=target_xy[1], Y=target_nits, label="Red", stimulus_rgb=(1023, 0, 0))
+
+        with patch("server._SessionCmsMeasurementSource.measure", fake_measure):
+            resp = client.post(
+                f"/api/session/{session_id}/autocal/run",
+                json={"colours": ["Red"], "apply_mode": "manual", "max_iterations": 5},
+            )
+            assert resp.status_code == 200
+
+            # The loop should reach the confirmation gate and stall there
+            # until we confirm — it must not silently finish on its own.
+            assert _wait_until(lambda: session_id in server_module._autocal_confirm_events)
+            time.sleep(0.2)
+            assert session_id in server_module._autocal_loops  # still running, paused
+
+            confirm_resp = client.post(f"/api/session/{session_id}/autocal/confirm")
+            assert confirm_resp.status_code == 200
+            assert confirm_resp.json()["status"] == "confirmed"
+
+            assert _wait_until(lambda: session_id not in server_module._autocal_loops)
+
+        resp = client.get(f"/api/session/{session_id}/autocal/history")
+        red = resp.json()["colours"]["Red"]
+        assert red["converged"] is True
+        assert any(e["requires_user_action"] for e in red["history"])
+        assert all("delta_e" in e for e in red["history"])
+
+    def test_stop_unblocks_a_paused_manual_loop(self, client, session_id):
+        session = server_module.store.get(session_id)
+        target = session["target"]
+        target_xy = target_xy_for_colour(target, "Red")
+        target_nits = target_nits_for_colour(target, "Red")
+
+        def fake_measure(self, patch_obj):
+            # Always off-target so the loop keeps pausing for confirmation
+            # rather than converging on its own.
+            return Measurement(x=target_xy[0] + 0.05, y=target_xy[1], Y=target_nits, label="Red", stimulus_rgb=(1023, 0, 0))
+
+        with patch("server._SessionCmsMeasurementSource.measure", fake_measure):
+            client.post(
+                f"/api/session/{session_id}/autocal/run",
+                json={"colours": ["Red"], "apply_mode": "manual", "max_iterations": 5},
+            )
+            assert _wait_until(lambda: session_id in server_module._autocal_confirm_events)
+            time.sleep(0.2)
+            assert session_id in server_module._autocal_loops  # paused, not finished
+
+            stop_resp = client.post(f"/api/session/{session_id}/autocal/stop")
+            assert stop_resp.status_code == 200
+
+            assert _wait_until(lambda: session_id not in server_module._autocal_loops)
+
+
 class TestAutocalStream:
     def test_unknown_session_404s(self, client):
         # A full happy-path read would block on the SSE generator's keep-alive

@@ -119,6 +119,7 @@ from calibrator.autocal import ControllerConfig
 from calibrator.autocal_apply import (
     AdbApplyTarget,
     ApplyTarget,
+    FallbackApplyTarget,
     MeasurementSource,
     ManualApplyTarget,
 )
@@ -380,6 +381,11 @@ _autocal_queues_lock = threading.Lock()
 # GET /api/session/{sid}/autocal/history — cleared only by a new run starting.
 _autocal_last_run: Dict[str, Dict[str, Any]] = {}
 _autocal_history_lock = threading.Lock()
+# Per-session gate the manual/ADB-fallback apply path blocks on until the user
+# confirms (via POST .../autocal/confirm) that they've made the instructed
+# change on the TV — see AutocalLoop.confirm_step (roadmap Item 1e/1f).
+_autocal_confirm_events: Dict[str, threading.Event] = {}
+_autocal_confirm_lock = threading.Lock()
 _AUTOCAL_BRIDGE_TIMEOUT = 30.0
 _AUTOCAL_POLL_INTERVAL = 0.5
 
@@ -2482,6 +2488,7 @@ def _iteration_event_to_dict(event: Any) -> Dict[str, Any]:
         "control": event.control,
         "iteration": event.iteration,
         "error": event.error,
+        "delta_e": event.delta_e,
         "step": event.correction.step,
         "new_value": event.correction.new_value,
         "damping": event.correction.damping,
@@ -2493,7 +2500,17 @@ def _iteration_event_to_dict(event: Any) -> Dict[str, Any]:
         "reason": event.correction.reason,
         "apply_ok": event.apply_result.ok,
         "apply_message": event.apply_result.message,
+        "requires_user_action": event.apply_result.requires_user_action,
     }
+
+
+def _autocal_get_confirm_event(sid: str) -> threading.Event:
+    with _autocal_confirm_lock:
+        ev = _autocal_confirm_events.get(sid)
+        if ev is None:
+            ev = threading.Event()
+            _autocal_confirm_events[sid] = ev
+        return ev
 
 
 def _run_autocal_background(
@@ -2505,7 +2522,24 @@ def _run_autocal_background(
     def on_iteration(event: Any) -> None:
         _autocal_broadcast(sid, {"event": "autocal_iteration", "data": _iteration_event_to_dict(event)})
 
+    def on_waiting(colour: str, iteration: int) -> None:
+        _autocal_broadcast(sid, {"event": "autocal_waiting", "data": {"colour": colour, "iteration": iteration}})
+
+    confirm_event = _autocal_get_confirm_event(sid)
+    confirm_event.clear()
+
+    def confirm_step() -> bool:
+        # Poll rather than wait indefinitely so a stop request (which only
+        # sets loop.cancel(), not this event) is noticed within ~1s.
+        while not loop.cancelled:
+            if confirm_event.wait(timeout=1.0):
+                confirm_event.clear()
+                return True
+        return False
+
     loop.on_iteration = on_iteration
+    loop.on_waiting = on_waiting
+    loop.confirm_step = confirm_step
     _autocal_broadcast(sid, {"event": "autocal_start", "data": {"colours": colours}})
     try:
         result = loop.run(colours, patch_for_colour)
@@ -2540,6 +2574,8 @@ def _run_autocal_background(
     finally:
         with _autocal_loops_lock:
             _autocal_loops.pop(sid, None)
+        with _autocal_confirm_lock:
+            _autocal_confirm_events.pop(sid, None)
 
 
 @app.post("/api/session/{sid}/autocal/run")
@@ -2597,7 +2633,11 @@ def autocal_run(sid: str, req: AutocalRunReq):
         raise HTTPException(400, "bridge_poll_interval must be between 0.05 and 5 seconds.")
 
     apply_target: ApplyTarget = (
-        ManualApplyTarget() if apply_mode == "manual" else AdbApplyTarget(device=req.device)
+        ManualApplyTarget()
+        if apply_mode == "manual"
+        # ADB auto-apply falls back to a manual instruction (and the loop
+        # pauses for user confirmation) on any ADB failure — roadmap Item 1f.
+        else FallbackApplyTarget(AdbApplyTarget(device=req.device), ManualApplyTarget())
     )
     config = ControllerConfig(damping=damping)
     measurement_source = _SessionCmsMeasurementSource(
@@ -2656,6 +2696,24 @@ def autocal_stop(sid: str):
         return {"status": "not_running"}
     loop.cancel()
     return {"status": "stopping"}
+
+
+@app.post("/api/session/{sid}/autocal/confirm")
+def autocal_confirm(sid: str):
+    """Unblocks a running autocal loop that's paused waiting for the user to
+    apply a manual (or ADB-fallback) instruction on the TV — call this after
+    making the change, in lieu of a physical "Remeasure" button."""
+    store.get(sid)  # raises 404 if session doesn't exist
+    with _autocal_loops_lock:
+        loop = _autocal_loops.get(sid)
+    if not loop:
+        return {"status": "not_running"}
+    with _autocal_confirm_lock:
+        ev = _autocal_confirm_events.get(sid)
+    if ev is None:
+        return {"status": "not_waiting"}
+    ev.set()
+    return {"status": "confirmed"}
 
 
 @app.get("/api/session/{sid}/autocal/history")
