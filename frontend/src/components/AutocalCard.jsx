@@ -31,6 +31,8 @@ export function AutocalCard({ sid, colours }) {
   const [waiting, setWaiting] = useState(null); // { colour, iteration } | null
   const [error, setError] = useState(null);
   const [done, setDone] = useState(false);
+  const [cancelled, setCancelled] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   const esRef = useRef(null);
   const esGenRef = useRef(0);
@@ -43,10 +45,15 @@ export function AutocalCard({ sid, colours }) {
     }).catch(() => { /* fall back to defaults */ });
   }, []);
 
+  // Keyed on the joined colour names, not the array reference — the parent
+  // recreates the `colours` array on every render, and resetting on every
+  // reference change would wipe converged/in-progress status between SSE
+  // updates even though the actual colour selection hasn't changed.
+  const coloursKey = colours.join(',');
   useEffect(() => {
     if (!running) setColourState(initialColourState(colours));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [colours]);
+  }, [coloursKey]);
 
   function stopStream() {
     clearTimeout(esRetryRef.current);
@@ -68,6 +75,7 @@ export function AutocalCard({ sid, colours }) {
       es.addEventListener('autocal_start', () => {
         setError(null);
         setDone(false);
+        setCancelled(false);
       });
 
       es.addEventListener('autocal_iteration', e => {
@@ -116,9 +124,11 @@ export function AutocalCard({ sid, colours }) {
         setWaiting(null);
       });
 
-      es.addEventListener('autocal_done', () => {
+      es.addEventListener('autocal_done', e => {
+        const d = (() => { try { return JSON.parse(e.data); } catch { return {}; } })();
         setRunning(false);
         setDone(true);
+        setCancelled(!!d.cancelled);
         setWaiting(null);
         stopStream();
       });
@@ -152,6 +162,7 @@ export function AutocalCard({ sid, colours }) {
     if (!sid || running) return;
     setError(null);
     setDone(false);
+    setCancelled(false);
     setColourState(initialColourState(colours));
     setRunning(true);
     try {
@@ -169,12 +180,15 @@ export function AutocalCard({ sid, colours }) {
   }
 
   async function handleConfirm() {
-    if (!sid) return;
+    if (!sid || confirming) return;
+    setConfirming(true);
     try {
       await api.autocalConfirm(sid);
       setWaiting(null);
     } catch (err) {
       setError(err.message);
+    } finally {
+      setConfirming(false);
     }
   }
 
@@ -250,7 +264,9 @@ export function AutocalCard({ sid, colours }) {
         <div style={{ fontSize: '0.8rem', color: 'var(--red)', marginBottom: 12 }}>{String(error)}</div>
       )}
       {done && !error && (
-        <div style={{ fontSize: '0.8rem', color: 'var(--green)', marginBottom: 12 }}>Autocal run finished.</div>
+        <div style={{ fontSize: '0.8rem', color: cancelled ? 'var(--ink2)' : 'var(--green)', marginBottom: 12 }}>
+          {cancelled ? 'Autocal run stopped.' : 'Autocal run finished.'}
+        </div>
       )}
 
       {waiting && (
@@ -258,7 +274,9 @@ export function AutocalCard({ sid, colours }) {
           <div style={{ flex: 1, fontSize: '0.84rem' }}>
             <strong>{waiting.colour}:</strong> {colourState[waiting.colour]?.lastMessage || 'Apply the shown change on the TV'}, then confirm.
           </div>
-          <Button small primary onClick={handleConfirm}>I made the change — Remeasure</Button>
+          <Button small primary onClick={handleConfirm} disabled={confirming}>
+            {confirming ? 'Confirming…' : 'I made the change — Remeasure'}
+          </Button>
         </div>
       )}
 

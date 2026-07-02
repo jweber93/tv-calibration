@@ -145,4 +145,58 @@ describe('AutocalCard', () => {
 
     expect(api.savePrefs).toHaveBeenCalledWith({ autocal_apply_mode: 'adb' });
   });
+
+  it('shows a distinct "stopped" message when autocal_done reports cancelled', async () => {
+    render(<AutocalCard sid={sid} colours={['Red']} />);
+    await screen.findByText('Not started');
+    await userEvent.click(screen.getByText('Start Autocal'));
+    await screen.findByText('Stop');
+
+    const es = MockEventSource.instances[0];
+    act(() => {
+      es.emit('autocal_done', { cancelled: true });
+    });
+
+    expect(await screen.findByText('Autocal run stopped.')).toBeInTheDocument();
+  });
+
+  it('disables the confirm button and shows a loading label while confirming', async () => {
+    let resolveConfirm;
+    api.autocalConfirm.mockImplementation(() => new Promise(r => { resolveConfirm = r; }));
+
+    render(<AutocalCard sid={sid} colours={['Red']} />);
+    await screen.findByText('Not started');
+    await userEvent.click(screen.getByText('Start Autocal'));
+    await screen.findByText('Stop');
+
+    const es = MockEventSource.instances[0];
+    act(() => {
+      es.emit('autocal_waiting', { colour: 'Red', iteration: 1 });
+    });
+    const confirmBtn = await screen.findByText('I made the change — Remeasure');
+    await userEvent.click(confirmBtn);
+
+    expect(await screen.findByText('Confirming…')).toBeDisabled();
+    resolveConfirm({ status: 'confirmed' });
+  });
+
+  it('does not reset an in-progress colour when the parent passes a new colours array with the same content', async () => {
+    const { rerender } = render(<AutocalCard sid={sid} colours={['Red']} />);
+    await screen.findByText('Not started');
+    await userEvent.click(screen.getByText('Start Autocal'));
+    await screen.findByText('Stop');
+
+    const es = MockEventSource.instances[0];
+    act(() => {
+      es.emit('autocal_colour_done', { colour: 'Red', converged: true, reason: 'quality gate met', delta_e: 1.2, iterations: 3 });
+      es.emit('autocal_done', { cancelled: false });
+    });
+    expect(await screen.findByText('Converged')).toBeInTheDocument();
+
+    // Simulate the parent (ColorTuner) re-rendering with a fresh array of the
+    // same colour names — a new reference, but the same content.
+    rerender(<AutocalCard sid={sid} colours={['Red']} />);
+
+    expect(screen.getByText('Converged')).toBeInTheDocument();
+  });
 });
