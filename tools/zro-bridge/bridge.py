@@ -28,6 +28,7 @@ from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
 logging.basicConfig(
@@ -45,6 +46,8 @@ DEFAULT_CONFIG = {
     # "pyautogui" uses window-focus + keypress/click (no credentials needed).
     # "remote_control" uses the Light Illusion Integration Protocol over TCP
     # (requires the protocol document from Light Illusion Customer Downloads).
+    # "argyll" reads the meter directly via ArgyllCMS's spotread — no ZRO or
+    # ColourSpace license required at all.
     "backend": "pyautogui",
 
     # ── pyautogui backend settings ──────────────────────────────────────────
@@ -69,6 +72,16 @@ DEFAULT_CONFIG = {
     # Enable in ZRO: Graph Options → Remote Control → Servant → Local (port 20102).
     "remote_control_host": "127.0.0.1",
     "remote_control_port": 20102,
+
+    # ── argyll backend settings ─────────────────────────────────────────────
+    # Path to the spotread executable. Leave as "spotread" to resolve via
+    # PATH, or set a full path if ArgyllCMS isn't on PATH.
+    "argyll_spotread_path": "spotread",
+    # Serial/USB port spotread should use, e.g. "COM3" or "/dev/ttyUSB0".
+    # Leave null to let spotread auto-detect (most USB meters).
+    "argyll_port": None,
+    # Seconds to wait for a reading before giving up.
+    "argyll_timeout_s": 20.0,
 }
 
 _config: dict = dict(DEFAULT_CONFIG)
@@ -103,12 +116,12 @@ app.add_middleware(
 
 
 @app.get("/status")
-def status():
+async def status():
     """Health check — reports whether ZRO window is currently detectable."""
     backend = _config.get("backend", "pyautogui")
     if backend == "pyautogui":
         from backends.pyautogui_backend import find_zro_window
-        win = find_zro_window(_config["zro_window_title"])
+        win = await run_in_threadpool(find_zro_window, _config["zro_window_title"])
         return {
             "ok": True,
             "backend": backend,
@@ -117,7 +130,8 @@ def status():
         }
     elif backend == "remote_control":
         from backends.remote_control_backend import check_connection
-        connected = check_connection(
+        connected = await run_in_threadpool(
+            check_connection,
             _config["remote_control_host"],
             _config["remote_control_port"],
         )
@@ -128,24 +142,36 @@ def status():
             "remote_control_host": _config["remote_control_host"],
             "remote_control_port": _config["remote_control_port"],
         }
+    elif backend == "argyll":
+        from backends.argyll_backend import find_spotread
+        resolved = await run_in_threadpool(find_spotread, _config["argyll_spotread_path"])
+        return {
+            "ok": True,
+            "backend": backend,
+            "spotread_found": resolved is not None,
+            "spotread_path": resolved,
+        }
     else:
         raise HTTPException(400, f"Unknown backend: {backend!r}")
 
 
 @app.post("/measure")
-def trigger_measure():
+async def trigger_measure():
     """
-    Trigger one probe measurement in ZRO.
+    Trigger one probe measurement.
 
-    Returns immediately after dispatching the trigger.  The web app should
-    wait for the ZRO file-watcher SSE event to confirm the CSV was written.
+    For "pyautogui"/"remote_control" this dispatches the trigger and returns
+    immediately — the web app then waits for the ZRO file-watcher SSE event
+    to confirm the CSV was written. "argyll" reads the meter directly and
+    returns XYZ synchronously (no ZRO/file-watcher involved).
     """
     backend = _config.get("backend", "pyautogui")
     logger.info("Measurement trigger requested (backend=%s)", backend)
 
     if backend == "pyautogui":
         from backends.pyautogui_backend import trigger_measurement
-        result = trigger_measurement(
+        result = await run_in_threadpool(
+            trigger_measurement,
             window_title=_config["zro_window_title"],
             action=_config["measure_action"],
             key=_config.get("measure_key", "space"),
@@ -158,7 +184,8 @@ def trigger_measure():
 
     elif backend == "remote_control":
         from backends.remote_control_backend import trigger_measurement
-        result = trigger_measurement(
+        result = await run_in_threadpool(
+            trigger_measurement,
             host=_config["remote_control_host"],
             port=_config["remote_control_port"],
         )
@@ -166,12 +193,23 @@ def trigger_measure():
             raise HTTPException(502, result.get("error", "Trigger failed"))
         return result
 
+    elif backend == "argyll":
+        from backends.argyll_backend import read_xyz_async
+        result = await read_xyz_async(
+            _config.get("argyll_port"),
+            spotread_path=_config.get("argyll_spotread_path", "spotread"),
+            timeout=_config.get("argyll_timeout_s", 20.0),
+        )
+        if not result["ok"]:
+            raise HTTPException(502, result.get("error", "Measurement failed"))
+        return result
+
     else:
         raise HTTPException(400, f"Unknown backend: {backend!r}")
 
 
 @app.post("/measure/sequence")
-def trigger_measure_sequence(body: dict):
+async def trigger_measure_sequence(body: dict):
     """
     Trigger a sequence of arbitrary patch measurements in ZRO.
 
@@ -205,7 +243,8 @@ def trigger_measure_sequence(body: dict):
 
         if backend == "pyautogui":
             from backends.pyautogui_backend import trigger_measurement
-            result = trigger_measurement(
+            result = await run_in_threadpool(
+                trigger_measurement,
                 window_title=_config["zro_window_title"],
                 action=_config["measure_action"],
                 key=_config.get("measure_key", "space"),
@@ -214,9 +253,17 @@ def trigger_measure_sequence(body: dict):
             )
         elif backend == "remote_control":
             from backends.remote_control_backend import trigger_measurement
-            result = trigger_measurement(
+            result = await run_in_threadpool(
+                trigger_measurement,
                 host=_config["remote_control_host"],
                 port=_config["remote_control_port"],
+            )
+        elif backend == "argyll":
+            from backends.argyll_backend import read_xyz_async
+            result = await read_xyz_async(
+                _config.get("argyll_port"),
+                spotread_path=_config.get("argyll_spotread_path", "spotread"),
+                timeout=_config.get("argyll_timeout_s", 20.0),
             )
         else:
             result = {"ok": False, "error": f"Unknown backend: {backend!r}"}
