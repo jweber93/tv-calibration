@@ -23,6 +23,7 @@ from calcore.models import (
     SDR_TARGET,
 )
 from calcore.eotf import pq_eotf
+from .file_watcher import _measurement_signature
 from .profiles import TV_PROFILES, TVProfile
 from .guidance import (
     FINE_GAMMA_TRACKING_LEVELS,
@@ -2155,6 +2156,10 @@ class SessionStore:
         deadlock.  This serialises the full get → mutate → save sequence
         against concurrent file-watcher auto-imports and other callers
         that share the same lock (``store._lock``).
+
+        Append-mode buckets (wb, gamma, cms, lum) are deduplicated by
+        measurement signature (timestamp, label, stimulus_rgb, Y, x, y)
+        to prevent duplicate rows from cumulative ZRO exports.
         """
         with self._lock:
             session = self.get(sid)
@@ -2163,14 +2168,34 @@ class SessionStore:
                     400, "Select a calibration mode before importing measurements."
                 )
             counts: Dict[str, int] = {}
+            duplicates_skipped = 0
             target_gray_bucket = _gray_bucket_for_step(session.get("step"))
+            # Buckets that accumulate measurements across imports (not cleared per step)
+            append_mode_buckets = {"wb_measurements", "gamma_measurements", "cms_measurements", "lum_measurements"}
             for key, meas_dicts in bucket_map.items():
                 if key == target_gray_bucket and meas_dicts:
                     session[key] = []
-                for item in meas_dicts:
-                    session[key].append(deserialize_measurement(item))
-                if meas_dicts:
-                    counts[key] = len(meas_dicts)
+                if key in append_mode_buckets:
+                    existing_signatures = {
+                        _measurement_signature(m) for m in session.setdefault(key, [])
+                    }
+                    appended = 0
+                    for item in meas_dicts:
+                        measurement = deserialize_measurement(item)
+                        signature = _measurement_signature(measurement)
+                        if signature in existing_signatures:
+                            duplicates_skipped += 1
+                            continue
+                        session[key].append(measurement)
+                        existing_signatures.add(signature)
+                        appended += 1
+                    if appended:
+                        counts[key] = appended
+                else:
+                    for item in meas_dicts:
+                        session[key].append(deserialize_measurement(item))
+                    if meas_dicts:
+                        counts[key] = len(meas_dicts)
             if session.get("lum_measurements"):
                 last_lum = session["lum_measurements"][-1]
                 y_val = getattr(last_lum, "Y", last_lum.get("Y") if isinstance(last_lum, dict) else None)
@@ -2187,6 +2212,7 @@ class SessionStore:
                 "session_breaks": session_breaks,
                 "abl_warnings": step_warnings,
                 "unknown_rows": unknown_rows,
+                "duplicates_skipped": duplicates_skipped,
                 "buckets_populated": counts,
                 "raw_rows": raw_rows,
                 **measurement_time_bounds(bucket_map),
