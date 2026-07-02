@@ -818,6 +818,29 @@ def measurement_time_bounds(
     }
 
 
+def _measurement_signature(measurement: object) -> tuple:
+    """Stable identity for deduplicating repeated rows from append-only logs.
+
+    Matches the signature used by the file watcher (``file_watcher._measurement_signature``)
+    so that manual HTTP uploads and auto-imports have identical dedup semantics.
+    """
+    if isinstance(measurement, dict):
+        timestamp = measurement.get("timestamp")
+        label = measurement.get("label")
+        stimulus_rgb = tuple(measurement.get("stimulus_rgb", []))
+        Y = measurement.get("Y")
+        x = measurement.get("x")
+        y = measurement.get("y")
+    else:
+        timestamp = getattr(measurement, "timestamp", None)
+        label = getattr(measurement, "label", None)
+        stimulus_rgb = tuple(getattr(measurement, "stimulus_rgb", ()))
+        Y = getattr(measurement, "Y", None)
+        x = getattr(measurement, "x", None)
+        y = getattr(measurement, "y", None)
+    return (timestamp, label, stimulus_rgb, Y, x, y)
+
+
 def grayscale_label_for_context(stim_pct: float) -> str:
     if stim_pct <= 0.5:
         return "Black (0%)"
@@ -1130,6 +1153,30 @@ def _gray_bucket_for_step(session_step):
     if session_step == "post_grayscale":
         return "post_measurements"
     return None
+
+
+def _measurement_signature(measurement: object) -> tuple:
+    """Stable identity for deduplicating repeated rows from append-only logs.
+
+    Matches the signature used in calibrator.file_watcher for consistent
+    deduplication across all ingestion paths (file watcher, manual upload,
+    merge_into_session).
+    """
+    if isinstance(measurement, dict):
+        timestamp = measurement.get("timestamp")
+        label = measurement.get("label")
+        stimulus_rgb = tuple(measurement.get("stimulus_rgb", []))
+        Y = measurement.get("Y")
+        x = measurement.get("x")
+        y = measurement.get("y")
+    else:
+        timestamp = getattr(measurement, "timestamp", None)
+        label = getattr(measurement, "label", None)
+        stimulus_rgb = tuple(getattr(measurement, "stimulus_rgb", ()))
+        Y = getattr(measurement, "Y", None)
+        x = getattr(measurement, "x", None)
+        y = getattr(measurement, "y", None)
+    return (timestamp, label, stimulus_rgb, Y, x, y)
 
 
 def latest_gamma_pass(
@@ -2155,6 +2202,10 @@ class SessionStore:
         deadlock.  This serialises the full get → mutate → save sequence
         against concurrent file-watcher auto-imports and other callers
         that share the same lock (``store._lock``).
+
+        Append-mode buckets (wb, gamma, cms, lum) are deduplicated by
+        measurement signature (timestamp, label, stimulus_rgb, Y, x, y)
+        to prevent duplicate rows from cumulative ZRO exports.
         """
         with self._lock:
             session = self.get(sid)
@@ -2163,14 +2214,34 @@ class SessionStore:
                     400, "Select a calibration mode before importing measurements."
                 )
             counts: Dict[str, int] = {}
+            duplicates_skipped = 0
             target_gray_bucket = _gray_bucket_for_step(session.get("step"))
+            # Buckets that accumulate measurements across imports (not cleared per step)
+            append_mode_buckets = {"wb_measurements", "gamma_measurements", "cms_measurements", "lum_measurements"}
             for key, meas_dicts in bucket_map.items():
                 if key == target_gray_bucket and meas_dicts:
                     session[key] = []
-                for item in meas_dicts:
-                    session[key].append(deserialize_measurement(item))
-                if meas_dicts:
-                    counts[key] = len(meas_dicts)
+                if key in append_mode_buckets:
+                    existing_signatures = {
+                        _measurement_signature(m) for m in session.setdefault(key, [])
+                    }
+                    appended = 0
+                    for item in meas_dicts:
+                        measurement = deserialize_measurement(item)
+                        signature = _measurement_signature(measurement)
+                        if signature in existing_signatures:
+                            duplicates_skipped += 1
+                            continue
+                        session[key].append(measurement)
+                        existing_signatures.add(signature)
+                        appended += 1
+                    if appended:
+                        counts[key] = appended
+                else:
+                    for item in meas_dicts:
+                        session[key].append(deserialize_measurement(item))
+                    if meas_dicts:
+                        counts[key] = len(meas_dicts)
             if session.get("lum_measurements"):
                 last_lum = session["lum_measurements"][-1]
                 y_val = getattr(last_lum, "Y", last_lum.get("Y") if isinstance(last_lum, dict) else None)
@@ -2187,6 +2258,7 @@ class SessionStore:
                 "session_breaks": session_breaks,
                 "abl_warnings": step_warnings,
                 "unknown_rows": unknown_rows,
+                "duplicates_skipped": duplicates_skipped,
                 "buckets_populated": counts,
                 "raw_rows": raw_rows,
                 **measurement_time_bounds(bucket_map),
