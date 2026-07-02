@@ -23,6 +23,7 @@ from calcore.models import (
     SDR_TARGET,
 )
 from calcore.eotf import pq_eotf
+from .file_watcher import _measurement_signature
 from .profiles import TV_PROFILES, TVProfile
 from .guidance import (
     FINE_GAMMA_TRACKING_LEVELS,
@@ -818,29 +819,6 @@ def measurement_time_bounds(
     }
 
 
-def _measurement_signature(measurement: object) -> tuple:
-    """Stable identity for deduplicating repeated rows from append-only logs.
-
-    Matches the signature used by the file watcher (``file_watcher._measurement_signature``)
-    so that manual HTTP uploads and auto-imports have identical dedup semantics.
-    """
-    if isinstance(measurement, dict):
-        timestamp = measurement.get("timestamp")
-        label = measurement.get("label")
-        stimulus_rgb = tuple(measurement.get("stimulus_rgb", []))
-        Y = measurement.get("Y")
-        x = measurement.get("x")
-        y = measurement.get("y")
-    else:
-        timestamp = getattr(measurement, "timestamp", None)
-        label = getattr(measurement, "label", None)
-        stimulus_rgb = tuple(getattr(measurement, "stimulus_rgb", ()))
-        Y = getattr(measurement, "Y", None)
-        x = getattr(measurement, "x", None)
-        y = getattr(measurement, "y", None)
-    return (timestamp, label, stimulus_rgb, Y, x, y)
-
-
 def grayscale_label_for_context(stim_pct: float) -> str:
     if stim_pct <= 0.5:
         return "Black (0%)"
@@ -1153,30 +1131,6 @@ def _gray_bucket_for_step(session_step):
     if session_step == "post_grayscale":
         return "post_measurements"
     return None
-
-
-def _measurement_signature(measurement: object) -> tuple:
-    """Stable identity for deduplicating repeated rows from append-only logs.
-
-    Matches the signature used in calibrator.file_watcher for consistent
-    deduplication across all ingestion paths (file watcher, manual upload,
-    merge_into_session).
-    """
-    if isinstance(measurement, dict):
-        timestamp = measurement.get("timestamp")
-        label = measurement.get("label")
-        stimulus_rgb = tuple(measurement.get("stimulus_rgb", []))
-        Y = measurement.get("Y")
-        x = measurement.get("x")
-        y = measurement.get("y")
-    else:
-        timestamp = getattr(measurement, "timestamp", None)
-        label = getattr(measurement, "label", None)
-        stimulus_rgb = tuple(getattr(measurement, "stimulus_rgb", ()))
-        Y = getattr(measurement, "Y", None)
-        x = getattr(measurement, "x", None)
-        y = getattr(measurement, "y", None)
-    return (timestamp, label, stimulus_rgb, Y, x, y)
 
 
 def latest_gamma_pass(
