@@ -22,7 +22,7 @@ from calcore.models import (
     Measurement,
     SDR_TARGET,
 )
-from calcore.eotf import pq_eotf
+from calcore.eotf import pq_target_nits
 from .file_watcher import _measurement_signature
 from .profiles import TV_PROFILES, TVProfile
 from .guidance import (
@@ -984,8 +984,7 @@ def m_to_dict(
     elif is_grayscale_patch and target.eotf.lower().startswith("pq") and target.peak_luminance_nits > 0:
         ref_xy = target.white_point_xy
         n = stim_pct / 100.0
-        rel = pq_eotf(n) / 10000.0
-        ref_Y = target.peak_luminance_nits * rel
+        ref_Y = pq_target_nits(n, target.peak_luminance_nits)
     else:
         ref_xy = target.white_point_xy
         ref_Y = m.Y

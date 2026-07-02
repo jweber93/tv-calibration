@@ -5,7 +5,7 @@ import statistics
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .colour import D65_XYZ, D65_xy, ciede2000, xyY_to_xyz, xyz_to_lab
-from .eotf import pq_eotf
+from .eotf import pq_target_nits
 from .models import AnalysisConfig, Patch, Summary
 from .targets import target_xyz_for_patch
 
@@ -93,11 +93,14 @@ def analyze(
         pq_err_pct = None
         if 0 < n < 1 and meas_y > 0 and measured_peak_y_effective > 0:
             if cfg.mode.lower() == "hdr" or cfg.eotf.lower() == "pq":
-                target_rel = pq_eotf(n) / 10000.0
-                meas_rel = meas_y / measured_peak_y_effective
-                pq_err_pct = 100.0 * (meas_rel - target_rel)
-                if 0.20 <= n <= 0.80:
-                    gray_pq_err_mid.append(pq_err_pct)
+                # PQ is absolute: compare measured nits directly against the
+                # (peak-clipped) absolute ST.2084 target, not a peak-relative
+                # rescaling of it.
+                target_y = pq_target_nits(n, measured_peak_y_effective)
+                if target_y > 0:
+                    pq_err_pct = 100.0 * (meas_y - target_y) / target_y
+                    if 0.20 <= n <= 0.80:
+                        gray_pq_err_mid.append(pq_err_pct)
             else:
                 if 0 < meas_y < measured_peak_y_effective:
                     rel = meas_y / measured_peak_y_effective

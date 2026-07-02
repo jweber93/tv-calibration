@@ -23,6 +23,13 @@ def pq_eotf(n: float) -> float:
     return 10000.0 * ((num / den) ** (1 / m1))
 
 
+def pq_target_nits(n: float, peak_nits: float) -> float:
+    # ST.2084 is an absolute EOTF: the encoded signal maps directly to nits,
+    # not to a fraction of the display's peak. A display can't reproduce
+    # nits above its own peak, so the target clips (tone-maps) there.
+    return min(pq_eotf(n), peak_nits)
+
+
 def pq_inverse_eotf(nits: float) -> float:
     # SMPTE ST 2084 forward (OETF): nits -> normalised signal in [0, 1].
     # Inverse of pq_eotf(). nits are clamped to [0, 10000] to stay in the valid

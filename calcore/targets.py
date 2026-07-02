@@ -4,7 +4,7 @@ import logging
 from typing import Optional, Tuple
 
 from .colour import D65_xy, xyY_to_xyz
-from .eotf import bt1886_eotf, gamma_eotf, pq_eotf
+from .eotf import bt1886_eotf, gamma_eotf, pq_target_nits
 from .models import AnalysisConfig, Patch
 from .spaces import detect_matrix, rgb_to_xyz
 
@@ -42,8 +42,10 @@ def target_xyz_for_patch(
     if patch.is_grayscale:
         n = patch.r_target / code_max
         if cfg.mode.lower() == "hdr" or cfg.eotf.lower() == "pq":
-            rel = pq_eotf(n) / 10000.0
-            target_y = measured_peak_y * rel
+            # PQ (ST.2084) is an absolute EOTF: the signal encodes nits
+            # directly, not a fraction of peak. Clip at the display's
+            # measured peak (its tone-map knee).
+            target_y = pq_target_nits(n, measured_peak_y)
         elif cfg.eotf.lower() == "bt1886":
             # Use target's gamma: 2.2 for SDR (per SDR_TARGET in models.py), 2.4 for others
             gamma = 2.2 if cfg.mode.lower() == "sdr" else 2.4
