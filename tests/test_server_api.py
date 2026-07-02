@@ -787,6 +787,43 @@ class TestZROImport:
         resp = _upload_csv(client, session_id, "not,a,valid,zro,file\n")
         assert resp.status_code == 400
 
+    def test_import_dedup_append_mode_buckets(self, client, session_id):
+        """Regression test for #550: uploading the same cumulative ZRO export twice
+        at the WB step should not duplicate wb/gamma/cms/lum measurements.
+        """
+        self._to_pre_grayscale(client, session_id)
+        # Upload grayscale and advance to luminance
+        _upload_csv(client, session_id, _make_zro_csv(_grayscale_rows()))
+        client.post(f"/api/session/{session_id}/next")
+        # Upload dedicated luminance reading
+        _upload_csv(client, session_id, _make_zro_csv([(235, 235, 235, 120.0, 0.3127, 0.3290)]))
+        client.post(f"/api/session/{session_id}/next")
+        # Upload WB patches (80% and 30% gray)
+        wb_rows = [
+            (188, 188, 188, 96.0, 0.3127, 0.3290),  # 80%
+            (71, 71, 71, 36.0, 0.3127, 0.3290),  # 30%
+        ]
+        wb_csv = _make_zro_csv(wb_rows)
+        resp1 = _upload_csv(client, session_id, wb_csv)
+        assert resp1.status_code == 200
+        summary1 = resp1.json()["import_summary"]
+        assert summary1["buckets_populated"].get("wb_measurements") == 2
+        assert summary1["duplicates_skipped"] == 0
+
+        # Upload the SAME CSV again — should not duplicate
+        resp2 = _upload_csv(client, session_id, wb_csv)
+        assert resp2.status_code == 200
+        summary2 = resp2.json()["import_summary"]
+        # No new items appended (all were duplicates), so buckets_populated may not include wb_measurements
+        # but duplicates_skipped should report the 2 skipped rows
+        assert summary2["duplicates_skipped"] == 2
+
+        # Verify session state — bucket length unchanged
+        # session["wb_measurements"] may not be in view; check the store directly
+        # Use the store directly to avoid view transformation issues
+        s = _sessions[session_id]
+        assert len(s.get("wb_measurements", [])) == 2
+
 
 class TestImportRoutesDoNotBlockEventLoop:
     """Regression test for #504: the import routes must not run blocking,
