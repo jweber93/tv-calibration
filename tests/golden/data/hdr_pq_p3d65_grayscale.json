@@ -1,9 +1,9 @@
 {
-  "grayscale_avg_de": 25.915901352175666,
-  "grayscale_max_de": 56.49381734906199,
-  "grayscale_over_3": 8,
+  "grayscale_avg_de": 5.301172653319991,
+  "grayscale_max_de": 11.294583512523838,
+  "grayscale_over_3": 7,
   "gamma_midtones": null,
-  "pq_err_midtones": 18.74560626887872,
+  "pq_err_midtones": 9.484247382633441,
   "color_75_avg_de": null,
   "color_75_max_de": null,
   "color_100_avg_de": null,

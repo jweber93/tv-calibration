@@ -23,6 +23,24 @@ def pq_eotf(n: float) -> float:
     return 10000.0 * ((num / den) ** (1 / m1))
 
 
+def pq_target_nits(n: float, peak_nits: float) -> float:
+    """Absolute ST.2084 target luminance for signal *n*, clipped at *peak_nits*.
+
+    ST.2084 is an absolute EOTF: the encoded signal maps directly to nits,
+    not to a fraction of the display's peak. A display can't reproduce nits
+    above its own peak, so above that point the target is clipped flat at
+    *peak_nits* rather than continuing to rise with pq_eotf(n).
+
+    *peak_nits* is whatever peak the caller considers authoritative for this
+    comparison — the display's measured peak luminance in `analyze()` and
+    `target_xyz_for_patch()`, or the session's configured
+    `CalibrationTarget.peak_luminance_nits` in `m_to_dict()`. This is a hard
+    clip at that single value, not a soft-rolloff tone-map curve; it doesn't
+    model a display's actual (often gradual) knee behaviour below peak.
+    """
+    return min(pq_eotf(n), peak_nits)
+
+
 def pq_inverse_eotf(nits: float) -> float:
     # SMPTE ST 2084 forward (OETF): nits -> normalised signal in [0, 1].
     # Inverse of pq_eotf(). nits are clamped to [0, 10000] to stay in the valid

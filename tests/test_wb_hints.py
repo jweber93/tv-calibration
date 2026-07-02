@@ -242,13 +242,13 @@ class TestHDRGrayscaleDeltaE:
         """
         from calcore.models import HDR10_TARGET
         from calibrator.utils import stimulus_pct_from_code_value
-        from calcore.eotf import pq_eotf
+        from calcore.eotf import pq_target_nits
 
         # 50% gray (code value 128 → ~50% stimulus for full10 range).
-        # PQ target luminance at 50%: pq_eotf(0.5) / 10000 * 1000 nits
+        # PQ is an absolute EOTF: target luminance at 50% is pq_eotf(0.5) nits
+        # (~92.25 nits), clipped at the target's peak — not rescaled by peak.
         stim_pct = stimulus_pct_from_code_value(512, "full10")
-        expected_rel = pq_eotf(stim_pct / 100.0) / 10000.0
-        expected_y = HDR10_TARGET.peak_luminance_nits * expected_rel
+        expected_y = pq_target_nits(stim_pct / 100.0, HDR10_TARGET.peak_luminance_nits)
 
         # On-target measurement — should produce near-zero ΔE.
         m_on = Measurement(
