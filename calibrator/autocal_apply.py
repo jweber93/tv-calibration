@@ -147,3 +147,29 @@ class AdbApplyTarget(ApplyTarget):
             new_value=correction.new_value,
             message=f"Applied {correction.control}={correction.new_value} on {colour} (verified)",
         )
+
+
+class FallbackApplyTarget(ApplyTarget):
+    """Tries a primary apply path; degrades to a fallback on failure.
+
+    Item 1f's "graceful fallback to manual" — wraps `AdbApplyTarget` with a
+    `ManualApplyTarget` fallback so a disconnected/misbehaving TV degrades to
+    a manual instruction instead of aborting the whole autocal run. The loop
+    orchestrator (`autocal_loop.py`) pauses for user confirmation whenever an
+    `ApplyResult.requires_user_action` comes back `True`, so falling back here
+    is all that's needed to switch that one step from automatic to manual.
+    """
+
+    def __init__(self, primary: ApplyTarget, fallback: ApplyTarget) -> None:
+        self.primary = primary
+        self.fallback = fallback
+
+    def apply(self, correction: CorrectionResult, *, colour: str) -> ApplyResult:
+        result = self.primary.apply(correction, colour=colour)
+        if result.ok:
+            return result
+        fallback_result = self.fallback.apply(correction, colour=colour)
+        fallback_result.message = (
+            f"Auto-apply failed ({result.message}); falling back to manual — {fallback_result.message}"
+        )
+        return fallback_result

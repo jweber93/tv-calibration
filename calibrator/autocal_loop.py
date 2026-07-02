@@ -32,6 +32,7 @@ class IterationEvent:
     error: float
     correction: CorrectionResult
     apply_result: ApplyResult
+    delta_e: Optional[float] = None
 
 
 @dataclass
@@ -72,6 +73,8 @@ class AutocalLoop:
         max_iterations: int = 8,
         skip_stalled_controls: bool = False,
         on_iteration: Optional[Callable[[IterationEvent], None]] = None,
+        on_waiting: Optional[Callable[[str, int], None]] = None,
+        confirm_step: Optional[Callable[[], bool]] = None,
     ) -> None:
         self.measurement_source = measurement_source
         self.apply_target = apply_target
@@ -87,6 +90,18 @@ class AutocalLoop:
         # existing callers keep iterating all controls every pass.
         self.skip_stalled_controls = skip_stalled_controls
         self.on_iteration = on_iteration
+        # Called with (colour, iteration) right before the loop blocks on
+        # confirm_step, so a caller can surface "apply the change, then
+        # confirm" to the user (roadmap Item 1e/1f — manual apply and ADB
+        # fallback both signal this the same way, via ApplyResult.requires_user_action).
+        self.on_waiting = on_waiting
+        # Called (with no args) whenever an iteration applied a correction that
+        # requires the user to act on the TV before re-measuring makes sense.
+        # Must block until the action is confirmed and return True, or return
+        # False if the wait was abandoned (e.g. the run was cancelled). None
+        # (the default) never blocks — matching the pre-1e/1f behaviour where
+        # ManualApplyTarget's instructions were purely informational.
+        self.confirm_step = confirm_step
         self._cancel = threading.Event()
 
     def cancel(self) -> None:
@@ -131,6 +146,7 @@ class AutocalLoop:
             if self.skip_stalled_controls and not active_controls:
                 return ColourResult(colour, iteration - 1, False, "all controls stalled", last_de, history)
 
+            pending_confirmation = False
             for control in active_controls:
                 key = CONTROL_ERROR_KEY[control]
                 if key not in hints:
@@ -141,12 +157,22 @@ class AutocalLoop:
                 apply_result = self.apply_target.apply(result, colour=colour)
                 if apply_result.ok:
                     values[control] = result.new_value
+                if apply_result.requires_user_action:
+                    pending_confirmation = True
                 if self.skip_stalled_controls and result.stalled:
                     stalled_controls.add(control)
-                event = IterationEvent(colour, control, iteration, error, result, apply_result)
+                event = IterationEvent(colour, control, iteration, error, result, apply_result, delta_e=last_de)
                 history.append(event)
                 if self.on_iteration:
                     self.on_iteration(event)
+
+            # A manual (or ADB-fallen-back-to-manual) step needs the user to
+            # actually change the TV before the next measurement means anything.
+            if pending_confirmation and self.confirm_step is not None:
+                if self.on_waiting:
+                    self.on_waiting(colour, iteration)
+                if not self.confirm_step():
+                    return ColourResult(colour, iteration, False, "cancelled", last_de, history)
 
         # One final measurement to report the ΔE the loop actually ended on.
         final_measurement = self.measurement_source.measure(patch)

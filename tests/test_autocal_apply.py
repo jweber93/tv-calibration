@@ -8,6 +8,7 @@ from calibrator.autocal import CorrectionResult
 from calibrator.autocal_apply import (
     AdbApplyTarget,
     CallableMeasurementSource,
+    FallbackApplyTarget,
     ManualApplyTarget,
 )
 
@@ -99,3 +100,31 @@ class TestAdbApplyTarget:
             result = AdbApplyTarget().apply(bad, colour="Red")
         assert result.ok is False
         assert "Unknown control" in result.message
+
+
+class TestFallbackApplyTarget:
+    def test_uses_primary_result_on_success(self):
+        with patch("calibrator.adb_control.set_cms_value", return_value={"ok": True, "stdout": "OK", "stderr": ""}), \
+             patch("calibrator.adb_control.get_cms_value", return_value={"ok": True, "value": 5, "stdout": "VALUE 5", "stderr": ""}):
+            target = FallbackApplyTarget(AdbApplyTarget(), ManualApplyTarget())
+            result = target.apply(_correction(step=2, new_value=5), colour="Red")
+        assert result.ok is True
+        assert result.requires_user_action is False
+        assert "verified" in result.message
+
+    def test_falls_back_to_manual_on_adb_failure(self):
+        with patch("calibrator.adb_control.set_cms_value", return_value={"ok": False, "stdout": "", "stderr": "device offline"}):
+            target = FallbackApplyTarget(AdbApplyTarget(), ManualApplyTarget())
+            result = target.apply(_correction(step=2, new_value=5), colour="Red")
+        assert result.ok is True  # manual apply always reports ok
+        assert result.requires_user_action is True
+        assert "falling back to manual" in result.message.lower()
+        assert "Raise Hue to 5" in result.message
+
+    def test_no_change_needed_never_touches_primary(self):
+        with patch("calibrator.adb_control.set_cms_value") as set_mock:
+            target = FallbackApplyTarget(AdbApplyTarget(), ManualApplyTarget())
+            result = target.apply(_correction(step=0, new_value=0), colour="Red")
+        assert result.ok is True
+        assert result.requires_user_action is False
+        set_mock.assert_not_called()
