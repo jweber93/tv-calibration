@@ -82,6 +82,10 @@ DEFAULT_CONFIG = {
     "argyll_port": None,
     # Seconds to wait for a reading before giving up.
     "argyll_timeout_s": 20.0,
+    # Path to a CCMX/CCSS meter correction file for spotread -X.
+    # Colorimeters (i1Display, etc.) need one on wide-gamut panels for
+    # accuracy; spectrophotometers (i1Pro) do not. Leave null to skip -X.
+    "argyll_correction": None,
 }
 
 _config: dict = dict(DEFAULT_CONFIG)
@@ -241,13 +245,11 @@ async def trigger_measure():
             _config.get("argyll_port"),
             spotread_path=_config.get("argyll_spotread_path", "spotread"),
             timeout=_config.get("argyll_timeout_s", 20.0),
+            correction_path=_config.get("argyll_correction"),
         )
         if not result["ok"]:
             raise HTTPException(502, result.get("error", "Measurement failed"))
         return result
-
-    else:
-        raise HTTPException(400, f"Unknown backend: {backend!r}")
 
 
 @app.post("/measure/sequence")
@@ -306,6 +308,7 @@ async def trigger_measure_sequence(body: dict):
                 _config.get("argyll_port"),
                 spotread_path=_config.get("argyll_spotread_path", "spotread"),
                 timeout=_config.get("argyll_timeout_s", 20.0),
+                correction_path=_config.get("argyll_correction"),
             )
         else:
             result = {"ok": False, "error": f"Unknown backend: {backend!r}"}
@@ -316,6 +319,7 @@ async def trigger_measure_sequence(body: dict):
             "rgb": [r, g, b],
             "ok": result.get("ok", False),
             "error": result.get("error"),
+            "warning": result.get("warning") if result.get("ok") else None,
         })
 
         if not result.get("ok"):

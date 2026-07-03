@@ -90,6 +90,74 @@ class TestReadXyzParsing:
         assert "-O" in cmd
         assert cmd[-1] == "/dev/ttyUSB0"
 
+    def test_passes_correction_path_via_X_flag(self):
+        """When correction_path is set, -X <path> must appear in the command."""
+        stdout = "Result is XYZ: 1.0 2.0 3.0\n"
+        correction = "/home/user/ccmx/DisplayPlus_U8G.ccmx"
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", return_value=_mock_proc(stdout=stdout)) as mock_run:
+            argyll_backend.read_xyz(correction_path=correction)
+
+        cmd = mock_run.call_args.args[0]
+        assert "-X" in cmd
+        assert correction in cmd
+
+    def test_correction_path_before_port_in_command(self):
+        """-X comes before the port argument in the built command."""
+        stdout = "Result is XYZ: 1.0 2.0 3.0\n"
+        correction = "/home/user/ccmx/DisplayPlus_U8G.ccmx"
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", return_value=_mock_proc(stdout=stdout)) as mock_run:
+            argyll_backend.read_xyz(port="/dev/ttyUSB0", correction_path=correction)
+
+        cmd = mock_run.call_args.args[0]
+        x_idx = cmd.index("-X")
+        port_idx = cmd.index("/dev/ttyUSB0")
+        assert x_idx < port_idx
+
+    def test_no_warning_when_correction_is_set(self):
+        """Even if spotread output mentions ccmx/ccss, no warning field when
+        the user explicitly provided a correction path."""
+        stdout = (
+            "No CCMX/CCSS correction file found for this instrument\n"
+            "Result is XYZ: 1.0 2.0 3.0\n"
+        )
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", return_value=_mock_proc(stdout=stdout)):
+            result = argyll_backend.read_xyz(
+                correction_path="/some/correction.ccmx"
+            )
+
+        assert result["ok"] is True
+        assert "warning" not in result
+
+    def test_warning_when_no_correction_and_output_mentions_ccmx(self):
+        """When no correction path is set and spotread warns about missing
+        CCMX/CCSS, the result includes an advisory warning field."""
+        stdout = (
+            "No CCMX/CCSS correction file found for this instrument\n"
+            "Result is XYZ: 26.80 28.41 30.32\n"
+        )
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", return_value=_mock_proc(stdout=stdout)):
+            result = argyll_backend.read_xyz()
+
+        assert result["ok"] is True
+        assert "warning" in result
+        assert "CCMX/CCSS" in result["warning"]
+        assert "wide-gamut" in result["warning"]
+
+    def test_no_warning_when_output_has_no_correction_markers(self):
+        """Clean spotread output without any correction-related text should
+        not include a warning field."""
+        stdout = "Result is XYZ: 26.80 28.41 30.32\n"
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", return_value=_mock_proc(stdout=stdout)):
+            result = argyll_backend.read_xyz()
+
+        assert result["ok"] is True
+        assert "warning" not in result
+
 
 # ── read_xyz: HDR absolute-nit verification (issue #534) ───────────────────────
 
