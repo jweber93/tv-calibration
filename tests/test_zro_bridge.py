@@ -120,6 +120,81 @@ class TestZroBridgeConfig:
         assert srv._zro_bridge.get() == "http://192.168.1.99:7070"
 
 
+# ── GET /api/zro/bridge/instruments, POST /api/zro/bridge/instrument (#531) ────
+
+class TestZroBridgeInstruments:
+    def test_list_not_configured(self):
+        srv._zro_bridge.set("")
+        r = client.get("/api/zro/bridge/instruments")
+        assert r.status_code == 400
+
+    def test_list_proxies_bridge_response(self):
+        srv._zro_bridge.set("http://192.168.1.50:7070")
+        bridge_resp = {
+            "ok": True,
+            "instruments": [{"index": 1, "name": "Klein K10-A on COM3"}],
+            "selected_port": None,
+        }
+        with patch("httpx.get", return_value=_mock_httpx_get(bridge_resp)):
+            r = client.get("/api/zro/bridge/instruments")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["ok"] is True
+        assert d["instruments"] == [{"index": 1, "name": "Klein K10-A on COM3"}]
+
+    def test_list_bridge_unreachable(self):
+        srv._zro_bridge.set("http://192.168.1.50:7070")
+        import httpx
+        with patch("httpx.get", side_effect=httpx.ConnectError("refused")):
+            r = client.get("/api/zro/bridge/instruments")
+        assert r.status_code == 502
+
+    def test_select_persists_and_pushes_to_bridge(self):
+        srv._zro_bridge.set("http://192.168.1.50:7070")
+        srv._prefs["argyll"] = {"port": "", "instrument_name": ""}
+        captured = {}
+
+        def mock_post(url, **kwargs):
+            captured["url"] = url
+            captured["json"] = kwargs.get("json")
+            return _mock_httpx_post({"ok": True, "argyll_port": "2"})
+
+        with patch("httpx.post", side_effect=mock_post):
+            r = client.post(
+                "/api/zro/bridge/instrument",
+                json={"port": "2", "instrument_name": "X-Rite i1 Display Pro, USB"},
+            )
+
+        assert r.status_code == 200
+        d = r.json()
+        assert d["ok"] is True
+        assert d["pushed_to_bridge"] is True
+        assert d["argyll"] == {"port": "2", "instrument_name": "X-Rite i1 Display Pro, USB"}
+        assert srv._prefs["argyll"] == {"port": "2", "instrument_name": "X-Rite i1 Display Pro, USB"}
+        assert captured["url"] == "http://192.168.1.50:7070/config/argyll-port"
+        assert captured["json"] == {"port": "2"}
+
+    def test_select_persists_even_if_bridge_unreachable(self):
+        srv._zro_bridge.set("http://192.168.1.50:7070")
+        import httpx
+        with patch("httpx.post", side_effect=httpx.ConnectError("refused")):
+            r = client.post("/api/zro/bridge/instrument", json={"port": "1"})
+
+        assert r.status_code == 200
+        d = r.json()
+        assert d["ok"] is True
+        assert d["pushed_to_bridge"] is False
+        assert srv._prefs["argyll"]["port"] == "1"
+
+    def test_select_persists_without_bridge_configured(self):
+        srv._zro_bridge.set("")
+        r = client.post("/api/zro/bridge/instrument", json={"port": "3", "instrument_name": "Meter"})
+        assert r.status_code == 200
+        d = r.json()
+        assert d["pushed_to_bridge"] is False
+        assert srv._prefs["argyll"] == {"port": "3", "instrument_name": "Meter"}
+
+
 # ── POST /api/zro/trigger ──────────────────────────────────────────────────────
 
 class TestZroTrigger:

@@ -249,3 +249,145 @@ class TestConcurrentArgyllMeasureRequests:
         # Serialized on the event loop, two reads would take ~2x read_duration.
         # Run concurrently via run_in_threadpool, total wall time stays close to 1x.
         assert elapsed < read_duration * 1.6
+
+
+# ── list_instruments: meter discovery (issue #531) ──────────────────────────────
+
+_SPOTREAD_HELP_TWO_INSTRUMENTS = """
+usage: spotread [-options] [outfile]
+ -v                   Verbose mode
+ -c listno            Set communication port from the following list (default 1)
+    1 = 'Klein K10-A on COM3'
+    2 = 'X-Rite i1 Display Pro, USB'
+ -e                   Treat display as an emissive source
+"""
+
+_SPOTREAD_HELP_NO_INSTRUMENTS = """
+usage: spotread [-options] [outfile]
+ -v                   Verbose mode
+ -c listno            Set communication port from the following list (default 1)
+ -e                   Treat display as an emissive source
+"""
+
+
+class TestListInstruments:
+    def test_parses_multiple_instruments(self):
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", return_value=_mock_proc(stdout=_SPOTREAD_HELP_TWO_INSTRUMENTS, returncode=1)):
+            result = argyll_backend.list_instruments()
+
+        assert result["ok"] is True
+        assert result["instruments"] == [
+            {"index": 1, "name": "Klein K10-A on COM3"},
+            {"index": 2, "name": "X-Rite i1 Display Pro, USB"},
+        ]
+
+    def test_no_instruments_connected_is_a_valid_empty_result(self):
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", return_value=_mock_proc(stdout=_SPOTREAD_HELP_NO_INSTRUMENTS, returncode=1)):
+            result = argyll_backend.list_instruments()
+
+        assert result["ok"] is True
+        assert result["instruments"] == []
+
+    def test_not_found(self):
+        with patch("shutil.which", return_value=None), \
+             patch("os.path.isfile", return_value=False):
+            result = argyll_backend.list_instruments()
+
+        assert result["ok"] is False
+        assert result["error_type"] == "not_found"
+
+    def test_timeout(self):
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch(
+                 "subprocess.run",
+                 side_effect=subprocess.TimeoutExpired(cmd="spotread", timeout=5.0),
+             ):
+            result = argyll_backend.list_instruments(timeout=5.0)
+
+        assert result["ok"] is False
+        assert result["error_type"] == "timeout"
+
+    def test_list_instruments_async_delegates_to_threadpool(self):
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", return_value=_mock_proc(stdout=_SPOTREAD_HELP_TWO_INSTRUMENTS, returncode=1)):
+            result = asyncio.run(argyll_backend.list_instruments_async())
+
+        assert result["ok"] is True
+        assert len(result["instruments"]) == 2
+
+
+# ── bridge.py /instruments and /config/argyll-port endpoints ───────────────────
+
+class TestBridgeInstrumentEndpoints:
+    def setup_method(self):
+        bridge._config = dict(bridge.DEFAULT_CONFIG)
+
+    def test_get_instruments_requires_argyll_backend(self):
+        bridge._config["backend"] = "pyautogui"
+
+        async def _run():
+            transport = httpx.ASGITransport(app=bridge.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://bridge.test") as client:
+                return await client.get("/instruments")
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 400
+
+    def test_get_instruments_lists_detected_meters(self):
+        bridge._config["backend"] = "argyll"
+        bridge._config["argyll_port"] = "2"
+
+        async def _run():
+            transport = httpx.ASGITransport(app=bridge.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://bridge.test") as client:
+                return await client.get("/instruments")
+
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", return_value=_mock_proc(stdout=_SPOTREAD_HELP_TWO_INSTRUMENTS, returncode=1)):
+            resp = asyncio.run(_run())
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert len(data["instruments"]) == 2
+        assert data["selected_port"] == "2"
+
+    def test_set_argyll_port_updates_runtime_config(self):
+        bridge._config["backend"] = "argyll"
+        assert bridge._config.get("argyll_port") is None
+
+        async def _run():
+            transport = httpx.ASGITransport(app=bridge.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://bridge.test") as client:
+                return await client.post("/config/argyll-port", json={"port": "2"})
+
+        resp = asyncio.run(_run())
+
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True, "argyll_port": "2"}
+        assert bridge._config["argyll_port"] == "2"
+
+    def test_set_argyll_port_takes_effect_on_next_measure(self):
+        """The runtime override actually drives the next read, not just the config dict."""
+        bridge._config["backend"] = "argyll"
+
+        captured_cmds = []
+
+        def recording_run(cmd, **kwargs):
+            captured_cmds.append(cmd)
+            return _mock_proc(stdout="Result is XYZ: 1.0 2.0 3.0\n")
+
+        async def _run():
+            transport = httpx.ASGITransport(app=bridge.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://bridge.test") as client:
+                await client.post("/config/argyll-port", json={"port": "2"})
+                return await client.post("/measure")
+
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", side_effect=recording_run):
+            resp = asyncio.run(_run())
+
+        assert resp.status_code == 200
+        assert captured_cmds[-1][-1] == "2"

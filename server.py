@@ -422,6 +422,10 @@ _prefs: Dict[str, Any] = {
         "pattern_generator": "dogegen",
     },
     "autocal": dict(_AUTOCAL_DEFAULTS),
+    # Selected ArgyllCMS meter (issue #531) — port is the spotread -c listno
+    # index; instrument_name is the display string from the last discovery
+    # scan, kept alongside so the UI can show a selection without re-scanning.
+    "argyll": {"port": "", "instrument_name": ""},
 }
 
 
@@ -435,7 +439,7 @@ def _load_prefs() -> None:
     except Exception:
         logger.warning("Failed to parse .prefs.json; using defaults", exc_info=True)
         return
-    for key in ("dogegen", "bridge_url", "watch_folder", "llm", "session_defaults"):
+    for key in ("dogegen", "bridge_url", "watch_folder", "llm", "session_defaults", "argyll"):
         if key in saved:
             _prefs[key] = saved[key]
     if "autocal" in saved:
@@ -579,6 +583,11 @@ class TvSettingsReq(BaseModel):
 
 class ZroBridgeConfigBody(BaseModel):
     url: str
+
+
+class ZroBridgeInstrumentBody(BaseModel):
+    port: Optional[str] = None
+    instrument_name: Optional[str] = None
 
 
 class WatchConfigBody(BaseModel):
@@ -2426,6 +2435,50 @@ def zro_bridge_config(body: ZroBridgeConfigBody):
     _zro_bridge.set(body.url.rstrip("/"))
     _save_prefs()
     return {"ok": True, "url": _zro_bridge.get()}
+
+
+@app.get("/api/zro/bridge/instruments")
+def zro_bridge_instruments():
+    """List meters the bridge's ArgyllCMS backend currently detects (#531)."""
+    url = _zro_bridge.get()
+    if not url:
+        raise HTTPException(400, "ZRO Bridge URL not configured.")
+    try:
+        resp = httpx.get(f"{url}/instruments", timeout=_ZRO_BRIDGE_TIMEOUT)
+        resp.raise_for_status()
+        return resp.json()
+    except httpx.ConnectError as exc:
+        raise HTTPException(
+            502, "Cannot reach ZRO Bridge — is start.bat running on the Windows PC?"
+        ) from exc
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(exc.response.status_code, exc.response.text) from exc
+
+
+@app.post("/api/zro/bridge/instrument")
+def zro_bridge_select_instrument(body: ZroBridgeInstrumentBody):
+    """
+    Persist the selected ArgyllCMS meter across app sessions (#531) and push
+    it to the bridge so it takes effect immediately. If the bridge is
+    unreachable the selection still saves — it applies next time the app
+    reconnects and re-pushes it.
+    """
+    _prefs["argyll"] = {"port": body.port or "", "instrument_name": body.instrument_name or ""}
+    _save_prefs()
+
+    pushed = False
+    url = _zro_bridge.get()
+    if url:
+        try:
+            resp = httpx.post(
+                f"{url}/config/argyll-port", json={"port": body.port}, timeout=_ZRO_BRIDGE_TIMEOUT
+            )
+            resp.raise_for_status()
+            pushed = True
+        except Exception:
+            logger.warning("Could not push argyll port selection to bridge at %s", url, exc_info=True)
+
+    return {"ok": True, "argyll": _prefs["argyll"], "pushed_to_bridge": pushed}
 
 
 @app.get("/api/prefs")
