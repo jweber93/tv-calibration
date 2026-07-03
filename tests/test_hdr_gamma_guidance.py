@@ -210,6 +210,37 @@ class TestU8gControlPlanPqKnee:
         assert pq_point_above_knee(0, 1000.0) is False
         assert pq_point_above_knee(100, 1000.0) is False
 
+    def test_above_knee_failed_reading_omitted(self):
+        # A failed/missing reading (Y=0 -> eff_gamma None) at an above-knee
+        # point must be omitted from the plan, not reported as a confirmed
+        # "hold". The shared None guard skips it before the knee branch.
+        peak = 500.0
+        levels = (20, 80)
+        meas = [
+            Measurement(
+                Y=pq_eotf(0.20),  # below-knee, perfect -> hold (normal path)
+                label="Gamma 20%",
+                stimulus_rgb=(round(0.20 * 1023),) * 3,
+            ),
+            Measurement(
+                Y=0.0,  # failed reading at an above-knee point
+                label="Gamma 80%",
+                stimulus_rgb=(round(0.80 * 1023),) * 3,
+            ),
+        ]
+        plan = u8g_gamma_control_plan(
+            meas,
+            target_gamma=0.0,
+            peak_nits=peak,
+            signal_range="full",
+            code_scale="10bit",
+            levels=levels,
+            eotf=PQ_EOTF,
+        )
+        labels = [p["control"] for p in plan]
+        assert "20%" in labels
+        assert "80%" not in labels  # failed reading omitted, not "hold"
+
 
 class TestPresetControlPlanPq:
     def test_perfect_pq_holds(self):
@@ -289,3 +320,51 @@ class TestPqKneeAggregate:
             eotf=PQ_EOTF,
         )
         assert any("tone-mapping" in r.lower() for r in recs)
+
+    def test_recommendations_failed_readings_not_blamed_on_tone_mapping(self):
+        # All readings failed (Y=0 -> eff_gamma None) at below-knee points on a
+        # 1000-nit panel (no point is above the knee). The empty-gammas fallback
+        # must NOT claim the tone-mapping wall is the cause — the operator should
+        # be told to re-measure, not that firmware tone mapping is active.
+        levels = (20, 40, 60)
+        meas = [
+            Measurement(
+                Y=0.0,
+                label=f"Gamma {n}%",
+                stimulus_rgb=(round(n / 100.0 * 1023),) * 3,
+            )
+            for n in levels
+        ]
+        recs = gamma_recommendations(
+            meas,
+            target_gamma=0.0,
+            peak_nits=1000.0,
+            signal_range="full",
+            code_scale="10bit",
+            eotf=PQ_EOTF,
+        )
+        joined = " ".join(recs).lower()
+        assert "tone-mapping" not in joined
+        assert "take another gamma reading" in joined
+
+    def test_preset_plan_failed_readings_return_empty(self):
+        # Failed readings at below-knee points (no above-knee points seen):
+        # preset plan returns [] (not the tone-mapping hold message).
+        levels = (20, 40, 60)
+        meas = [
+            Measurement(
+                Y=0.0,
+                label=f"Gamma {n}%",
+                stimulus_rgb=(round(n / 100.0 * 1023),) * 3,
+            )
+            for n in levels
+        ]
+        plan = preset_gamma_control_plan(
+            meas,
+            target_gamma=0.0,
+            peak_nits=1000.0,
+            signal_range="full",
+            code_scale="10bit",
+            eotf=PQ_EOTF,
+        )
+        assert plan == []

@@ -343,6 +343,7 @@ def gamma_recommendations(
         return recs
 
     gammas = []
+    saw_above_knee = False
     for m in measurements:
         stim_pct = gamma_nominal_pct(m, signal_range, code_scale, levels)
         if stim_pct is None:
@@ -352,12 +353,17 @@ def gamma_recommendations(
         # toward "too dark" forever (issue #548). Below-knee points keep normal
         # treatment so genuine midtone errors are still surfaced.
         if pq and pq_point_above_knee(stim_pct, peak_nits):
+            saw_above_knee = True
             continue
         eff_gamma = eotf_from_luminance(m.Y, peak_nits, stim_pct, eotf)
         if eff_gamma is not None:
             gammas.append({"stimulus_pct": stim_pct, "effective_gamma": eff_gamma})
     if not gammas:
-        if pq:
+        # Only attribute the empty result to the tone-mapping region when we
+        # actually saw above-knee points; otherwise the readings themselves
+        # failed and the operator should re-measure rather than be told the
+        # wall is the cause.
+        if pq and saw_above_knee:
             return [
                 "All measured gamma points sit in the firmware tone-mapping region "
                 "(PQ reference exceeds panel peak). Do not chase them with menu controls; "
@@ -436,6 +442,12 @@ def u8g_gamma_control_plan(
         if stim_pct is None:
             continue
         stim_label = f"{round(stim_pct):.0f}%"
+        eff_gamma = eotf_from_luminance(m.Y, peak_nits, stim_pct, eotf)
+        # A failed/missing reading (Y <= 0 -> eff_gamma is None) is omitted
+        # rather than reported as a confirmed "hold", so the operator isn't
+        # told a point is fine when it was never measured.
+        if eff_gamma is None:
+            continue
         # PQ points whose ST.2084 reference exceeds panel peak are inside the
         # firmware tone-mapping region. The measured luminance will always read
         # as "too dark" relative to an unreachable reference, so the plan would
@@ -443,11 +455,10 @@ def u8g_gamma_control_plan(
         # let the operator's midtone corrections reach the knee from below
         # (issue #548 / QE_AUDIT.md tone-mapping invariant).
         if pq and pq_point_above_knee(stim_pct, peak_nits):
-            eff_gamma = eotf_from_luminance(m.Y, peak_nits, stim_pct, eotf)
             plan.append(
                 {
                     "control": stim_label,
-                    "effective_gamma": round(eff_gamma, 3) if eff_gamma is not None else None,
+                    "effective_gamma": round(eff_gamma, 3),
                     "delta": None,
                     "direction": "hold",
                     "amount": 0,
@@ -458,9 +469,6 @@ def u8g_gamma_control_plan(
                     ),
                 }
             )
-            continue
-        eff_gamma = eotf_from_luminance(m.Y, peak_nits, stim_pct, eotf)
-        if eff_gamma is None:
             continue
         delta = eff_gamma - effective_target
         if abs(delta) < 0.10:
@@ -521,6 +529,7 @@ def preset_gamma_control_plan(
             }
         ]
     gammas = []
+    saw_above_knee = False
     for m in measurements:
         stim_pct = gamma_nominal_pct(m, signal_range, code_scale, levels)
         if stim_pct is None:
@@ -529,12 +538,13 @@ def preset_gamma_control_plan(
         # isn't dragged toward "too dark" by an unreachable PQ reference
         # (issue #548).
         if pq and pq_point_above_knee(stim_pct, peak_nits):
+            saw_above_knee = True
             continue
         eff = eotf_from_luminance(m.Y, peak_nits, stim_pct, eotf)
         if eff is not None:
             gammas.append(eff)
     if not gammas:
-        if pq:
+        if pq and saw_above_knee:
             return [
                 {
                     "control": "Gamma preset",
