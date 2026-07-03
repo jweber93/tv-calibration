@@ -391,3 +391,44 @@ class TestBridgeInstrumentEndpoints:
 
         assert resp.status_code == 200
         assert captured_cmds[-1][-1] == "2"
+
+    def test_config_write_concurrent_with_in_flight_measure_does_not_race(self):
+        """
+        A POST /config/argyll-port landing while a /measure is already
+        in-flight must not crash or corrupt state. _config["argyll_port"] is
+        a single dict-key assignment (atomic under the GIL, no read-modify-
+        write), so the only real question is which value an in-flight read
+        sees — this pins that down: whichever port was set at the moment
+        /measure read _config, before the concurrent write.
+        """
+        bridge._config["backend"] = "argyll"
+        bridge._config["argyll_port"] = "1"
+
+        captured_cmds = []
+
+        def slow_recording_run(cmd, **kwargs):
+            captured_cmds.append(cmd)
+            time.sleep(0.05)
+            return _mock_proc(stdout="Result is XYZ: 1.0 2.0 3.0\n")
+
+        async def _run():
+            transport = httpx.ASGITransport(app=bridge.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://bridge.test") as client:
+                measure_task = asyncio.create_task(client.post("/measure"))
+                await asyncio.sleep(0.01)  # let /measure read _config before we mutate it
+                config_task = asyncio.create_task(
+                    client.post("/config/argyll-port", json={"port": "2"})
+                )
+                return await asyncio.gather(measure_task, config_task)
+
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", side_effect=slow_recording_run):
+            measure_resp, config_resp = asyncio.run(_run())
+
+        assert measure_resp.status_code == 200
+        assert config_resp.status_code == 200
+        # The in-flight measure used the port that was selected when it was
+        # dispatched, unaffected by the write that landed after.
+        assert captured_cmds[-1][-1] == "1"
+        # The concurrent write still lands cleanly for the *next* read.
+        assert bridge._config["argyll_port"] == "2"

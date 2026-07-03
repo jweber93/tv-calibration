@@ -164,6 +164,11 @@ async def list_instruments():
              "selected_port": <current argyll_port, or null>}.
     An empty instruments list means spotread ran but nothing is connected —
     that's a valid result, not an error.
+
+    ``selected_port`` reflects whichever value is currently in effect for
+    reads: bridge.json's static ``argyll_port`` until/unless a client has
+    since called ``POST /config/argyll-port``, which overrides it in memory
+    for the rest of this bridge process's life.
     """
     backend = _config.get("backend", "pyautogui")
     if backend != "argyll":
