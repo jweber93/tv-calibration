@@ -10,6 +10,17 @@ from .colour import D65_XY
 from .spaces import BT709_PRIMARIES, BT2020_PRIMARIES, detect_primaries
 
 
+def _normalize_code(code: int, signal_range: str) -> int:
+    """Convert a limited-range code (16-235) to full-range equivalent (0-255)."""
+    if signal_range != "limited":
+        return code
+    if code <= 16:
+        return 0
+    if code >= 235:
+        return 255
+    return round((code - 16) * 255 / (235 - 16))
+
+
 @dataclass
 class Patch:
     label: str
@@ -24,10 +35,14 @@ class Patch:
     def is_grayscale(self) -> bool:
         return self.kind == "grayscale"
 
-    def sat_bucket(self, code_max: int = 1023) -> str:
+    def sat_bucket(self, code_max: int = 1023, signal_range: str = "full") -> str:
         if self.is_grayscale:
             return "gray"
-        mx = max(self.r_target, self.g_target, self.b_target)
+        mx = max(
+            _normalize_code(self.r_target, signal_range),
+            _normalize_code(self.g_target, signal_range),
+            _normalize_code(self.b_target, signal_range),
+        )
         ratio = mx / code_max if code_max > 0 else 0
         if ratio >= 0.92:
             return "100"
@@ -42,10 +57,15 @@ class AnalysisConfig:
     eotf: str = "pq"  # pq, gamma22, bt1886, or numeric gamma
     target_space: str = "p3d65"  # bt709, p3d65, bt2020
     code_max: int = 1023
+    signal_range: str = "full"  # "full" or "limited"
 
     def __post_init__(self) -> None:
         if self.code_max <= 0:
             raise ValueError(f"code_max must be positive, got {self.code_max}")
+        if self.signal_range not in ("full", "limited"):
+            raise ValueError(
+                f"signal_range must be 'full' or 'limited', got {self.signal_range!r}"
+            )
 
 
 # Known providers with a fixed default endpoint, used when the user omits one.

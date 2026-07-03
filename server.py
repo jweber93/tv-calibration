@@ -926,12 +926,14 @@ def _session_to_analysis_config(session: Dict[str, Any]) -> AnalysisConfig:
         target_space = "bt709"
 
     code_max = 1023 if session.get("code_scale") == "10bit" else 255
+    signal_range = session.get("signal_range", "full")
 
     return AnalysisConfig(
         mode=calcore_mode,
         eotf=eotf,
         target_space=target_space,
         code_max=code_max,
+        signal_range=signal_range,
     )
 
 
