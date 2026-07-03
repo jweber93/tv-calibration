@@ -344,6 +344,198 @@ class TestAdbCmsGetAllEndpoint:
         assert len(r.json()["values"]) == 6
 
 
+class TestAdjustCmsValue:
+    """Unit tests for adb_control.adjust_cms_value()."""
+
+    def test_adds_delta_to_current(self):
+        """current=5, delta=-2 → set_cms_value called with 3."""
+        get_result = {"ok": True, "value": 5, "stdout": "VALUE 5", "stderr": ""}
+        set_result = {"ok": True, "stdout": "OK", "stderr": ""}
+        with patch.object(adb_mod, "get_cms_value", return_value=get_result), \
+             patch.object(adb_mod, "set_cms_value", return_value=set_result) as mock_set:
+            result = adb_mod.adjust_cms_value("Red", "Hue", -2)
+        assert result["ok"] is True
+        assert result["old_value"] == 5
+        assert result["new_value"] == 3
+        mock_set.assert_called_once_with("Red", "Hue", 3, device=None)
+
+    def test_clamps_to_minimum(self):
+        """current=-8, delta=-5 → clamped to -10, not -13."""
+        get_result = {"ok": True, "value": -8, "stdout": "VALUE -8", "stderr": ""}
+        set_result = {"ok": True, "stdout": "OK", "stderr": ""}
+        with patch.object(adb_mod, "get_cms_value", return_value=get_result), \
+             patch.object(adb_mod, "set_cms_value", return_value=set_result) as mock_set:
+            result = adb_mod.adjust_cms_value("Red", "Hue", -5)
+        assert result["ok"] is True
+        assert result["new_value"] == -10
+        mock_set.assert_called_once_with("Red", "Hue", -10, device=None)
+
+    def test_clamps_to_maximum(self):
+        """current=9, delta=5 → clamped to 10, not 14."""
+        get_result = {"ok": True, "value": 9, "stdout": "VALUE 9", "stderr": ""}
+        set_result = {"ok": True, "stdout": "OK", "stderr": ""}
+        with patch.object(adb_mod, "get_cms_value", return_value=get_result), \
+             patch.object(adb_mod, "set_cms_value", return_value=set_result) as mock_set:
+            result = adb_mod.adjust_cms_value("Green", "Saturation", 5)
+        assert result["ok"] is True
+        assert result["new_value"] == 10
+        mock_set.assert_called_once_with("Green", "Saturation", 10, device=None)
+
+    def test_no_set_when_value_unchanged(self):
+        """current=3, delta=0 → no set call, returns ok with new_value=old_value."""
+        get_result = {"ok": True, "value": 3, "stdout": "VALUE 3", "stderr": ""}
+        with patch.object(adb_mod, "get_cms_value", return_value=get_result), \
+             patch.object(adb_mod, "set_cms_value") as mock_set:
+            result = adb_mod.adjust_cms_value("Blue", "Brightness", 0)
+        assert result["ok"] is True
+        assert result["old_value"] == 3
+        assert result["new_value"] == 3
+        mock_set.assert_not_called()
+
+    def test_returns_error_when_get_fails(self):
+        """get_cms_value failure → adjust returns ok=False without calling set."""
+        get_result = {"ok": False, "value": None, "stdout": "", "stderr": "no devices"}
+        with patch.object(adb_mod, "get_cms_value", return_value=get_result), \
+             patch.object(adb_mod, "set_cms_value") as mock_set:
+            result = adb_mod.adjust_cms_value("Red", "Hue", 1)
+        assert result["ok"] is False
+        mock_set.assert_not_called()
+
+    def test_returns_error_when_set_fails(self):
+        """get succeeds, set fails → adjust returns ok=False with old_value."""
+        get_result = {"ok": True, "value": 2, "stdout": "VALUE 2", "stderr": ""}
+        set_result = {"ok": False, "stdout": "", "stderr": "timeout"}
+        with patch.object(adb_mod, "get_cms_value", return_value=get_result), \
+             patch.object(adb_mod, "set_cms_value", return_value=set_result):
+            result = adb_mod.adjust_cms_value("Red", "Hue", 1)
+        assert result["ok"] is False
+        assert result["old_value"] == 2
+        assert result["new_value"] is None
+
+    def test_invalid_channel_raises(self):
+        with pytest.raises(ValueError, match="Unknown channel"):
+            adb_mod.adjust_cms_value("Purple", "Hue", 1)
+
+    def test_invalid_control_raises(self):
+        with pytest.raises(ValueError, match="Unknown control"):
+            adb_mod.adjust_cms_value("Red", "Tint", 1)
+
+    def test_passes_device_serial(self):
+        get_result = {"ok": True, "value": 0, "stdout": "VALUE 0", "stderr": ""}
+        set_result = {"ok": True, "stdout": "OK", "stderr": ""}
+        with patch.object(adb_mod, "get_cms_value", return_value=get_result), \
+             patch.object(adb_mod, "set_cms_value", return_value=set_result) as mock_set:
+            adb_mod.adjust_cms_value("Red", "Hue", 1, device="ABC123")
+        mock_set.assert_called_once_with("Red", "Hue", 1, device="ABC123")
+
+
+class TestAdbCmsAdjustEndpoint:
+    """Integration tests for POST /api/adb/cms/adjust."""
+
+    def test_valid_adjust_returns_ok(self, client):
+        get_result = {"ok": True, "value": 5, "stdout": "VALUE 5", "stderr": ""}
+        set_result = {"ok": True, "stdout": "OK", "stderr": ""}
+        with patch.object(adb_mod, "get_cms_value", return_value=get_result), \
+             patch.object(adb_mod, "set_cms_value", return_value=set_result):
+            r = client.post("/api/adb/cms/adjust",
+                            json={"channel": "Red", "control": "Hue", "delta": -2})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["ok"] is True
+        assert body["old_value"] == 5
+        assert body["new_value"] == 3
+
+    def test_invalid_channel_returns_400(self, client):
+        r = client.post("/api/adb/cms/adjust",
+                        json={"channel": "Purple", "control": "Hue", "delta": 1})
+        assert r.status_code == 400
+
+    def test_invalid_control_returns_400(self, client):
+        r = client.post("/api/adb/cms/adjust",
+                        json={"channel": "Red", "control": "Tint", "delta": 1})
+        assert r.status_code == 400
+
+    def test_get_failure_returns_502(self, client):
+        get_result = {"ok": False, "value": None, "stdout": "", "stderr": "no devices"}
+        with patch.object(adb_mod, "get_cms_value", return_value=get_result):
+            r = client.post("/api/adb/cms/adjust",
+                            json={"channel": "Red", "control": "Hue", "delta": 1})
+        assert r.status_code == 502
+
+    def test_set_failure_returns_502(self, client):
+        get_result = {"ok": True, "value": 3, "stdout": "VALUE 3", "stderr": ""}
+        set_result = {"ok": False, "stdout": "", "stderr": "timeout"}
+        with patch.object(adb_mod, "get_cms_value", return_value=get_result), \
+             patch.object(adb_mod, "set_cms_value", return_value=set_result):
+            r = client.post("/api/adb/cms/adjust",
+                            json={"channel": "Red", "control": "Hue", "delta": 1})
+        assert r.status_code == 502
+
+    def test_all_channels_accepted(self, client):
+        get_result = {"ok": True, "value": 0, "stdout": "VALUE 0", "stderr": ""}
+        set_result = {"ok": True, "stdout": "OK", "stderr": ""}
+        for ch in adb_mod.CMS_CHANNELS:
+            with patch.object(adb_mod, "get_cms_value", return_value=get_result), \
+                 patch.object(adb_mod, "set_cms_value", return_value=set_result):
+                r = client.post("/api/adb/cms/adjust",
+                                json={"channel": ch, "control": "Hue", "delta": 0})
+            assert r.status_code == 200, f"Failed for channel {ch}"
+
+    def test_all_controls_accepted(self, client):
+        get_result = {"ok": True, "value": 0, "stdout": "VALUE 0", "stderr": ""}
+        set_result = {"ok": True, "stdout": "OK", "stderr": ""}
+        for ctrl in adb_mod.CMS_SET_ACTIONS:
+            with patch.object(adb_mod, "get_cms_value", return_value=get_result), \
+                 patch.object(adb_mod, "set_cms_value", return_value=set_result):
+                r = client.post("/api/adb/cms/adjust",
+                                json={"channel": "Red", "control": ctrl, "delta": 0})
+            assert r.status_code == 200, f"Failed for control {ctrl}"
+
+    def test_clamps_response_to_range(self, client):
+        """current=9, delta=5 → server clamps to 10 in response."""
+        get_result = {"ok": True, "value": 9, "stdout": "VALUE 9", "stderr": ""}
+        set_result = {"ok": True, "stdout": "OK", "stderr": ""}
+        with patch.object(adb_mod, "get_cms_value", return_value=get_result), \
+             patch.object(adb_mod, "set_cms_value", return_value=set_result):
+            r = client.post("/api/adb/cms/adjust",
+                            json={"channel": "Red", "control": "Hue", "delta": 5})
+        assert r.status_code == 200
+        assert r.json()["new_value"] == 10
+
+    def test_no_change_response(self, client):
+        """delta=0 and value unchanged → ok=true with no set call."""
+        get_result = {"ok": True, "value": 0, "stdout": "VALUE 0", "stderr": ""}
+        with patch.object(adb_mod, "get_cms_value", return_value=get_result), \
+             patch.object(adb_mod, "set_cms_value") as mock_set:
+            r = client.post("/api/adb/cms/adjust",
+                            json={"channel": "Red", "control": "Hue", "delta": 0})
+        assert r.status_code == 200
+        assert r.json()["old_value"] == 0
+        assert r.json()["new_value"] == 0
+        mock_set.assert_not_called()
+
+    def test_negative_delta_decreases_value(self, client):
+        get_result = {"ok": True, "value": 5, "stdout": "VALUE 5", "stderr": ""}
+        set_result = {"ok": True, "stdout": "OK", "stderr": ""}
+        with patch.object(adb_mod, "get_cms_value", return_value=get_result), \
+             patch.object(adb_mod, "set_cms_value", return_value=set_result):
+            r = client.post("/api/adb/cms/adjust",
+                            json={"channel": "Red", "control": "Hue", "delta": -3})
+        assert r.status_code == 200
+        assert r.json()["new_value"] == 2
+
+    def test_device_serial_forwarded(self, client):
+        get_result = {"ok": True, "value": 0, "stdout": "VALUE 0", "stderr": ""}
+        set_result = {"ok": True, "stdout": "OK", "stderr": ""}
+        with patch.object(adb_mod, "get_cms_value", return_value=get_result), \
+             patch.object(adb_mod, "set_cms_value", return_value=set_result) as mock_set:
+            r = client.post("/api/adb/cms/adjust",
+                            json={"channel": "Red", "control": "Hue", "delta": 1,
+                                  "device": "SERIAL42"})
+        assert r.status_code == 200
+        mock_set.assert_called_once_with("Red", "Hue", 1, device="SERIAL42")
+
+
 class TestAdbCmsResetEndpoint:
     def test_valid_reset(self, client):
         with patch.object(adb_mod, "reset_cms",

@@ -545,6 +545,13 @@ class AdbCmsSetReq(BaseModel):
     device: Optional[str] = None
 
 
+class AdbCmsAdjustReq(BaseModel):
+    channel: str
+    control: str
+    delta: int
+    device: Optional[str] = None
+
+
 class AdbCmsGetReq(BaseModel):
     channel: str
     control: str
@@ -2274,6 +2281,23 @@ def adb_cms_set(req: AdbCmsSetReq):
     try:
         result = _adb.set_cms_value(
             channel=req.channel, control=req.control, value=req.value, device=req.device
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(500, f"ADB error: {exc}") from exc
+    if not result["ok"]:
+        raise HTTPException(
+            502, f"ADB command failed: {result['stderr'] or result['stdout']}"
+        )
+    return result
+
+
+@app.post("/api/adb/cms/adjust")
+def adb_cms_adjust(req: AdbCmsAdjustReq):
+    try:
+        result = _adb.adjust_cms_value(
+            channel=req.channel, control=req.control, delta=req.delta, device=req.device
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
