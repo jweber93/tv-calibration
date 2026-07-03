@@ -129,7 +129,9 @@ Each session moves through nine sequential steps. You can jump back to any compl
 ### Software
 
 - **Python 3.11+**
-- **ColourSpace ZRO** or **ColourSpace Zero** (measurement software) — [LightIllusion](https://www.lightillusion.com/)
+- A measurement backend — either:
+  - **ColourSpace ZRO** or **ColourSpace Zero** (paid) — [LightIllusion](https://www.lightillusion.com/), triggered via the ZRO Bridge, or
+  - **ArgyllCMS** (free, open-source) — [argyllcms.com](https://www.argyllcms.com/), read directly via the Bridge's `spotread` backend (see [ArgyllCMS Direct-Meter Backend](#argyllcms-direct-meter-backend-no-paid-products) — no ColourSpace license required)
 - A modern browser (Chrome or Edge recommended)
 
 ### Hardware
@@ -141,7 +143,7 @@ One of the following pattern generator setups:
 | **Dogegen** | PC application that generates HDR10 test patterns over HDMI. Recommended for HDR10 calibration on Windows. |
 | **LightSpace Connect** | Apple TV app that sends patches from ColourSpace. Free tier supports up to 25 patches; paid tier is unlimited. |
 
-A colorimeter or spectrophotometer supported by ColourSpace ZRO (i1Display, Colorimetry Research, Klein K10-A, etc.).
+A colorimeter or spectrophotometer supported by ColourSpace ZRO or ArgyllCMS (i1Display, i1Pro, Colorimetry Research, Klein K10-A, etc.).
 
 ---
 
@@ -356,6 +358,68 @@ The ZRO Bridge lets ColourSpace ZRO trigger a measurement from within the app wo
 The Bridge status indicator in the header bar shows whether the connection is live (green) or unreachable (red).
 
 > **Note — Remote Control backend:** The `tools/zro-bridge/backends/remote_control_backend.py` stub is **experimental and not ready for use**. The Light Illusion Integration Protocol format has not been obtained, so `trigger_measurement()` always returns an error. The webhook path (above) is the working integration method.
+
+### ArgyllCMS Direct-Meter Backend (No Paid Products)
+
+The Bridge can read a colorimeter or spectrophotometer **directly via [ArgyllCMS](https://www.argyllcms.com/)'s `spotread`**, instead of triggering ColourSpace ZRO. This removes ZRO/ColourSpace from the measurement loop entirely — useful if you don't have a ColourSpace license, since ArgyllCMS is free and open-source. Supported meters include i1Display, i1Pro, Klein K10-A, and Colorimetry Research devices.
+
+**1. Install ArgyllCMS**
+
+Download a release from [argyllcms.com](https://www.argyllcms.com/) (or your distro's `argyll` package) and make sure `spotread` is reachable:
+
+```bash
+# Linux/macOS: unpack the release, then either add its bin/ dir to PATH,
+# or point bridge.json at the full executable path (see below).
+spotread -? # should print usage/help, not "command not found"
+```
+
+**2. Linux meter permissions (udev)**
+
+On Linux, USB meters usually aren't readable by a normal user until udev grants access. ArgyllCMS's release archive ships udev rule files under its `usb/` (or `linux/`) subdirectory (e.g. `55-Argyll.rules`):
+
+```bash
+sudo cp <argyll-release-dir>/usb/*.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+# Unplug and replug the meter so the new rule takes effect.
+```
+
+If `spotread -?` still can't see the instrument after that, unplug/replug once more, or add your user to the group the rule assigns (commonly `plugdev`) and re-login. Windows and macOS don't need this step — Windows uses the instrument driver bundled with the ArgyllCMS installer, and macOS meters work over the standard USB HID/serial stack.
+
+**3. Select the backend in `bridge.json`**
+
+Copy `tools/zro-bridge/bridge.example.json` to `bridge.json` and set:
+
+```json
+{
+  "backend": "argyll",
+  "argyll_spotread_path": "spotread",
+  "argyll_port": null,
+  "argyll_timeout_s": 20.0,
+  "argyll_correction": null
+}
+```
+
+- `argyll_spotread_path` — leave as `"spotread"` to resolve via PATH, or set a full path if it isn't on PATH.
+- `argyll_port` — the serial/USB port `spotread -c` should use. Leave `null` to auto-detect (most USB meters); set it explicitly if you have multiple meters attached.
+- `argyll_correction` — path to a CCMX/CCSS meter-correction file (see below).
+
+**4. Meter discovery and selection**
+
+With `backend: "argyll"` and the Bridge running, the app can list and persist which detected instrument to use:
+
+```
+GET  /api/zro/bridge/instruments   → { instruments: [{index, name}, ...], selected_port, correction_path }
+POST /api/zro/bridge/instrument    { port, instrument_name?, correction_path? }
+```
+
+The selection (and correction path) is saved to the app's `.prefs.json` (`argyll.port` / `argyll.instrument_name` / `argyll.correction_path`) so it survives app restarts, and is pushed to the Bridge immediately if it's reachable; if the Bridge is offline the choice still saves and is re-applied the next time the app reconnects.
+
+**5. CCMX/CCSS meter correction**
+
+Modern wide-gamut panels (QD-OLED, WOLED, QD-LCD) need a per-panel spectral correction for **colorimeters** (i1Display and similar) to read accurately — spectrophotometers (i1Pro) do not need one. Acquire a `.ccmx`/`.ccss` file for your meter/panel combination and set its path via `argyll_correction` in `bridge.json` or `correction_path` in the `POST /api/zro/bridge/instrument` call above. If a colorimeter takes a reading with no correction configured, `spotread`'s output is checked for a missing-correction warning and it's surfaced back through the reading result (`warning` field) rather than failing silently.
+
+**Graceful "ArgyllCMS not found" handling** — if `spotread` isn't on PATH/at the configured path, or no meter is detected, `GET /api/zro/bridge/status` still returns `200` with `spotread_found: false` (or a `no_meter` error type from a triggered read) and a human-readable message instead of a crash, so the UI can show a clear "install ArgyllCMS" / "check the meter connection" prompt rather than a generic failure.
 
 ### Dogegen Integration
 
@@ -849,3 +913,5 @@ SSE stream (`GET /api/session/{sid}/llm/stream`) now emits two event types:
 | **ZRO** | ColourSpace ZRO / Zero — the measurement software by LightIllusion that drives colorimeters and exports CSV data. |
 | **Dogegen** | A Windows pattern generator application that sends HDR10 test patches over HDMI. |
 | **LightSpace Connect** | An Apple TV app that pairs with ColourSpace to generate patches via an Apple TV connected to the display. |
+| **ArgyllCMS / `spotread`** | Free, open-source color management tools; `spotread` takes single-shot meter readings directly, letting the Bridge measure without ColourSpace/ZRO. |
+| **CCMX/CCSS** | ArgyllCMS meter-correction file formats — a per-meter, per-panel spectral correction colorimeters need for accurate readings on wide-gamut panels. |

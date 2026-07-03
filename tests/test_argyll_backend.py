@@ -437,6 +437,62 @@ class TestBridgeInstrumentEndpoints:
         assert resp.json() == {"ok": True, "argyll_port": "2"}
         assert bridge._config["argyll_port"] == "2"
 
+    def test_set_argyll_correction_path_updates_runtime_config(self):
+        bridge._config["backend"] = "argyll"
+        assert bridge._config.get("argyll_correction") is None
+
+        async def _run():
+            transport = httpx.ASGITransport(app=bridge.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://bridge.test") as client:
+                return await client.post(
+                    "/config/argyll-port",
+                    json={"port": "2", "correction_path": "/etc/argyll/i1d3.ccss"},
+                )
+
+        resp = asyncio.run(_run())
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "ok": True,
+            "argyll_port": "2",
+            "argyll_correction": "/etc/argyll/i1d3.ccss",
+        }
+        assert bridge._config["argyll_port"] == "2"
+        assert bridge._config["argyll_correction"] == "/etc/argyll/i1d3.ccss"
+
+    def test_set_argyll_port_omits_correction_key_when_not_given(self):
+        """Omitting correction_path leaves the existing correction untouched
+        and the response doesn't grow an unrequested key (back-compat)."""
+        bridge._config["backend"] = "argyll"
+        bridge._config["argyll_correction"] = "/etc/argyll/existing.ccmx"
+
+        async def _run():
+            transport = httpx.ASGITransport(app=bridge.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://bridge.test") as client:
+                return await client.post("/config/argyll-port", json={"port": "3"})
+
+        resp = asyncio.run(_run())
+
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True, "argyll_port": "3"}
+        assert bridge._config["argyll_correction"] == "/etc/argyll/existing.ccmx"
+
+    def test_instruments_reports_selected_correction_path(self):
+        bridge._config["backend"] = "argyll"
+        bridge._config["argyll_correction"] = "/etc/argyll/i1d3.ccss"
+
+        async def _run():
+            transport = httpx.ASGITransport(app=bridge.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://bridge.test") as client:
+                return await client.get("/instruments")
+
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", return_value=_mock_proc(stdout=_SPOTREAD_HELP_TWO_INSTRUMENTS, returncode=1)):
+            resp = asyncio.run(_run())
+
+        assert resp.status_code == 200
+        assert resp.json()["correction_path"] == "/etc/argyll/i1d3.ccss"
+
     def test_set_argyll_port_takes_effect_on_next_measure(self):
         """The runtime override actually drives the next read, not just the config dict."""
         bridge._config["backend"] = "argyll"
