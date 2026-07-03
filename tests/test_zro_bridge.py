@@ -252,3 +252,83 @@ class TestZroTrigger:
         with patch("httpx.post", side_effect=mock_post):
             client.post("/api/zro/trigger")
         assert captured["url"] == "http://10.0.0.5:7070/measure"
+
+
+# ── Optional url parameter passthrough (#555) ───────────────────────────────
+
+class TestBridgeUrlParamPassthrough:
+    def test_status_uses_query_url_over_stored(self):
+        srv._zro_bridge.set("http://stored-host:7070")
+        bridge_resp = {"ok": True, "backend": "pyautogui"}
+        captured = {}
+        def mock_get(url, **kwargs):
+            captured["url"] = url
+            return _mock_httpx_get(bridge_resp)
+        with patch("httpx.get", side_effect=mock_get):
+            r = client.get("/api/zro/bridge/status?url=http://candidate-host:7070")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["ok"] is True
+        assert d["url"] == "http://candidate-host:7070"
+        assert captured["url"] == "http://candidate-host:7070/status"
+
+    def test_status_falls_back_to_stored_when_no_url(self):
+        srv._zro_bridge.set("http://stored-host:7070")
+        bridge_resp = {"ok": True, "backend": "pyautogui"}
+        captured = {}
+        def mock_get(url, **kwargs):
+            captured["url"] = url
+            return _mock_httpx_get(bridge_resp)
+        with patch("httpx.get", side_effect=mock_get):
+            r = client.get("/api/zro/bridge/status")
+        assert captured["url"] == "http://stored-host:7070/status"
+
+    def test_measure_uses_body_url_over_stored(self):
+        srv._zro_bridge.set("http://stored-host:7070")
+        bridge_resp = {"ok": True, "method": "key"}
+        captured = {}
+        def mock_post(url, **kwargs):
+            captured["url"] = url
+            return _mock_httpx_post(bridge_resp)
+        with patch("httpx.post", side_effect=mock_post):
+            r = client.post("/api/bridge/measure", json={"url": "http://candidate-host:7070"})
+        assert r.status_code == 200
+        assert captured["url"] == "http://candidate-host:7070/measure"
+
+    def test_measure_falls_back_to_stored_when_no_url(self):
+        srv._zro_bridge.set("http://stored-host:7070")
+        bridge_resp = {"ok": True, "method": "key"}
+        captured = {}
+        def mock_post(url, **kwargs):
+            captured["url"] = url
+            return _mock_httpx_post(bridge_resp)
+        with patch("httpx.post", side_effect=mock_post):
+            r = client.post("/api/bridge/measure")
+        assert captured["url"] == "http://stored-host:7070/measure"
+
+    def test_measure_no_url_configured_raises_400(self):
+        srv._zro_bridge.set("")
+        r = client.post("/api/bridge/measure", json={"url": None})
+        assert r.status_code == 400
+
+    def test_measure_empty_body_falls_back_to_stored(self):
+        srv._zro_bridge.set("http://stored-host:7070")
+        bridge_resp = {"ok": True, "method": "key"}
+        captured = {}
+        def mock_post(url, **kwargs):
+            captured["url"] = url
+            return _mock_httpx_post(bridge_resp)
+        with patch("httpx.post", side_effect=mock_post):
+            r = client.post("/api/bridge/measure")
+        assert captured["url"] == "http://stored-host:7070/measure"
+
+    def test_status_empty_query_url_uses_stored(self):
+        srv._zro_bridge.set("http://stored-host:7070")
+        bridge_resp = {"ok": True, "backend": "pyautogui"}
+        captured = {}
+        def mock_get(url, **kwargs):
+            captured["url"] = url
+            return _mock_httpx_get(bridge_resp)
+        with patch("httpx.get", side_effect=mock_get):
+            r = client.get("/api/zro/bridge/status?url=")
+        assert captured["url"] == "http://stored-host:7070/status"

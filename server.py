@@ -26,7 +26,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -592,6 +592,10 @@ class ZroBridgeInstrumentBody(BaseModel):
     port: Optional[str] = None
     instrument_name: Optional[str] = None
     correction_path: Optional[str] = None
+
+
+class ZroBridgeMeasureBody(BaseModel):
+    url: Optional[str] = None
 
 
 class WatchConfigBody(BaseModel):
@@ -2414,9 +2418,9 @@ _ZRO_BRIDGE_TIMEOUT = 5.0
 
 @app.get("/api/zro/bridge/status")
 @app.get("/api/bridge/status")
-def zro_bridge_status():
-    url = _zro_bridge.get()
-    if not url:
+def zro_bridge_status(url: Optional[str] = Query(None)):
+    target_url = url if (url is not None and url.strip()) else _zro_bridge.get()
+    if not target_url:
         return {
             "configured": False,
             "url": None,
@@ -2424,21 +2428,21 @@ def zro_bridge_status():
             "error": "ZRO Bridge URL not configured",
         }
     try:
-        resp = httpx.get(f"{url}/status", timeout=_ZRO_BRIDGE_TIMEOUT)
+        resp = httpx.get(f"{target_url}/status", timeout=_ZRO_BRIDGE_TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
-        return {"configured": True, "url": url, "ok": True, **data}
+        return {"configured": True, "url": target_url, "ok": True, **data}
     except httpx.ConnectError:
         return {
             "configured": True,
-            "url": url,
+            "url": target_url,
             "ok": False,
             "error": "Cannot reach ZRO Bridge — is start.bat running on the Windows PC?",
         }
     except Exception as exc:
         return {
             "configured": True,
-            "url": url,
+            "url": target_url,
             "ok": False,
             "error": str(exc),
         }
@@ -2555,21 +2559,25 @@ def save_prefs_endpoint(req: PrefsReq):
 
 @app.post("/api/zro/trigger")
 @app.post("/api/bridge/measure")
-def zro_trigger():
-    url = _zro_bridge.get()
-    if not url:
+def zro_trigger(body: ZroBridgeMeasureBody = Body(default_factory=dict)):
+    if isinstance(body, dict):
+        url_val = body.get("url")
+        target_url = url_val if (url_val is not None and str(url_val).strip()) else _zro_bridge.get()
+    else:
+        target_url = body.url if (body.url is not None and str(body.url).strip()) else _zro_bridge.get()
+    if not target_url:
         raise HTTPException(
             400,
             'ZRO Bridge URL not configured.  Set ZRO_BRIDGE_URL env var or POST /api/zro/bridge/config { "url": "http://<windows-pc>:7070" }',
         )
     try:
-        resp = httpx.post(f"{url}/measure", timeout=_ZRO_BRIDGE_TIMEOUT)
+        resp = httpx.post(f"{target_url}/measure", timeout=_ZRO_BRIDGE_TIMEOUT)
         resp.raise_for_status()
         return resp.json()
     except httpx.ConnectError:
         raise HTTPException(
             502,
-            f"Cannot reach ZRO Bridge at {url} — is start.bat running on the Windows PC?",
+            f"Cannot reach ZRO Bridge at {target_url} — is start.bat running on the Windows PC?",
         )
     except httpx.HTTPStatusError as exc:
         raise HTTPException(502, f"ZRO Bridge error: {exc.response.text}")
