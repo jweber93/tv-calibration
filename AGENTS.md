@@ -30,6 +30,7 @@ Run these before claiming work is done; CI (`.github/workflows/ci.yml`) enforces
 - **Firmware tone-mapping knee.** The U8G firmware tone-maps in the ~40–70% PQ range; gamma plans must guard against it (PR #570) and menu sliders can't correct it. Don't "fix" measured deviation there by changing math.
 - **ADB command safety.** `calibrator/adb_control.py:_cms_tool` rejects shell metacharacters at the adb-shell layer even though callers validate upstream (`tests/test_adb_control_injection.py`, Issue #151). Never build adb shell strings from unvalidated input.
 - **White-point mode** (hardware sessions): Warm1 for HDR, Warm2 for SDR (per `profiles.py` and the PR template checklist).
+- **Local Dimming / FALD is mode-dependent — never a single all-sessions value.** SDR: set **Off** during measurement so the backlight is stable and grayscale/gamma reads are repeatable (`profiles.py:333,867`). HDR: **leave it at the real viewing setting (usually High on the U8G)** — the panel needs FALD to reach HDR peak, and measuring with it off wouldn't represent actual viewing (`session.py:323,420`).
 
 ## Standard Commands
 
@@ -214,6 +215,14 @@ Select Mode → Prepare → Pre-Grayscale → Luminance → White Balance → Ga
 - The firmware tone-mapping wall in the ~40–70% signal range cannot be corrected via menu controls (see Calibration Invariants).
 
 **Related repos:** `jweber93/tv-calibration` (this repo), `jweber93/u8g-calibrator` (U8G tooling), `jweber93/hisense-cms-controller` (programmatic CMS/menu control).
+
+## State & Storage
+
+All runtime state is file-based, auto-created, and **gitignored — never commit these** (the `check-repo-hygiene.sh` gate rejects them):
+
+- `.sessions/` — one JSON file per calibration session (`server.py:SESSION_STORE_DIR`).
+- `.calibration-history/{tv_key}/` — `sessions.jsonl` (one line per completed session, **newest at bottom**) plus `baseline.json` (first-ever session, kept as the improvement reference). `{tv_key}` derives from the TV profile; root is overridable via `TVCAL_HISTORY_DIR` (`calibrator/history.py`).
+- `.prefs.json` — user prefs (watch path, LLM endpoint, Dogegen config, ZRO bridge URL, autocal apply mode/damping/iteration cap). Loaded at startup; env vars set initial values, the file overrides them. Written **atomically** (`.tmp` + replace, `server.py:~460`) on every UI change — preserve that pattern when adding a persisted pref.
 
 ---
 
