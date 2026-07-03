@@ -397,6 +397,81 @@ class ResolveEndpointTests(unittest.TestCase):
         )
 
 
+class SatBucket8BitTests(unittest.TestCase):
+    """sat_bucket must normalize by code_max for 8-bit correctness (#547)."""
+
+    def test_8bit_100_pct_saturation(self):
+        """(235,16,16) with code_max=255 should bucket as '100'."""
+        p = Patch("", 235, 16, 16, (0, 0, 0), kind="color")
+        self.assertEqual(p.sat_bucket(255), "100")
+
+    def test_8bit_100_pct_full_white(self):
+        """(255,0,0) with code_max=255 should bucket as '100'."""
+        p = Patch("", 255, 0, 0, (0, 0, 0), kind="color")
+        self.assertEqual(p.sat_bucket(255), "100")
+
+    def test_8bit_75_pct_saturation(self):
+        """(192,16,16) with code_max=255 should bucket as '75' (192/255≈0.753)."""
+        p = Patch("", 192, 16, 16, (0, 0, 0), kind="color")
+        self.assertEqual(p.sat_bucket(255), "75")
+
+    def test_10bit_100_pct_unchanged(self):
+        """(1023,0,0) with code_max=1023 should still bucket as '100'."""
+        p = Patch("", 1023, 0, 0, (0, 0, 0), kind="color")
+        self.assertEqual(p.sat_bucket(1023), "100")
+
+    def test_10bit_75_pct_unchanged(self):
+        """(768,0,0) with code_max=1023 should still bucket as '75'."""
+        p = Patch("", 768, 0, 0, (0, 0, 0), kind="color")
+        self.assertEqual(p.sat_bucket(1023), "75")
+
+    def test_default_code_max_1023_preserves_backward_compat(self):
+        """Calling sat_bucket() with no arg uses 1023 default."""
+        p = Patch("", 1023, 0, 0, (0, 0, 0), kind="color")
+        self.assertEqual(p.sat_bucket(), "100")
+        p2 = Patch("", 768, 0, 0, (0, 0, 0), kind="color")
+        self.assertEqual(p2.sat_bucket(), "75")
+
+    def test_grayscale_returns_gray_regardless(self):
+        """Grayscale patches always return 'gray' regardless of code_max."""
+        p = Patch("", 255, 255, 255, (0, 0, 0), kind="grayscale")
+        self.assertEqual(p.sat_bucket(255), "gray")
+
+    def test_other_bucket_for_low_saturation(self):
+        """Low-saturation colors at any bit depth bucket as 'other'."""
+        p = Patch("", 128, 128, 0, (0, 0, 0), kind="color")
+        self.assertEqual(p.sat_bucket(255), "other")
+
+    def test_analyze_on_8bit_cms_populates_color_100(self):
+        """analyze() with 8-bit CMS patches must populate color_100_* fields."""
+        patches = [
+            Patch("0,0,0", 0, 0, 0, (0.0, 0.0, 0.0), kind="grayscale"),
+            Patch("255,255,255", 255, 255, 255, (95.047, 100.0, 108.883), kind="grayscale"),
+            Patch("235,16,16", 235, 16, 16, (30.92856, 15.947926, 1.4498115), kind="color"),
+            Patch("16,235,16", 16, 235, 16, (26.8188255, 53.637651, 8.9396085), kind="color"),
+            Patch("16,16,235", 16, 16, 235, (1.4498115, 8.9396085, 26.8188255), kind="color"),
+        ]
+        cfg = AnalysisConfig(mode="sdr", eotf="gamma22", target_space="bt709", code_max=255)
+        summary = analyze(patches, cfg)
+        self.assertIsNotNone(summary.color_100_avg_de)
+        self.assertIsNotNone(summary.color_100_max_de)
+        self.assertIsNotNone(summary.color_100_chroma_avg)
+        # All color patches should be in "100" bucket at 8-bit
+        for row in summary.color_rows:
+            self.assertEqual(row["bucket"], "100")
+
+    def test_analyze_on_8bit_uniform_grayscale_has_null_color(self):
+        """analyze() with only grayscale patches should have null color fields."""
+        patches = [
+            Patch("0,0,0", 0, 0, 0, (0.0, 0.0, 0.0), kind="grayscale"),
+            Patch("255,255,255", 255, 255, 255, (95.047, 100.0, 108.883), kind="grayscale"),
+        ]
+        cfg = AnalysisConfig(mode="sdr", eotf="gamma22", target_space="bt709", code_max=255)
+        summary = analyze(patches, cfg)
+        self.assertIsNone(summary.color_75_avg_de)
+        self.assertIsNone(summary.color_100_avg_de)
+
+
 class WatchTests(unittest.TestCase):
     def test_watch_does_not_advance_mtime_when_run_fails(self):
         state = SessionState()
