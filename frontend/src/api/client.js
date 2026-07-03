@@ -117,6 +117,12 @@ export const api = {
   getPrefs:      ()           => api.get('/api/prefs'),
   savePrefs:     (body)       => api.post('/api/prefs', body),
 
+  // Autocal (#519 / #526 / #527)
+  autocalRun:     (sid, body) => api.post(`/api/session/${sid}/autocal/run`, body || {}),
+  autocalStop:    (sid)       => api.post(`/api/session/${sid}/autocal/stop`),
+  autocalConfirm: (sid)       => api.post(`/api/session/${sid}/autocal/confirm`),
+  autocalHistory: (sid)       => api.get(`/api/session/${sid}/autocal/history`),
+
   // LLM
   configureLlm:  (sid, body)  => api.post(`/api/session/${sid}/llm/configure`, body),
   getLlmStatus:  (sid)        => api.get(`/api/session/${sid}/llm/status`),

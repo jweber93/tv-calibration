@@ -42,7 +42,9 @@ _SDR_REFERENCE_CSV = textwrap.dedent("""\
     11,235,235,235,99.80,0.3127,0.3279
 """).encode()
 
-# HDR10/PQ: 11-point grayscale at 1000 nit peak (PQ-linearised Y values).
+# HDR10/PQ: 11-point grayscale at ~995 nit measured peak. Fixture Y values are
+# representative measured luminances (not a perfect ST.2084 tracker), so the
+# resulting ΔE/pq_err baselines below reflect real-world tracking error.
 _HDR_REFERENCE_CSV = textwrap.dedent("""\
     1,64,64,64,0.010,0.3127,0.3290
     2,102,102,102,0.455,0.3127,0.3290

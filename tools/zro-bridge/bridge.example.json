@@ -16,5 +16,9 @@
   "pre_trigger_delay_ms": 250,
 
   "remote_control_host": "127.0.0.1",
-  "remote_control_port": 20102
+  "remote_control_port": 20102,
+
+  "argyll_spotread_path": "spotread",
+  "argyll_port": null,
+  "argyll_timeout_s": 20.0
 }
