@@ -139,7 +139,7 @@ def analyze(
         targ_chroma_lab = (meas_lab[0], targ_lab[1], targ_lab[2])
         de_chroma = ciede2000(targ_chroma_lab, meas_lab)
 
-        bucket = p.sat_bucket
+        bucket = p.sat_bucket(cfg.code_max)
         color_stats[bucket]["de"].append(de)
         color_stats[bucket]["chroma"].append(de_chroma)
 

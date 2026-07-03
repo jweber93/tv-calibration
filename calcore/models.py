@@ -24,14 +24,14 @@ class Patch:
     def is_grayscale(self) -> bool:
         return self.kind == "grayscale"
 
-    @property
-    def sat_bucket(self) -> str:
+    def sat_bucket(self, code_max: int = 1023) -> str:
         if self.is_grayscale:
             return "gray"
         mx = max(self.r_target, self.g_target, self.b_target)
-        if mx >= 1000:
+        ratio = mx / code_max if code_max > 0 else 0
+        if ratio >= 0.92:
             return "100"
-        if 720 <= mx <= 820:
+        if 0.70 <= ratio <= 0.82:
             return "75"
         return "other"
 
