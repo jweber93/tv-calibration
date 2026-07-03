@@ -2419,7 +2419,7 @@ _ZRO_BRIDGE_TIMEOUT = 5.0
 @app.get("/api/zro/bridge/status")
 @app.get("/api/bridge/status")
 def zro_bridge_status(url: Optional[str] = Query(None)):
-    target_url = url if url is not None else _zro_bridge.get()
+    target_url = url if (url is not None and url.strip()) else _zro_bridge.get()
     if not target_url:
         return {
             "configured": False,
@@ -2561,9 +2561,10 @@ def save_prefs_endpoint(req: PrefsReq):
 @app.post("/api/bridge/measure")
 def zro_trigger(body: ZroBridgeMeasureBody = Body(default_factory=dict)):
     if isinstance(body, dict):
-        target_url = body.get("url") if "url" in body else _zro_bridge.get()
+        url_val = body.get("url")
+        target_url = url_val if (url_val is not None and str(url_val).strip()) else _zro_bridge.get()
     else:
-        target_url = body.url if body.url is not None else _zro_bridge.get()
+        target_url = body.url if (body.url is not None and str(body.url).strip()) else _zro_bridge.get()
     if not target_url:
         raise HTTPException(
             400,
