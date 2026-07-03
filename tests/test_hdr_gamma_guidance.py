@@ -368,3 +368,88 @@ class TestPqKneeAggregate:
             eotf=PQ_EOTF,
         )
         assert plan == []
+
+    def test_recommendations_mixed_failure_and_knee_not_blamed_on_tone_mapping(self):
+        # 1000-nit panel, levels (20, 40, 60, 80). 20/40/60% are below the knee
+        # but failed to read (Y=0 -> eff_gamma None); 80% is genuinely above
+        # the knee (PQ ref ~1555 nits > 1000). Only one of the four points is
+        # actually in the tone-mapping region, so the fallback must not claim
+        # "All measured gamma points" are there — that would send the operator
+        # to raise the panel's HDR peak instead of re-measuring the three
+        # points that simply never registered a reading.
+        levels = (20, 40, 60, 80)
+        meas = [
+            Measurement(
+                Y=0.0,
+                label=f"Gamma {n}%",
+                stimulus_rgb=(round(n / 100.0 * 1023),) * 3,
+            )
+            for n in levels
+        ]
+        recs = gamma_recommendations(
+            meas,
+            target_gamma=0.0,
+            peak_nits=1000.0,
+            signal_range="full",
+            code_scale="10bit",
+            eotf=PQ_EOTF,
+        )
+        joined = " ".join(recs).lower()
+        assert "tone-mapping" not in joined
+        assert "take another gamma reading" in joined
+
+    def test_preset_plan_mixed_failure_and_knee_returns_empty(self):
+        # Same mixed scenario as above: one genuinely above-knee point plus
+        # several failed below-knee readings. The preset plan must fall back
+        # to [] (re-measure), not the "all in tone-mapping region" hold.
+        levels = (20, 40, 60, 80)
+        meas = [
+            Measurement(
+                Y=0.0,
+                label=f"Gamma {n}%",
+                stimulus_rgb=(round(n / 100.0 * 1023),) * 3,
+            )
+            for n in levels
+        ]
+        plan = preset_gamma_control_plan(
+            meas,
+            target_gamma=0.0,
+            peak_nits=1000.0,
+            signal_range="full",
+            code_scale="10bit",
+            eotf=PQ_EOTF,
+        )
+        assert plan == []
+
+    def test_recommendations_single_above_knee_point_message(self):
+        # A single-measurement pass with just one point, genuinely above the
+        # knee: saw_above_knee=True, saw_below_knee=False -> tone-mapping
+        # message still fires correctly at the minimum input size.
+        recs = gamma_recommendations(
+            self._clipped_pass(1000.0, levels=(80,)),
+            target_gamma=0.0,
+            peak_nits=1000.0,
+            signal_range="full",
+            code_scale="10bit",
+            eotf=PQ_EOTF,
+        )
+        assert any("tone-mapping" in r.lower() for r in recs)
+
+    def test_recommendations_single_failed_point_no_tone_mapping_blame(self):
+        # A single-measurement pass with one below-knee point that failed to
+        # read: saw_above_knee=False, saw_below_knee=True -> generic
+        # "take another reading" fallback, not the tone-mapping message.
+        meas = [
+            Measurement(Y=0.0, label="Gamma 20%", stimulus_rgb=(round(0.20 * 1023),) * 3)
+        ]
+        recs = gamma_recommendations(
+            meas,
+            target_gamma=0.0,
+            peak_nits=1000.0,
+            signal_range="full",
+            code_scale="10bit",
+            eotf=PQ_EOTF,
+        )
+        joined = " ".join(recs).lower()
+        assert "tone-mapping" not in joined
+        assert "take another gamma reading" in joined

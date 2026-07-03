@@ -344,6 +344,7 @@ def gamma_recommendations(
 
     gammas = []
     saw_above_knee = False
+    saw_below_knee = False
     for m in measurements:
         stim_pct = gamma_nominal_pct(m, signal_range, code_scale, levels)
         if stim_pct is None:
@@ -355,15 +356,19 @@ def gamma_recommendations(
         if pq and pq_point_above_knee(stim_pct, peak_nits):
             saw_above_knee = True
             continue
+        # Mark that we saw at least one non-above-knee point, regardless of
+        # whether its reading succeeded.
+        saw_below_knee = True
         eff_gamma = eotf_from_luminance(m.Y, peak_nits, stim_pct, eotf)
         if eff_gamma is not None:
             gammas.append({"stimulus_pct": stim_pct, "effective_gamma": eff_gamma})
     if not gammas:
-        # Only attribute the empty result to the tone-mapping region when we
-        # actually saw above-knee points; otherwise the readings themselves
-        # failed and the operator should re-measure rather than be told the
-        # wall is the cause.
-        if pq and saw_above_knee:
+        # Only attribute the empty result to the tone-mapping region when
+        # every measured point was above the knee. If any below-knee point
+        # was seen too, the empty result means readings failed there, and
+        # blaming the wall would send the operator to raise the panel's HDR
+        # peak instead of re-measuring the points that actually failed.
+        if pq and saw_above_knee and not saw_below_knee:
             return [
                 "All measured gamma points sit in the firmware tone-mapping region "
                 "(PQ reference exceeds panel peak). Do not chase them with menu controls; "
@@ -530,6 +535,7 @@ def preset_gamma_control_plan(
         ]
     gammas = []
     saw_above_knee = False
+    saw_below_knee = False
     for m in measurements:
         stim_pct = gamma_nominal_pct(m, signal_range, code_scale, levels)
         if stim_pct is None:
@@ -540,11 +546,18 @@ def preset_gamma_control_plan(
         if pq and pq_point_above_knee(stim_pct, peak_nits):
             saw_above_knee = True
             continue
+        # Mark that we saw at least one non-above-knee point, regardless of
+        # whether its reading succeeded.
+        saw_below_knee = True
         eff = eotf_from_luminance(m.Y, peak_nits, stim_pct, eotf)
         if eff is not None:
             gammas.append(eff)
     if not gammas:
-        if pq and saw_above_knee:
+        # Only blame the tone-mapping wall when every measured point was
+        # above the knee. A below-knee point in the mix means readings
+        # failed there instead, and this preset advice would misdirect the
+        # operator toward raising the panel's HDR peak.
+        if pq and saw_above_knee and not saw_below_knee:
             return [
                 {
                     "control": "Gamma preset",
