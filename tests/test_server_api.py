@@ -1088,6 +1088,76 @@ class TestStepNavigation:
         assert s1["step_index"] > 0
 
 
+# ── HDR luminance gate (#546) ─────────────────────────────────────────────────
+# HDR10/Dolby Vision targets carry a nominal 1000-nit mastering reference that a
+# real panel is not expected to hit — peak is panel-limited and tone mapping
+# handles the rest. The ±5% "dial Backlight to match target" gate only makes
+# sense for SDR, where the target nits are an achievable Backlight setting.
+
+class TestHDRLuminanceGate:
+    def _to_luminance(self, client, sid, mode):
+        client.post(f"/api/session/{sid}/mode", json={"mode": mode})
+        client.post(f"/api/session/{sid}/prepared")
+        _upload_csv(client, sid, _make_zro_csv(_grayscale_rows()))
+        resp = client.post(f"/api/session/{sid}/next")
+        assert resp.json()["step"] == "luminance"
+
+    def _measure_white(self, client, sid, nits):
+        # Dogegen + full-range HDR10/Dolby Vision sessions default to 10-bit code
+        # values (see recommended_code_scale), so 100% white is RGB 1023, not 235.
+        code_scale = client.get(f"/api/session/{sid}").json().get("code_scale", "8bit")
+        white = 1023 if code_scale == "10bit" else 235
+        _upload_csv(client, sid, _make_zro_csv([(white, white, white, nits, 0.3127, 0.3290)]))
+
+    def test_hdr10_700_nit_panel_advances_past_luminance(self, client, session_id):
+        self._to_luminance(client, session_id, "HDR10")
+        self._measure_white(client, session_id, 700.0)
+        resp = client.post(f"/api/session/{session_id}/next")
+        assert resp.status_code == 200
+        assert resp.json()["step"] == "white_balance"
+
+    def test_hdr10_1480_nit_panel_advances_past_luminance(self, client, session_id):
+        # Exact repro from the issue: a 1500-nit-class panel measuring 1480 nits
+        # at 100% white used to hard-block with "48.0% off" — HDR peak is
+        # panel-limited, not tunable down to the 1000-nit mastering reference.
+        self._to_luminance(client, session_id, "HDR10")
+        self._measure_white(client, session_id, 1480.0)
+        resp = client.post(f"/api/session/{session_id}/next")
+        assert resp.status_code == 200
+        assert resp.json()["step"] == "white_balance"
+
+    def test_dolby_vision_panel_measured_peak_advances_past_luminance(self, client, session_id):
+        self._to_luminance(client, session_id, "Dolby Vision")
+        self._measure_white(client, session_id, 850.0)
+        resp = client.post(f"/api/session/{session_id}/next")
+        assert resp.status_code == 200
+        assert resp.json()["step"] == "white_balance"
+
+    def test_hdr10_implausible_reading_still_rejected(self, client, session_id):
+        # Sanity bounds (validate_peak_luminance) still apply to HDR — only the
+        # ±5%-of-target match requirement is skipped.
+        self._to_luminance(client, session_id, "HDR10")
+        self._measure_white(client, session_id, 6000.0)
+        resp = client.post(f"/api/session/{session_id}/next")
+        assert resp.status_code == 400
+
+    def test_sdr_keeps_pct_luminance_gate(self, client, session_id):
+        # SDR's target nits are an achievable Backlight setting, so the ±5%
+        # match requirement must still block advancement.
+        self._to_luminance(client, session_id, "SDR")
+        self._measure_white(client, session_id, 200.0)  # SDR target is 120 nits
+        resp = client.post(f"/api/session/{session_id}/next")
+        assert resp.status_code == 400
+        assert "% off" in resp.json()["detail"]
+
+    def test_sdr_within_tolerance_advances_past_luminance(self, client, session_id):
+        self._to_luminance(client, session_id, "SDR")
+        self._measure_white(client, session_id, 120.0)  # SDR target is 120 nits
+        resp = client.post(f"/api/session/{session_id}/next")
+        assert resp.status_code == 200
+        assert resp.json()["step"] == "white_balance"
+
+
 # ── ZRO per-step instructions ─────────────────────────────────────────────────
 
 class TestZROInstructions:

@@ -1961,11 +1961,18 @@ class SessionStore:
                 if session.get("target") is None:
                     raise HTTPException(400, "Target not set. Go back and select a calibration mode.")
                 latest = session["lum_measurements"][-1]
-                validation = validate_peak_luminance(latest.Y, session["target"])
+                target = session["target"]
+                validation = validate_peak_luminance(latest.Y, target)
                 if not validation["valid"]:
                     raise HTTPException(400, validation["message"])
-                if session["target"]:
-                    target_nits = session["target"].peak_luminance_nits
+                # SDR targets a fixed peak (e.g. 100/120 nits) achievable via Backlight,
+                # so require the reading to land within tolerance of that target. HDR
+                # targets (HDR10, Dolby Vision) carry a nominal mastering reference
+                # (e.g. 1000 nits) that is not an achievable or desirable panel setting
+                # — panel peak is display-limited and tone mapping handles the rest —
+                # so HDR only needs to pass the sanity-bounds check above (#546).
+                if target.mode == CalMode.SDR:
+                    target_nits = target.peak_luminance_nits
                     pct_err = abs(latest.Y - target_nits) / target_nits * 100
                     if pct_err > luminance_threshold_pct:
                         raise HTTPException(
