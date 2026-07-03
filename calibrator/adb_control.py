@@ -221,6 +221,68 @@ def get_cms_value(
     return {"ok": ok, "value": value, "stdout": result.stdout, "stderr": result.stderr}
 
 
+def adjust_cms_value(
+    channel: str,
+    control: str,
+    delta: int,
+    device: Optional[str] = None,
+) -> dict:
+    """
+    Adjust a CMS value by a relative delta, clamped to [CMS_MIN, CMS_MAX].
+
+    Reads the current value from the TV, adds delta, clamps to the valid
+    range (−10…+10), and writes back if changed.  This is the correct
+    operation for UI controls that express intent as relative adjustments,
+    since the underlying CmsTool API is an absolute set.
+
+    Args:
+        channel: One of CMS_CHANNELS keys (e.g. "Red", "Cyan").
+        control: One of CMS_SET_ACTIONS keys ("Hue", "Saturation", "Brightness").
+        delta:   The relative change to apply (positive or negative).
+        device:  ADB device serial (optional).
+
+    Returns:
+        {"ok": bool, "stdout": str, "stderr": str,
+         "old_value": int | None, "new_value": int | None}
+    """
+    # Reuse validation from get/set — raises ValueError on bad inputs.
+    if channel not in CMS_CHANNELS:
+        raise ValueError(f"Unknown channel {channel!r}. Valid: {sorted(CMS_CHANNELS)}")
+    if control not in CMS_SET_ACTIONS:
+        raise ValueError(f"Unknown control {control!r}. Valid: {sorted(CMS_SET_ACTIONS)}")
+
+    current = get_cms_value(channel, control, device=device)
+    if not current["ok"] or current["value"] is None:
+        return {
+            "ok": False,
+            "stdout": current["stdout"],
+            "stderr": current["stderr"] or "Failed to read current CMS value",
+            "old_value": None,
+            "new_value": None,
+        }
+
+    old_value = current["value"]
+    new_value = max(CMS_MIN, min(CMS_MAX, old_value + delta))
+
+    if new_value == old_value:
+        return {
+            "ok": True,
+            "stdout": f"no change: value already {old_value}",
+            "stderr": "",
+            "old_value": old_value,
+            "new_value": new_value,
+        }
+
+    set_result = set_cms_value(channel, control, new_value, device=device)
+    return {
+        "ok": set_result["ok"],
+        "stdout": set_result["stdout"],
+        "stderr": set_result["stderr"],
+        "old_value": old_value,
+        "new_value": new_value if set_result["ok"] else None,
+    }
+
+
 def get_all_cms_values(device: Optional[str] = None) -> dict:
     """
     Read all CMS values (all 6 channels × 3 controls) from the TV.

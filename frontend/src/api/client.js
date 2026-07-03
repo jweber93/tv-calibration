@@ -103,8 +103,8 @@ export const api = {
   // ADB — CMS (per-channel colour tuner)
   getAdbStatus:  ()           => api.get('/api/adb/status'),
   adbDeploy:     ()           => api.post('/api/adb/cms/push'),
-  adbApply:      (channel, control, value) =>
-    api.post('/api/adb/cms/set', { channel, control, value }),
+  adbApply:      (channel, control, delta) =>
+    api.post('/api/adb/cms/adjust', { channel, control, delta }),
   adbReset:      ()           => api.post('/api/adb/cms/reset'),
 
   // ADB — main picture controls (Brightness, Contrast, Saturation, PictureMode)
