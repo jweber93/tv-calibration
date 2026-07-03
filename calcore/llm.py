@@ -14,6 +14,11 @@ if TYPE_CHECKING:
 # Max repasses before flagging hardware ceiling
 _REPATCH_MAX_PASSES = 3
 
+# Conservative Round-1 correction factor for inter-node bleed (QE_AUDIT.md
+# ground truth). The prompt asks the model to self-damp; this is the
+# deterministic backstop so the invariant holds even if it doesn't (#554).
+_ROUND1_DAMPING_FACTOR = 0.55
+
 logger = logging.getLogger(__name__)
 
 _FENCE_RE = re.compile(r"```\s*(?:json\s*)?(.*?)\s*```", re.IGNORECASE | re.DOTALL)
@@ -1520,6 +1525,37 @@ def _format_adjustment_rounds(prior_rounds: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _apply_round1_damping(
+    adjustments: List[Dict[str, Any]], rounds_used: int
+) -> List[Dict[str, Any]]:
+    """Clamp Round-1 deltas to ``_ROUND1_DAMPING_FACTOR`` of the LLM's suggested
+    correction, deterministically enforcing the "conservative Round-1
+    correction factor (~0.55) for inter-node bleed" invariant regardless of
+    whether the model actually complied with the prompt's damping instruction.
+
+    Only the first round is damped here (there is no prior residual to trend
+    against yet). Later rounds rely on the prior-rounds history fed back into
+    the prompt, which already tells the model what did and didn't work.
+    """
+    if rounds_used != 0:
+        return adjustments
+
+    damped: List[Dict[str, Any]] = []
+    for adj in adjustments:
+        from_val = _safe_float(adj.get("from"))
+        to_val = _safe_float(adj.get("to"))
+        if from_val is None or to_val is None or from_val == to_val:
+            damped.append(adj)
+            continue
+        new_to = from_val + _ROUND1_DAMPING_FACTOR * (to_val - from_val)
+        if isinstance(adj.get("from"), int) and isinstance(adj.get("to"), int):
+            new_to = round(new_to)
+        else:
+            new_to = round(new_to, 4)
+        damped.append({**adj, "to": new_to})
+    return damped
+
+
 def predict_next_settings(
     summary: "Summary",
     cfg: "AnalysisConfig",
@@ -1701,7 +1737,7 @@ def predict_next_settings(
             return None
 
         return NextSettingsPrediction(
-            adjustments=plan.adjustments,
+            adjustments=_apply_round1_damping(plan.adjustments, rounds_used),
             next_step=plan.next_step,
             confidence=plan.confidence,
             converged=False,
