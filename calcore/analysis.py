@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .colour import D65_XYZ, D65_xy, ciede2000, xyY_to_xyz, xyz_to_lab
 from .eotf import pq_target_nits
-from .models import AnalysisConfig, Patch, Summary
+from .models import AnalysisConfig, Patch, Summary, _normalize_code
 from .targets import target_xyz_for_patch
 
 
@@ -87,7 +87,7 @@ def analyze(
         de = ciede2000(targ_lab, meas_lab)
         gray_des.append(de)
 
-        n = p.r_target / cfg.code_max
+        n = _normalize_code(p.r_target, cfg.signal_range) / cfg.code_max
         meas_y = p.meas_yxy[0] if p.meas_yxy is not None else p.meas_xyz[1]
         gamma_val = None
         pq_err_pct = None
@@ -142,7 +142,7 @@ def analyze(
         targ_chroma_lab = (meas_lab[0], targ_lab[1], targ_lab[2])
         de_chroma = ciede2000(targ_chroma_lab, meas_lab)
 
-        bucket = p.sat_bucket(cfg.code_max)
+        bucket = p.sat_bucket(cfg.code_max, cfg.signal_range)
         color_stats[bucket]["de"].append(de)
         color_stats[bucket]["chroma"].append(de_chroma)
 

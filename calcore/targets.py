@@ -5,7 +5,7 @@ from typing import Optional, Tuple
 
 from .colour import D65_xy, xyY_to_xyz
 from .eotf import bt1886_eotf, gamma_eotf, pq_target_nits
-from .models import AnalysisConfig, Patch
+from .models import AnalysisConfig, Patch, _normalize_code
 from .spaces import detect_matrix, rgb_to_xyz
 
 logger = logging.getLogger(__name__)
@@ -34,13 +34,13 @@ def target_xyz_for_patch(
         raise ValueError(f"Invalid code_max: {code_max}, must be a positive integer")
 
     target_rgb = (
-        patch.r_target / code_max,
-        patch.g_target / code_max,
-        patch.b_target / code_max,
+        _normalize_code(patch.r_target, cfg.signal_range) / code_max,
+        _normalize_code(patch.g_target, cfg.signal_range) / code_max,
+        _normalize_code(patch.b_target, cfg.signal_range) / code_max,
     )
 
     if patch.is_grayscale:
-        n = patch.r_target / code_max
+        n = _normalize_code(patch.r_target, cfg.signal_range) / code_max
         if cfg.mode.lower() == "hdr" or cfg.eotf.lower() == "pq":
             # PQ (ST.2084) is an absolute EOTF: the signal encodes nits
             # directly, not a fraction of peak. Clip at the display's

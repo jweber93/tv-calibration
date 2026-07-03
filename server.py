@@ -905,6 +905,15 @@ def _measurement_to_patch(m: Any) -> Patch:
 
 
 def _session_to_analysis_config(session: Dict[str, Any]) -> AnalysisConfig:
+    """Build a calcore ``AnalysisConfig`` from a session dict.
+
+    The ``signal_range`` field comes from the session's HDMI signal-range
+    setting (set via ``POST /api/session/<sid>/signal-range`` or defaulting
+    to ``"full"`` at session creation — see ``calibrator/session.py:1755``).
+    Sessions created before this field was added will fall back to ``"full"``,
+    which preserves the previous (incorrect for limited-range, but unchanged)
+    analysis behavior.
+    """
     mode = session.get("mode") or "SDR"
     calcore_mode = "hdr" if mode in ("HDR10", "Dolby Vision") else "sdr"
 
@@ -926,12 +935,14 @@ def _session_to_analysis_config(session: Dict[str, Any]) -> AnalysisConfig:
         target_space = "bt709"
 
     code_max = 1023 if session.get("code_scale") == "10bit" else 255
+    signal_range = session.get("signal_range", "full")
 
     return AnalysisConfig(
         mode=calcore_mode,
         eotf=eotf,
         target_space=target_space,
         code_max=code_max,
+        signal_range=signal_range,
     )
 
 
