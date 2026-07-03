@@ -7,13 +7,16 @@ Mocks subprocess.run so no real ArgyllCMS installation or meter is required.
 import asyncio
 import subprocess
 import sys
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools" / "zro-bridge"))
 
+import bridge  # noqa: E402
 from backends import argyll_backend  # noqa: E402
 
 
@@ -204,3 +207,45 @@ class TestReadXyzAsync:
 
         mock_pool.assert_called_once()
         assert result["func"] is argyll_backend.read_xyz
+
+
+# ── bridge.py /measure integration: concurrent argyll reads (issue #533) ───────
+
+class TestConcurrentArgyllMeasureRequests:
+    def test_two_concurrent_reads_overlap_instead_of_serializing(self):
+        """
+        End-to-end proof that two simultaneous POST /measure calls
+        (backend=argyll) run concurrently through Starlette's threadpool
+        rather than blocking each other on the event loop: two slow
+        "meter reads" complete in roughly one read's duration, not two.
+        """
+        read_duration = 0.15
+
+        def slow_subprocess_run(*args, **kwargs):
+            time.sleep(read_duration)
+            return _mock_proc(stdout="Result is XYZ: 1.0 2.0 3.0\n")
+
+        bridge._config = dict(bridge.DEFAULT_CONFIG)
+        bridge._config["backend"] = "argyll"
+
+        async def _fire_concurrent_requests():
+            transport = httpx.ASGITransport(app=bridge.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://bridge.test") as client:
+                start = time.monotonic()
+                responses = await asyncio.gather(
+                    client.post("/measure"),
+                    client.post("/measure"),
+                )
+                return responses, time.monotonic() - start
+
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", side_effect=slow_subprocess_run):
+            responses, elapsed = asyncio.run(_fire_concurrent_requests())
+
+        for resp in responses:
+            assert resp.status_code == 200
+            assert resp.json()["ok"] is True
+
+        # Serialized on the event loop, two reads would take ~2x read_duration.
+        # Run concurrently via run_in_threadpool, total wall time stays close to 1x.
+        assert elapsed < read_duration * 1.6

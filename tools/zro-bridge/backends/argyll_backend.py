@@ -24,11 +24,35 @@ import os
 import re
 import shutil
 import subprocess
-from typing import Optional, Tuple
+from typing import Literal, NotRequired, Optional, Tuple, TypedDict, Union
 
 from fastapi.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
+
+
+class XyzReadOk(TypedDict):
+    ok: Literal[True]
+    method: str
+    X: float
+    Y: float  # absolute cd/m^2 — see read_xyz()'s docstring
+    Z: float
+    x: float
+    y: float
+    raw: str
+
+
+ErrorType = Literal["not_found", "no_meter", "timeout", "parse_error", "spotread_error"]
+
+
+class XyzReadError(TypedDict):
+    ok: Literal[False]
+    error: str
+    error_type: ErrorType
+    raw: NotRequired[str]
+
+
+XyzReadResult = Union[XyzReadOk, XyzReadError]
 
 _DEFAULT_TIMEOUT_S = 20.0
 
@@ -103,13 +127,24 @@ def read_xyz(
     *,
     spotread_path: str = "spotread",
     timeout: float = _DEFAULT_TIMEOUT_S,
-) -> dict:
+) -> XyzReadResult:
     """
     Take one single-shot emissive reading via ``spotread -e -O`` and return XYZ.
+
+    Install ArgyllCMS from https://www.argyllcms.com/; on Linux the meter
+    needs udev permissions (see the module docstring for details).
 
     ``Y`` is absolute luminance in cd/m^2 (nits), taken as-is from spotread's
     emissive output — never rescaled or normalized. This is required for
     HDR/PQ targets, which compare against absolute-nit references.
+
+    ``timeout`` bounds a single read only (this function issues exactly one
+    ``spotread`` call). It is not a budget for a measurement sequence —
+    callers driving multiple reads (e.g. ``/measure/sequence``) apply it once
+    per call. High-end spectrophotometers doing multi-flash averaging may
+    need longer than the ``_DEFAULT_TIMEOUT_S`` default; raise
+    ``argyll_timeout_s`` in bridge.json if reads are timing out on slow
+    hardware.
 
     Returns on success::
 
@@ -206,7 +241,7 @@ async def read_xyz_async(
     *,
     spotread_path: str = "spotread",
     timeout: float = _DEFAULT_TIMEOUT_S,
-) -> dict:
+) -> XyzReadResult:
     """
     Async wrapper around ``read_xyz()``.
 
