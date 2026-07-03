@@ -14,7 +14,8 @@ reports **absolute** XYZ — ``Y`` is real luminance in cd/m^2, not normalized
 to a 0-100 or 0-1 white point — which is exactly what PQ/ST.2084 HDR targets
 need and must be preserved end to end (see ``read_xyz``'s docstring).
 
-CCMX/CCSS spectral correction (issue #532) is separate follow-up work.
+Meter discovery/selection (issue #531) is a separate follow-up. CCMX/CCSS
+spectral correction is supported via the ``correction_path`` parameter.
 """
 
 import logging
@@ -38,6 +39,7 @@ class XyzReadOk(TypedDict):
     x: float
     y: float
     raw: str
+    warning: NotRequired[str]  # advisory, e.g. missing CCMX/CCSS correction
 
 
 ErrorType = Literal["not_found", "no_meter", "timeout", "parse_error", "spotread_error"]
@@ -95,7 +97,14 @@ _NO_METER_MARKERS = (
     "not found on any port",
     "instrument access failed",
     "no suitable device",
+)
+
+# Substrings that indicate a missing CCMX/CCSS correction file. When these
+# appear in spotread output and no -X flag was passed, the reading is still
+# valid but may be less accurate on wide-gamut panels (colorimeters only).
+_CORRECTION_WARNING_MARKERS = (
     "no ccmx/ccss",
+    "correction file",
 )
 
 # `spotread -?` prints its usage text, which includes the -c option's
@@ -155,6 +164,7 @@ def read_xyz(
     *,
     spotread_path: str = "spotread",
     timeout: float = _DEFAULT_TIMEOUT_S,
+    correction_path: Optional[str] = None,
 ) -> XyzReadResult:
     """
     Take one single-shot emissive reading via ``spotread -e -O`` and return XYZ.
@@ -173,6 +183,13 @@ def read_xyz(
     need longer than the ``_DEFAULT_TIMEOUT_S`` default; raise
     ``argyll_timeout_s`` in bridge.json if reads are timing out on slow
     hardware.
+
+    ``correction_path`` is an optional path to a CCMX/CCSS meter correction
+    file, passed to ``spotread -X``. Required for colorimeters (i1Display,
+    etc.) on modern wide-gamut panels to maintain accuracy; spectrophotometers
+    (i1Pro) do not need one. When set to None, spotread looks for an automatic
+    correction file — if it cannot find one, a ``warning`` field is added to
+    the result dict.
 
     Returns on success::
 
@@ -197,6 +214,8 @@ def read_xyz(
         }
 
     cmd = [resolved, "-e", "-O"]
+    if correction_path:
+        cmd.extend(["-X", correction_path])
     if port:
         cmd.append(port)
 
@@ -252,7 +271,7 @@ def read_xyz(
         }
 
     x, y = _xyz_to_xy(parsed["X"], parsed["Y"], parsed["Z"])
-    return {
+    result: XyzReadOk = {
         "ok": True,
         "method": "argyll",
         "X": parsed["X"],
@@ -263,12 +282,29 @@ def read_xyz(
         "raw": output.strip(),
     }
 
+    if not correction_path and _has_correction_warning(output):
+        result["warning"] = (
+            "No CCMX/CCSS meter correction file configured. Readings from "
+            "colorimeters (i1Display, etc.) on wide-gamut panels may be less "
+            "accurate without one. Set argyll_correction in bridge.json to "
+            "suppress this warning."
+        )
+
+    return result
+
+
+def _has_correction_warning(output: str) -> bool:
+    """Check whether spotread output contains a missing-correction advisory."""
+    lowered = output.lower()
+    return any(marker in lowered for marker in _CORRECTION_WARNING_MARKERS)
+
 
 async def read_xyz_async(
     port: Optional[str] = None,
     *,
     spotread_path: str = "spotread",
     timeout: float = _DEFAULT_TIMEOUT_S,
+    correction_path: Optional[str] = None,
 ) -> XyzReadResult:
     """
     Async wrapper around ``read_xyz()``.
@@ -280,7 +316,10 @@ async def read_xyz_async(
     ``run_in_threadpool`` usage).
     """
     return await run_in_threadpool(
-        read_xyz, port, spotread_path=spotread_path, timeout=timeout
+        read_xyz, port,
+        spotread_path=spotread_path,
+        timeout=timeout,
+        correction_path=correction_path,
     )
 
 

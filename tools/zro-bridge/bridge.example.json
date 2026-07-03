@@ -20,5 +20,6 @@
 
   "argyll_spotread_path": "spotread",
   "argyll_port": null,
-  "argyll_timeout_s": 20.0
+  "argyll_timeout_s": 20.0,
+  "argyll_correction": null
 }
