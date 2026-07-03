@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 from calcore.colour import ciede2000, xyY_to_xyz, xyz_to_lab
-from calcore.eotf import pq_inverse_eotf
+from calcore.eotf import pq_eotf, pq_inverse_eotf
 
 
 def delta_xy(measured_xy, target_xy) -> float:
@@ -63,6 +63,34 @@ def is_pq_eotf(eotf: str) -> bool:
     """True when the EOTF label denotes PQ / SMPTE ST.2084."""
     e = (eotf or "").lower()
     return "pq" in e or "2084" in e
+
+
+# A PQ stimulus point is considered "above the knee" — i.e. inside the
+# firmware tone-mapping region — when its absolute ST.2084 reference luminance
+# meets or exceeds the panel peak. The margin is 1.0 (a hard criterion: the
+# reference is literally unreachable on this panel) so genuine midtone errors
+# below the knee are never suppressed. See issue #548 and QE_AUDIT.md.
+PQ_KNEE_MARGIN = 1.0
+
+
+def pq_point_above_knee(
+    stimulus_pct: float,
+    peak_nits: float,
+    margin: float = PQ_KNEE_MARGIN,
+) -> bool:
+    """True when the ST.2084 reference luminance at ``stimulus_pct`` is at or
+    above ``peak_nits * margin``.
+
+    ST.2084 is an absolute EOTF: the encoded signal maps directly to nits, not
+    to a fraction of the display's peak. When the reference for a stimulus
+    exceeds what the panel can actually produce, firmware tone mapping takes
+    over and the measured luminance will always read as "too dark" relative to
+    that reference. Such points must not be "corrected" via menu controls — the
+    operator would chase the tone-mapping wall forever (issue #548).
+    """
+    if peak_nits <= 0 or stimulus_pct <= 0 or stimulus_pct >= 100:
+        return False
+    return pq_eotf(stimulus_pct / 100.0) >= peak_nits * margin
 
 
 def eotf_from_luminance(measured_nits, peak_nits, stimulus_pct, eotf="gamma"):
