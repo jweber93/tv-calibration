@@ -155,6 +155,48 @@ async def status():
         raise HTTPException(400, f"Unknown backend: {backend!r}")
 
 
+@app.get("/instruments")
+async def list_instruments():
+    """
+    Enumerate the meters ArgyllCMS's spotread currently detects (backend=argyll only).
+
+    Returns {"ok": True, "instruments": [{"index": int, "name": str}, ...],
+             "selected_port": <current argyll_port, or null>}.
+    An empty instruments list means spotread ran but nothing is connected —
+    that's a valid result, not an error.
+
+    ``selected_port`` reflects whichever value is currently in effect for
+    reads: bridge.json's static ``argyll_port`` until/unless a client has
+    since called ``POST /config/argyll-port``, which overrides it in memory
+    for the rest of this bridge process's life.
+    """
+    backend = _config.get("backend", "pyautogui")
+    if backend != "argyll":
+        raise HTTPException(400, "Instrument discovery is only available for backend='argyll'.")
+
+    from backends.argyll_backend import list_instruments_async
+    result = await list_instruments_async(
+        spotread_path=_config.get("argyll_spotread_path", "spotread"),
+        timeout=_config.get("argyll_timeout_s", 20.0),
+    )
+    if not result["ok"]:
+        raise HTTPException(502, result.get("error", "Instrument discovery failed"))
+    return {**result, "selected_port": _config.get("argyll_port")}
+
+
+@app.post("/config/argyll-port")
+def set_argyll_port(body: dict):
+    """
+    Select which detected instrument/port argyll reads use for the rest of
+    this bridge process's lifetime (in-memory only — edit argyll_port in
+    bridge.json if you want the choice to survive a bridge restart too).
+    """
+    port = body.get("port") or None
+    _config["argyll_port"] = port
+    logger.info("Argyll port set to %r (runtime only)", port)
+    return {"ok": True, "argyll_port": port}
+
+
 @app.post("/measure")
 async def trigger_measure():
     """

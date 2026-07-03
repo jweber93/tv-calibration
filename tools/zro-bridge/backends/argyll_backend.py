@@ -14,9 +14,7 @@ reports **absolute** XYZ — ``Y`` is real luminance in cd/m^2, not normalized
 to a 0-100 or 0-1 white point — which is exactly what PQ/ST.2084 HDR targets
 need and must be preserved end to end (see ``read_xyz``'s docstring).
 
-Meter discovery/selection (issue #531) and CCMX/CCSS spectral correction
-(issue #532) are separate follow-up work; this module only performs the
-single-shot XYZ read.
+CCMX/CCSS spectral correction (issue #532) is separate follow-up work.
 """
 
 import logging
@@ -54,6 +52,27 @@ class XyzReadError(TypedDict):
 
 XyzReadResult = Union[XyzReadOk, XyzReadError]
 
+
+class Instrument(TypedDict):
+    index: int
+    name: str
+
+
+class ListInstrumentsOk(TypedDict):
+    ok: Literal[True]
+    instruments: list[Instrument]
+    raw: str
+
+
+class ListInstrumentsError(TypedDict):
+    ok: Literal[False]
+    error: str
+    error_type: ErrorType
+    raw: NotRequired[str]
+
+
+ListInstrumentsResult = Union[ListInstrumentsOk, ListInstrumentsError]
+
 _DEFAULT_TIMEOUT_S = 20.0
 
 # spotread prints the reading result on stdout as a line such as:
@@ -78,6 +97,15 @@ _NO_METER_MARKERS = (
     "no suitable device",
     "no ccmx/ccss",
 )
+
+# `spotread -?` prints its usage text, which includes the -c option's
+# numbered list of currently detected communication ports/instruments, e.g.:
+#   -c listno       Set communication port from the following list (default 1)
+#       1 = 'Klein K10-A on COM3'
+#       2 = 'X-Rite i1 Display Pro, USB'
+# This is how every Argyll CLI tool (dispcal, spotread, dispwin, ...) surfaces
+# instrument discovery — there's no separate "list instruments" subcommand.
+_INSTRUMENT_LINE_RE = re.compile(r"^\s*(\d+)\s*=\s*'([^']+)'\s*$", re.MULTILINE)
 
 
 def find_spotread(explicit_path: Optional[str] = "spotread") -> Optional[str]:
@@ -253,4 +281,73 @@ async def read_xyz_async(
     """
     return await run_in_threadpool(
         read_xyz, port, spotread_path=spotread_path, timeout=timeout
+    )
+
+
+def list_instruments(
+    *,
+    spotread_path: str = "spotread",
+    timeout: float = _DEFAULT_TIMEOUT_S,
+) -> ListInstrumentsResult:
+    """
+    Enumerate the communication ports/instruments spotread currently detects,
+    by parsing the numbered ``-c listno`` list out of ``spotread -?``'s usage
+    text (see ``_INSTRUMENT_LINE_RE``).
+
+    An empty ``instruments`` list with ``ok: True`` is a normal, valid result
+    — it means spotread ran fine but nothing is plugged in, not an error.
+    Use the returned ``index`` as the ``port`` argument to ``read_xyz()``.
+    """
+    resolved = find_spotread(spotread_path)
+    if resolved is None:
+        return {
+            "ok": False,
+            "error_type": "not_found",
+            "error": (
+                f"ArgyllCMS spotread not found ({spotread_path!r}). Install ArgyllCMS "
+                "(https://www.argyllcms.com/) and put spotread on PATH, or set "
+                "argyll_spotread_path in bridge.json."
+            ),
+        }
+
+    cmd = [resolved, "-?"]
+    logger.info("Running: %s", " ".join(cmd))
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except FileNotFoundError:
+        return {
+            "ok": False,
+            "error_type": "not_found",
+            "error": f"ArgyllCMS spotread not found at {resolved!r}.",
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "ok": False,
+            "error_type": "timeout",
+            "error": f"spotread did not respond within {timeout}s.",
+        }
+
+    # spotread's usage/help commonly exits non-zero; that's not a failure
+    # here — we only care whether the -c listno block parses.
+    output = f"{proc.stdout}\n{proc.stderr}"
+    instruments = [
+        {"index": int(index_str), "name": name.strip()}
+        for index_str, name in _INSTRUMENT_LINE_RE.findall(output)
+    ]
+    return {"ok": True, "instruments": instruments, "raw": output.strip()}
+
+
+async def list_instruments_async(
+    *,
+    spotread_path: str = "spotread",
+    timeout: float = _DEFAULT_TIMEOUT_S,
+) -> ListInstrumentsResult:
+    """Async wrapper around ``list_instruments()`` — see ``read_xyz_async()``."""
+    return await run_in_threadpool(
+        list_instruments, spotread_path=spotread_path, timeout=timeout
     )
