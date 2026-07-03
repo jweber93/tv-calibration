@@ -50,6 +50,7 @@ from .utils import (
     eotf_from_luminance,
     gamma_from_luminance,
     is_pq_eotf,
+    pq_point_above_knee,
     rating_emoji,
     stimulus_pct_from_code_value,
 )
@@ -71,6 +72,7 @@ __all__ = [
     "SDR_TARGET", "HDR10_TARGET", "DV_TARGET",
     "ciede2000", "delta_e_cie76", "delta_e_ciede2000_xyY", "xyY_to_XYZ", "XYZ_to_lab", "xyY_to_lab",
     "delta_xy", "gamma_from_luminance", "eotf_from_luminance", "is_pq_eotf",
+    "pq_point_above_knee",
     "rating_emoji", "direction_hint",
     "stimulus_pct_from_code_value",
     "TVProfile", "TV_PROFILES", "DEFAULT_TV_PROFILE", "get_tv_profile",

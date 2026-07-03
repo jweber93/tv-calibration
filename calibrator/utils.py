@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 from calcore.colour import ciede2000, xyY_to_xyz, xyz_to_lab
-from calcore.eotf import pq_inverse_eotf
+from calcore.eotf import pq_eotf, pq_inverse_eotf, pq_target_nits
 
 
 def delta_xy(measured_xy, target_xy) -> float:
@@ -63,6 +63,35 @@ def is_pq_eotf(eotf: str) -> bool:
     """True when the EOTF label denotes PQ / SMPTE ST.2084."""
     e = (eotf or "").lower()
     return "pq" in e or "2084" in e
+
+
+# A PQ stimulus point is "above the knee" — inside the firmware tone-mapping
+# region — when its absolute ST.2084 reference luminance exceeds the panel
+# peak. This is a hard criterion (the reference is literally unreachable on
+# this panel) so genuine midtone errors below the knee are never suppressed.
+# See issue #548 and QE_AUDIT.md.
+
+
+def pq_point_above_knee(stimulus_pct: float, peak_nits: float) -> bool:
+    """True when the ST.2084 reference luminance at ``stimulus_pct`` exceeds
+    the panel peak — i.e. firmware tone mapping is active and the point must
+    not be "corrected" via menu controls (issue #548 / QE_AUDIT.md).
+
+    ST.2084 is an absolute EOTF: the encoded signal maps directly to nits,
+    not to a fraction of the display's peak. When the reference for a stimulus
+    exceeds what the panel can actually produce, firmware tone mapping takes
+    over and the measured luminance will always read as "too dark" relative to
+    that reference. Such points must not be "corrected" via menu controls — the
+    operator would chase the tone-mapping wall forever (issue #548).
+
+    Delegates to ``calcore.eotf.pq_target_nits`` so the clipping notion lives
+    in one place: a point is above the knee exactly when ``pq_target_nits``
+    clips its reference (``pq_target_nits(n, peak) < pq_eotf(n)``).
+    """
+    if peak_nits <= 0 or stimulus_pct <= 0 or stimulus_pct >= 100:
+        return False
+    n = stimulus_pct / 100.0
+    return pq_target_nits(n, peak_nits) < pq_eotf(n)
 
 
 def eotf_from_luminance(measured_nits, peak_nits, stimulus_pct, eotf="gamma"):

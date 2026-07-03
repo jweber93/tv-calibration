@@ -12,7 +12,13 @@ from calcore.models import (
     Measurement,
 )
 from .profiles import TVProfile
-from .utils import delta_xy, eotf_from_luminance, is_pq_eotf, stimulus_pct_from_code_value
+from .utils import (
+    delta_xy,
+    eotf_from_luminance,
+    is_pq_eotf,
+    pq_point_above_knee,
+    stimulus_pct_from_code_value,
+)
 
 GAMMA_TRACKING_LEVELS = (20, 40, 60, 80)
 FINE_GAMMA_TRACKING_LEVELS = tuple(range(5, 100, 5))
@@ -337,14 +343,32 @@ def gamma_recommendations(
         return recs
 
     gammas = []
+    saw_above_knee = False
     for m in measurements:
         stim_pct = gamma_nominal_pct(m, signal_range, code_scale, levels)
         if stim_pct is None:
+            continue
+        # Skip points whose PQ reference exceeds panel peak — firmware tone
+        # mapping is active there and they would skew the aggregate advice
+        # toward "too dark" forever (issue #548). Below-knee points keep normal
+        # treatment so genuine midtone errors are still surfaced.
+        if pq and pq_point_above_knee(stim_pct, peak_nits):
+            saw_above_knee = True
             continue
         eff_gamma = eotf_from_luminance(m.Y, peak_nits, stim_pct, eotf)
         if eff_gamma is not None:
             gammas.append({"stimulus_pct": stim_pct, "effective_gamma": eff_gamma})
     if not gammas:
+        # Only attribute the empty result to the tone-mapping region when we
+        # actually saw above-knee points; otherwise the readings themselves
+        # failed and the operator should re-measure rather than be told the
+        # wall is the cause.
+        if pq and saw_above_knee:
+            return [
+                "All measured gamma points sit in the firmware tone-mapping region "
+                "(PQ reference exceeds panel peak). Do not chase them with menu controls; "
+                "re-measure with lower-stimulus patches or raise the panel's HDR peak."
+            ]
         return ["Take another gamma reading. A valid effective gamma was not computed from the last pass."]
 
     avg = sum(m["effective_gamma"] for m in gammas) / len(gammas)
@@ -410,17 +434,43 @@ def u8g_gamma_control_plan(
     eotf: str = "gamma",
 ) -> List[Dict[str, Any]]:
     # PQ tracks against the ST.2084 reference (1.0 == perfect), not target_gamma.
-    effective_target = 1.0 if is_pq_eotf(eotf) else target_gamma
+    pq = is_pq_eotf(eotf)
+    effective_target = 1.0 if pq else target_gamma
     plan: List[Dict[str, Any]] = []
     for m in measurements:
         stim_pct = gamma_nominal_pct(m, signal_range, code_scale, levels)
         if stim_pct is None:
             continue
+        stim_label = f"{round(stim_pct):.0f}%"
         eff_gamma = eotf_from_luminance(m.Y, peak_nits, stim_pct, eotf)
+        # A failed/missing reading (Y <= 0 -> eff_gamma is None) is omitted
+        # rather than reported as a confirmed "hold", so the operator isn't
+        # told a point is fine when it was never measured.
         if eff_gamma is None:
             continue
+        # PQ points whose ST.2084 reference exceeds panel peak are inside the
+        # firmware tone-mapping region. The measured luminance will always read
+        # as "too dark" relative to an unreachable reference, so the plan would
+        # emit "raise this point" on every pass forever. Hold them instead and
+        # let the operator's midtone corrections reach the knee from below
+        # (issue #548 / QE_AUDIT.md tone-mapping invariant).
+        if pq and pq_point_above_knee(stim_pct, peak_nits):
+            plan.append(
+                {
+                    "control": stim_label,
+                    "effective_gamma": round(eff_gamma, 3),
+                    "delta": None,
+                    "direction": "hold",
+                    "amount": 0,
+                    "summary": f"Hold {stim_label} — firmware tone-mapping region",
+                    "reason": (
+                        "PQ reference luminance exceeds panel peak; firmware tone "
+                        "mapping is active here. Do not correct via menu controls."
+                    ),
+                }
+            )
+            continue
         delta = eff_gamma - effective_target
-        stim_label = f"{round(stim_pct):.0f}%"
         if abs(delta) < 0.10:
             direction, amount, summary = "hold", 0, f"Leave {stim_label} alone"
             reason = "This gamma point is already close enough to target."
@@ -479,14 +529,35 @@ def preset_gamma_control_plan(
             }
         ]
     gammas = []
+    saw_above_knee = False
     for m in measurements:
         stim_pct = gamma_nominal_pct(m, signal_range, code_scale, levels)
         if stim_pct is None:
+            continue
+        # Exclude firmware tone-mapping points so the preset recommendation
+        # isn't dragged toward "too dark" by an unreachable PQ reference
+        # (issue #548).
+        if pq and pq_point_above_knee(stim_pct, peak_nits):
+            saw_above_knee = True
             continue
         eff = eotf_from_luminance(m.Y, peak_nits, stim_pct, eotf)
         if eff is not None:
             gammas.append(eff)
     if not gammas:
+        if pq and saw_above_knee:
+            return [
+                {
+                    "control": "Gamma preset",
+                    "direction": "hold",
+                    "amount": 0,
+                    "summary": "Keep current HDR tracking preset",
+                    "reason": (
+                        "All measured points sit in the firmware tone-mapping region "
+                        "(PQ reference exceeds panel peak). Preset changes won't recover "
+                        "an unreachable reference; raise the panel's HDR peak instead."
+                    ),
+                }
+            ]
         return []
     avg = sum(gammas) / len(gammas)
     delta = avg - effective_target
