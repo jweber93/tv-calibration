@@ -26,8 +26,11 @@ describe('ColorTuner', () => {
         onAdbApply={vi.fn()}
       />,
     );
-    expect(screen.getByText('Red 100%')).toBeInTheDocument();
-    expect(screen.getByText(/ΔE/)).toBeInTheDocument();
+    // "Red 100%" appears in both AutocalCard and Color Status sections
+    const all = screen.getAllByText('Red 100%');
+    expect(all.length).toBeGreaterThanOrEqual(2);
+    // DeltaE pill renders as "ΔE 3.20" inside a span with class "de-pill"
+    expect(screen.getByText('ΔE 3.20')).toBeInTheDocument();
   });
 
   it('renders "What to Adjust" when control_plan is present', () => {
