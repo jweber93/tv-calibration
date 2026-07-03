@@ -356,6 +356,8 @@ def gamma_recommendations(
         if pq and pq_point_above_knee(stim_pct, peak_nits):
             saw_above_knee = True
             continue
+        # Mark that we saw at least one non-above-knee point, regardless of
+        # whether its reading succeeded.
         saw_below_knee = True
         eff_gamma = eotf_from_luminance(m.Y, peak_nits, stim_pct, eotf)
         if eff_gamma is not None:
@@ -544,6 +546,8 @@ def preset_gamma_control_plan(
         if pq and pq_point_above_knee(stim_pct, peak_nits):
             saw_above_knee = True
             continue
+        # Mark that we saw at least one non-above-knee point, regardless of
+        # whether its reading succeeded.
         saw_below_knee = True
         eff = eotf_from_luminance(m.Y, peak_nits, stim_pct, eotf)
         if eff is not None:
