@@ -151,7 +151,7 @@ class TestZroBridgeInstruments:
 
     def test_select_persists_and_pushes_to_bridge(self):
         srv._zro_bridge.set("http://192.168.1.50:7070")
-        srv._prefs["argyll"] = {"port": "", "instrument_name": ""}
+        srv._prefs["argyll"] = {"port": "", "instrument_name": "", "correction_path": ""}
         captured = {}
 
         def mock_post(url, **kwargs):
@@ -162,17 +162,29 @@ class TestZroBridgeInstruments:
         with patch("httpx.post", side_effect=mock_post):
             r = client.post(
                 "/api/zro/bridge/instrument",
-                json={"port": "2", "instrument_name": "X-Rite i1 Display Pro, USB"},
+                json={
+                    "port": "2",
+                    "instrument_name": "X-Rite i1 Display Pro, USB",
+                    "correction_path": "/etc/argyll/i1d3.ccss",
+                },
             )
 
         assert r.status_code == 200
         d = r.json()
         assert d["ok"] is True
         assert d["pushed_to_bridge"] is True
-        assert d["argyll"] == {"port": "2", "instrument_name": "X-Rite i1 Display Pro, USB"}
-        assert srv._prefs["argyll"] == {"port": "2", "instrument_name": "X-Rite i1 Display Pro, USB"}
+        assert d["argyll"] == {
+            "port": "2",
+            "instrument_name": "X-Rite i1 Display Pro, USB",
+            "correction_path": "/etc/argyll/i1d3.ccss",
+        }
+        assert srv._prefs["argyll"] == {
+            "port": "2",
+            "instrument_name": "X-Rite i1 Display Pro, USB",
+            "correction_path": "/etc/argyll/i1d3.ccss",
+        }
         assert captured["url"] == "http://192.168.1.50:7070/config/argyll-port"
-        assert captured["json"] == {"port": "2"}
+        assert captured["json"] == {"port": "2", "correction_path": "/etc/argyll/i1d3.ccss"}
 
     def test_select_persists_even_if_bridge_unreachable(self):
         srv._zro_bridge.set("http://192.168.1.50:7070")
@@ -192,7 +204,7 @@ class TestZroBridgeInstruments:
         assert r.status_code == 200
         d = r.json()
         assert d["pushed_to_bridge"] is False
-        assert srv._prefs["argyll"] == {"port": "3", "instrument_name": "Meter"}
+        assert srv._prefs["argyll"] == {"port": "3", "instrument_name": "Meter", "correction_path": ""}
 
 
 # ── POST /api/zro/trigger ──────────────────────────────────────────────────────

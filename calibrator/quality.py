@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from calcore.models import CalibrationTarget
+from calcore.models import CalibrationTarget, CalMode
 from .profiles import TVProfile
 from .guidance import gamma_nominal_pct
 from .session import (
@@ -14,6 +14,7 @@ from .session import (
     latest_wb_measurements,
     m_to_dict,
     gamma_levels_for_session,
+    validate_peak_luminance,
 )
 from .utils import gamma_from_luminance
 
@@ -31,16 +32,30 @@ def step_quality(session: Dict[str, Any], tv: Optional[TVProfile]) -> Dict[str, 
 
     peak = session.get("peak_luminance", 0.0)
     if peak > 0 and target:
-        target_nits = target.peak_luminance_nits
-        pct_err = abs(peak - target_nits) / target_nits * 100
-        gates["luminance"] = {
-            "passed": pct_err <= QG_LUMINANCE_PCT,
-            "score": round(pct_err, 1),
-            "threshold": QG_LUMINANCE_PCT,
-            "unit": "%",
-            "label": f"Peak nits ±{QG_LUMINANCE_PCT:.0f}%",
-            "detail": f"{peak:.0f} nits (target {target_nits:.0f})",
-        }
+        if target.mode == CalMode.SDR:
+            target_nits = target.peak_luminance_nits
+            pct_err = abs(peak - target_nits) / target_nits * 100
+            gates["luminance"] = {
+                "passed": pct_err <= QG_LUMINANCE_PCT,
+                "score": round(pct_err, 1),
+                "threshold": QG_LUMINANCE_PCT,
+                "unit": "%",
+                "label": f"Peak nits ±{QG_LUMINANCE_PCT:.0f}%",
+                "detail": f"{peak:.0f} nits (target {target_nits:.0f})",
+            }
+        else:
+            # HDR peak is panel-limited, not tuned to match the mastering
+            # reference — gate on plausibility, not proximity to target (#546).
+            validation = validate_peak_luminance(peak, target)
+            bounds = validation["bounds"]
+            gates["luminance"] = {
+                "passed": validation["valid"],
+                "score": round(peak, 1),
+                "threshold": bounds["max"],
+                "unit": "nits",
+                "label": f"Peak within {bounds['min']:.0f}-{bounds['max']:.0f} nits",
+                "detail": f"{peak:.0f} nits measured (panel-limited HDR peak)",
+            }
 
     wb = session.get("wb_measurements", [])
     if wb and target:
