@@ -15,6 +15,7 @@ from calcore.llm import (
     NextSettingsPrediction,
     PassDecision,
     _CONVERGENCE_STALL_EPSILON,
+    _ROUND1_DAMPING_FACTOR,
     assess_convergence,
     predict_next_settings,
     query_pass_decision,
@@ -1025,6 +1026,105 @@ class TestPredictNextSettings:
         assert len(result.adjustments) == 1
         assert result.next_step == "rerun_grayscale"
         assert result.confidence == 0.8
+
+    def test_round1_deltas_are_damped_regardless_of_llm_compliance(self):
+        # Round 1 (no prior_rounds): the LLM ignores the prompt's damping
+        # instruction and returns the full correction. The deterministic
+        # clamp must still only apply _ROUND1_DAMPING_FACTOR of it (#554).
+        llm = _llm_mock()
+        plan = {
+            "adjustments": [
+                {
+                    "menu": "White Balance",
+                    "setting": "R Gain",
+                    "from": 0,
+                    "to": -20,
+                    "scope": "global",
+                    "reason": "Full correction, undamped.",
+                }
+            ],
+            "next_step": "rerun_grayscale",
+            "confidence": 0.9,
+        }
+        p, mock_urlopen = _patch_urlopen(plan)
+        try:
+            result = predict_next_settings(
+                _summary(avg_de=5.0, max_de=7.0), _cfg_mock(), "post_grayscale", llm
+            )
+        finally:
+            p.stop()
+        assert result is not None
+        assert len(result.adjustments) == 1
+        expected_to = round(0 + _ROUND1_DAMPING_FACTOR * (-20 - 0))
+        assert result.adjustments[0]["to"] == expected_to
+        assert result.adjustments[0]["to"] != -20
+
+    def test_round1_damping_skips_adjustments_without_numeric_from(self):
+        llm = _llm_mock()
+        plan = {
+            "adjustments": [
+                {
+                    "menu": "Picture Mode",
+                    "setting": "Preset",
+                    "from": None,
+                    "to": "Movie",
+                    "scope": "global",
+                    "reason": "Switch preset; not a numeric delta.",
+                }
+            ],
+            "next_step": "rerun_grayscale",
+            "confidence": 0.9,
+        }
+        p, mock_urlopen = _patch_urlopen(plan)
+        try:
+            result = predict_next_settings(
+                _summary(avg_de=5.0, max_de=7.0), _cfg_mock(), "post_grayscale", llm
+            )
+        finally:
+            p.stop()
+        assert result is not None
+        assert result.adjustments[0]["to"] == "Movie"
+
+    def test_round2_deltas_are_not_damped_by_the_deterministic_clamp(self):
+        # rounds_used == 1 (one prior round already recorded): the clamp only
+        # backstops Round 1, so a full delta here should pass through as-is —
+        # later-round damping is left to the prompt's trend-based instruction.
+        llm = _llm_mock()
+        plan = {
+            "adjustments": [
+                {
+                    "menu": "White Balance",
+                    "setting": "R Gain",
+                    "from": 0,
+                    "to": -20,
+                    "scope": "global",
+                    "reason": "Second round correction.",
+                }
+            ],
+            "next_step": "rerun_grayscale",
+            "confidence": 0.9,
+        }
+        p, mock_urlopen = _patch_urlopen(plan)
+        try:
+            result = predict_next_settings(
+                _summary(avg_de=5.0, max_de=7.0),
+                _cfg_mock(),
+                "post_grayscale",
+                llm,
+                prior_rounds=[
+                    {
+                        "round": 1,
+                        "residual": {"avg_de": 6.0, "max_de": 8.0},
+                        "suggested": [
+                            {"menu": "White Balance", "setting": "R Gain", "to": -10}
+                        ],
+                    }
+                ],
+            )
+        finally:
+            p.stop()
+        assert result is not None
+        assert result.adjustments[0]["to"] == -20
 
     def test_unparseable_llm_response_returns_none(self):
         llm = _llm_mock()
