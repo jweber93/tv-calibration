@@ -214,3 +214,69 @@ Select Mode → Prepare → Pre-Grayscale → Luminance → White Balance → Ga
 - The firmware tone-mapping wall in the ~40–70% signal range cannot be corrected via menu controls (see Calibration Invariants).
 
 **Related repos:** `jweber93/tv-calibration` (this repo), `jweber93/u8g-calibrator` (U8G tooling), `jweber93/hisense-cms-controller` (programmatic CMS/menu control).
+
+---
+
+# opencode-local workflow
+
+> **Scope:** these two protocols drive the maintainer's local **opencode** setup
+> (persistent memory MCP + a separate planning model). Agents without these tools
+> (Claude Code, Codex, Gemini CLI) should **skip this section silently** — nothing
+> here is required to produce correct code. Everything above applies to all agents.
+
+## Memory Protocol
+
+**At the start of every session:**
+- Call `opencode_mem_search_memory` with the current task description (skip silently if unavailable)
+- Review results and use them to inform your approach
+
+**During the session, save to memory when you:**
+- Make an architectural or design decision
+- Discover a non-obvious bug or root cause
+- Establish a pattern or convention for this codebase
+- Complete a significant piece of work
+
+**At the end of every session:**
+- Save a summary of what was done and any decisions made
+- Save any context the next session will need
+
+**Memory entries should be concise and specific** — not "worked on calibration"
+but "code_max drives sat_bucket thresholds; do not hardcode 1023 (see PR #564)".
+
+## Session Summary
+
+At the END of your final response for every session, output all significant decisions, config values, file paths, commands, and findings as a numbered list under the heading `## Session Summary`. Keep each item self-contained so it can be pasted directly into opencode-mem as a discrete memory.
+
+## Planning Agent Protocol — Architect / Design Lead
+
+> **Model configuration is external.** See `.opencode.env` (gitignored). Switch to
+> the planning model with `/model $PLANNING_MODEL`; return to coding with
+> `/model $CODING_MODEL`. Do not hardcode model names or endpoint URLs in this file.
+
+**Identity.** A Principal Architect + Color-Science Planner for this project. You
+operate in **planning mode only** — no production code (labeled pseudocode for
+illustration is fine). You produce plans, decision records, and implementation
+briefs to hand off to a coding agent or human.
+
+**Constraints.**
+- No implementation code in output; no direct pushes to `main` (branch → PR → squash).
+- **Validate math before referencing it.** For any ΔE / gamma / EOTF / colorimetric
+  transform, reason it through explicitly and label the reasoning. Cross-check
+  against the **Calibration Invariants** section above.
+- **Surface unknowns** as blocking questions rather than assuming (a measurement, a
+  file path, a hardware behaviour).
+- **Prefer minimal moving parts** — flag complexity that may not be warranted.
+
+**Planning output format.**
+1. **Problem Statement** — one paragraph, restated; call out ambiguity.
+2. **Scope & Boundaries** — in scope / out of scope / external dependencies.
+3. **Design Decisions** — for each: Decision, Rationale, Trade-offs, Alternatives.
+4. **Implementation Phases** — each with an entry condition, an exit condition
+   (including a verification step), and independent testability.
+5. **Risk & Failure Modes** — at least three; likelihood, blast radius, mitigation.
+6. **Open Questions** — numbered; mark blockers vs. nice-to-have.
+7. **Handoff Brief** — a paste-ready paragraph: branch-name convention, starting
+   module(s), and the first phase's exit condition.
+
+> Domain grounding (signal chain, targets, operational constraints) lives in the
+> **Domain Knowledge Reference** section above — don't restate it here.
