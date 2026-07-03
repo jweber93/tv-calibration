@@ -11,7 +11,14 @@ from .spaces import BT709_PRIMARIES, BT2020_PRIMARIES, detect_primaries
 
 
 def _normalize_code(code: int, signal_range: str) -> int:
-    """Convert a limited-range code (16-235) to full-range equivalent (0-255)."""
+    """Convert a limited-range code (16-235) to full-range equivalent (0-255).
+
+    Canonical source of truth: ``calibrator.utils.stimulus_pct_from_code_value``
+    (which uses ``(value - 16) / (235 - 16)``). calcore cannot import from
+    calibrator (calibrator depends on calcore), so the magic numbers are kept
+    here with a cross-reference to prevent silent drift if one side is ever
+    retuned without the other.
+    """
     if signal_range != "limited":
         return code
     if code <= 16:
