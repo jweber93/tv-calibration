@@ -202,5 +202,50 @@ class LimitedRangeSatBucketTests(unittest.TestCase):
         self.assertEqual(patch.sat_bucket(255, "limited"), "75")
 
 
+class SessionToAnalysisConfigTests(unittest.TestCase):
+    """Verify _session_to_analysis_config threads signal_range correctly."""
+
+    def test_session_without_signal_range_defaults_to_full(self):
+        """Sessions created before signal_range existed fall back to 'full'."""
+        from server import _session_to_analysis_config
+
+        session = {
+            "mode": "SDR",
+            "code_scale": "8bit",
+            "target": type("T", (), {"eotf": "BT.1886", "gamut": "bt709"})(),
+        }
+        cfg = _session_to_analysis_config(session)
+        self.assertEqual(cfg.signal_range, "full")
+        self.assertEqual(cfg.code_max, 255)
+
+    def test_session_with_limited_signal_range(self):
+        """Limited-range sessions produce signal_range='limited' in config."""
+        from server import _session_to_analysis_config
+
+        session = {
+            "mode": "SDR",
+            "code_scale": "8bit",
+            "signal_range": "limited",
+            "target": type("T", (), {"eotf": "BT.1886", "gamut": "bt709"})(),
+        }
+        cfg = _session_to_analysis_config(session)
+        self.assertEqual(cfg.signal_range, "limited")
+        self.assertEqual(cfg.code_max, 255)
+
+    def test_session_with_full_signal_range_10bit(self):
+        """Full-range 10-bit HDR session: code_max=1023, signal_range='full'."""
+        from server import _session_to_analysis_config
+
+        session = {
+            "mode": "HDR10",
+            "code_scale": "10bit",
+            "signal_range": "full",
+            "target": type("T", (), {"eotf": "PQ (ST.2084)", "gamut": "bt2020"})(),
+        }
+        cfg = _session_to_analysis_config(session)
+        self.assertEqual(cfg.signal_range, "full")
+        self.assertEqual(cfg.code_max, 1023)
+
+
 if __name__ == "__main__":
     unittest.main()
