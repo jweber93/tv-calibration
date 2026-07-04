@@ -1,0 +1,18 @@
+{
+  "_comment": "Copy this file to agent.json and edit as needed.",
+
+  "_trust_model": "No authentication. Binds 0.0.0.0 by default so a backend on another host on your LAN can reach it, same as tools/zro-bridge. Set host to 127.0.0.1 below if the backend always runs on this same PC and you want to disable remote access.",
+
+  "host": "0.0.0.0",
+  "port": 7071,
+
+  "path": "",
+
+  "resolve_host": "",
+
+  "window_pct": 10,
+
+  "maxcll": 1000,
+
+  "ready_delay_seconds": 2.0
+}
