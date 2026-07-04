@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button } from './Button';
+import { api } from '../api/client';
 
 export function DogegenCard({ dogegenStatus, session, onSaveConfig, onStart, onStop }) {
   const [path, setPath] = useState(dogegenStatus?.path || '');
@@ -10,6 +11,8 @@ export function DogegenCard({ dogegenStatus, session, onSaveConfig, onStart, onS
   const [showSettings, setShowSettings] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
 
   useEffect(() => {
     setMsg('');
@@ -18,6 +21,7 @@ export function DogegenCard({ dogegenStatus, session, onSaveConfig, onStart, onS
     setWindowPct(dogegenStatus?.window_pct || 10);
     setMaxcll(dogegenStatus?.maxcll || 1000);
     setAgentUrl(dogegenStatus?.agent_url || '');
+    setTestResult(null);
   }, [dogegenStatus]);
 
   const running = dogegenStatus?.running;
@@ -71,6 +75,28 @@ export function DogegenCard({ dogegenStatus, session, onSaveConfig, onStart, onS
     }
   }
 
+  async function handleTestAgentUrl() {
+    const url = agentUrl.trim();
+    if (!url) {
+      setTestResult({ ok: false, message: 'Enter an Agent URL first' });
+      return;
+    }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const status = await api.testDogegenAgent(url);
+      setTestResult(
+        status.agent_reachable
+          ? { ok: true, message: 'Agent reachable' }
+          : { ok: false, message: status.last_error || 'Agent unreachable' }
+      );
+    } catch (e) {
+      setTestResult({ ok: false, message: e.message });
+    } finally {
+      setTesting(false);
+    }
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -115,10 +141,18 @@ export function DogegenCard({ dogegenStatus, session, onSaveConfig, onStart, onS
             <input
               type="text"
               value={agentUrl}
-              onChange={e => setAgentUrl(e.target.value)}
+              onChange={e => { setAgentUrl(e.target.value); setTestResult(null); }}
               placeholder="http://<windows-pc>:7071"
             />
+            <Button small onClick={handleTestAgentUrl} disabled={testing}>
+              {testing ? <span className="spinner" /> : 'Test'}
+            </Button>
           </div>
+          {testResult && (
+            <div className={`text-sm mt-2 ${testResult.ok ? 'green' : 'red'}`}>
+              {testResult.message}
+            </div>
+          )}
           <div className="text-sm muted" style={{ marginTop: 10 }}>
             {isRemote
               ? 'Dogegen executable path (on the agent host — set in agent.json, not here)'

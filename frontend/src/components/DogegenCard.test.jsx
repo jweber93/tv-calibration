@@ -1,7 +1,14 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DogegenCard } from './DogegenCard';
+import { api } from '../api/client';
+
+vi.mock('../api/client', () => ({
+  api: {
+    testDogegenAgent: vi.fn(),
+  },
+}));
 
 function renderCard(props = {}) {
   return render(
@@ -16,6 +23,10 @@ function renderCard(props = {}) {
 }
 
 describe('DogegenCard', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('shows local unconfigured message when no status and no agent url', () => {
     renderCard({ dogegenStatus: { running: false, configured: false } });
     expect(screen.getByText('Dogegen path not configured')).toBeInTheDocument();
@@ -91,5 +102,66 @@ describe('DogegenCard', () => {
     await userEvent.click(screen.getByText('Settings'));
     expect(screen.getByPlaceholderText('C:\\Program Files\\Dogegen\\Dogegen.exe')).toBeDisabled();
     expect(screen.getByPlaceholderText('127.0.0.1')).toBeDisabled();
+  });
+
+  describe('Test connection button', () => {
+    it('shows a prompt instead of calling the API when the field is empty', async () => {
+      renderCard({ dogegenStatus: { running: false, configured: false } });
+      await userEvent.click(screen.getByText('Settings'));
+      await userEvent.click(screen.getByText('Test'));
+
+      expect(await screen.findByText('Enter an Agent URL first')).toBeInTheDocument();
+      expect(api.testDogegenAgent).not.toHaveBeenCalled();
+    });
+
+    it('tests the typed URL without requiring Save first, and shows reachable in green', async () => {
+      api.testDogegenAgent.mockResolvedValue({ agent_reachable: true });
+      renderCard({ dogegenStatus: { running: false, configured: false } });
+
+      await userEvent.click(screen.getByText('Settings'));
+      await userEvent.type(
+        screen.getByPlaceholderText('http://<windows-pc>:7071'),
+        'http://192.168.1.50:7071'
+      );
+      await userEvent.click(screen.getByText('Test'));
+
+      expect(api.testDogegenAgent).toHaveBeenCalledWith('http://192.168.1.50:7071');
+      const result = await screen.findByText('Agent reachable');
+      expect(result).toHaveClass('green');
+    });
+
+    it('shows the agent error message in red when unreachable', async () => {
+      api.testDogegenAgent.mockResolvedValue({
+        agent_reachable: false,
+        last_error: 'Cannot reach Dogegen Companion Agent — is it running on the Windows PC?',
+      });
+      renderCard({ dogegenStatus: { running: false, configured: false } });
+
+      await userEvent.click(screen.getByText('Settings'));
+      await userEvent.type(
+        screen.getByPlaceholderText('http://<windows-pc>:7071'),
+        'http://192.168.1.99:7071'
+      );
+      await userEvent.click(screen.getByText('Test'));
+
+      const result = await screen.findByText(
+        'Cannot reach Dogegen Companion Agent — is it running on the Windows PC?'
+      );
+      expect(result).toHaveClass('red');
+    });
+
+    it('clears a stale test result once the URL is edited again', async () => {
+      api.testDogegenAgent.mockResolvedValue({ agent_reachable: true });
+      renderCard({ dogegenStatus: { running: false, configured: false } });
+
+      await userEvent.click(screen.getByText('Settings'));
+      const input = screen.getByPlaceholderText('http://<windows-pc>:7071');
+      await userEvent.type(input, 'http://192.168.1.50:7071');
+      await userEvent.click(screen.getByText('Test'));
+      await screen.findByText('Agent reachable');
+
+      await userEvent.type(input, '1');
+      expect(screen.queryByText('Agent reachable')).not.toBeInTheDocument();
+    });
   });
 });

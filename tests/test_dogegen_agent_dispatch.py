@@ -153,6 +153,58 @@ class TestDogegenStatusViaAgent:
         assert d["agent_url"] == ""
 
 
+# ── GET /api/dogegen/status?url= — "Test connection" passthrough (mirrors #555) ─
+
+class TestDogegenStatusUrlOverride:
+    def test_candidate_url_overrides_stored_and_is_not_persisted(self):
+        srv._dogegen_agent.set("")
+        captured = {}
+
+        def mock_get(url, **kwargs):
+            captured["url"] = url
+            return _mock_httpx_get({"running": False, "configured": False})
+
+        with patch("httpx.get", side_effect=mock_get):
+            r = client.get("/api/dogegen/status?url=http://candidate-host:7071")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["agent_url"] == "http://candidate-host:7071"
+        assert d["agent_reachable"] is True
+        assert captured["url"] == "http://candidate-host:7071/status"
+        # The candidate must not be saved — stored config is untouched.
+        assert srv._dogegen_agent.get() == ""
+
+    def test_candidate_url_reports_unreachable_without_raising(self):
+        srv._dogegen_agent.set("")
+        import httpx
+        with patch("httpx.get", side_effect=httpx.ConnectError("refused")):
+            r = client.get("/api/dogegen/status?url=http://192.168.1.99:7071")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["agent_reachable"] is False
+        assert "Cannot reach" in d["last_error"]
+
+    def test_empty_query_url_falls_back_to_stored(self):
+        srv._dogegen_agent.set("http://stored-host:7071")
+        captured = {}
+
+        def mock_get(url, **kwargs):
+            captured["url"] = url
+            return _mock_httpx_get({"running": False, "configured": False})
+
+        with patch("httpx.get", side_effect=mock_get):
+            r = client.get("/api/dogegen/status?url=")
+        assert r.status_code == 200
+        assert captured["url"] == "http://stored-host:7071/status"
+
+    def test_no_query_url_falls_back_to_local_when_unconfigured(self, monkeypatch):
+        srv._dogegen_agent.set("")
+        monkeypatch.setattr(srv, "_find_dogegen_executable", lambda: None)
+        r = client.get("/api/dogegen/status")
+        assert r.status_code == 200
+        assert r.json()["agent_url"] == ""
+
+
 # ── POST /api/dogegen/config — agent_url field ─────────────────────────────────
 
 class TestDogegenConfigAgentUrl:

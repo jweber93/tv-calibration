@@ -783,8 +783,15 @@ def _dogegen_status_payload_via_agent(url: str) -> Dict[str, Any]:
     return data
 
 
-def _dogegen_status_payload() -> Dict[str, Any]:
-    agent_url = _dogegen_agent.get()
+def _dogegen_status_payload(url_override: Optional[str] = None) -> Dict[str, Any]:
+    """url_override lets a caller test a candidate agent URL (e.g. the
+    frontend's "Test connection" button) without first persisting it via
+    /api/dogegen/config — mirrors the ZRO Bridge's ?url= passthrough (#555)."""
+    agent_url = (
+        url_override.strip()
+        if (url_override is not None and url_override.strip())
+        else _dogegen_agent.get()
+    )
     if agent_url:
         return _dogegen_status_payload_via_agent(agent_url)
 
@@ -1354,8 +1361,8 @@ def set_code_scale(sid: str, req: CodeScaleReq):
 
 
 @app.get("/api/dogegen/status")
-def dogegen_status():
-    return _dogegen_status_payload()
+def dogegen_status(url: Optional[str] = Query(None)):
+    return _dogegen_status_payload(url)
 
 
 @app.post("/api/dogegen/config")
