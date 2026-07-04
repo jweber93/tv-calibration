@@ -383,6 +383,44 @@ class TestReportUsesLatestPassOnly:
         assert len(report["gamma_measurements"]) == 1
         assert report["gamma_measurements"][0]["Y"] == 50.0
 
+    def test_report_falls_back_to_whole_bucket_when_no_timestamps(self, client):
+        """Legacy/pre-#577 data may have no timestamps at all. latest_grayscale_pass
+        and latest_gamma_pass return empty in that case (they can't anchor a
+        backward walk), so report_payload must fall back to treating the whole
+        bucket as a single pass rather than reporting empty/None stats."""
+        from calibrator.reports import report_payload
+        from calibrator.session import GAMMA_TRACKING_LEVELS
+
+        sid = _make_session_with_measurements(client)
+        sess = _sessions[sid]
+
+        no_ts_grayscale = [
+            Measurement(
+                x=0.3127, y=0.3290,
+                Y=float(pct), X=float(pct) * 0.95, Z=float(pct) * 1.09,
+                label=f"{pct}% Gray",
+                stimulus_rgb=(pct * 2, pct * 2, pct * 2),
+            )
+            for pct in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        ]
+        sess["pre_measurements"] = no_ts_grayscale
+
+        level = GAMMA_TRACKING_LEVELS[0]
+        code_value = round(level / 100.0 * 255)
+        no_ts_gamma = [
+            Measurement(
+                x=0.3127, y=0.3290, Y=50.0, X=0.95, Z=1.09,
+                label=f"Gamma {level}%",
+                stimulus_rgb=(code_value, code_value, code_value),
+            )
+        ]
+        sess["gamma_measurements"] = no_ts_gamma
+
+        report = report_payload(sess)
+        assert report["pre_cal"]["avg_de"] is not None
+        assert len(report["pre_cal"]["measurements"]) == len(no_ts_grayscale)
+        assert len(report["gamma_measurements"]) == 1
+
 
 class TestReportPayloadEdgeCases:
     def test_report_payload_empty_measurements_no_crash(self, client):

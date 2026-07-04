@@ -45,15 +45,30 @@ def report_payload(session: Dict[str, Any]) -> Dict[str, Any]:
             "measurements": items,
         }
 
+    # latest_grayscale_pass / latest_gamma_pass reduce by walking timestamps
+    # backwards; if a bucket carries no timestamps (e.g. legacy/pre-#577 data),
+    # that walk finds nothing to anchor on and returns empty. Fall back to
+    # treating the whole bucket as one coherent pass rather than reporting
+    # None/empty stats for measurements that are actually there.
     grayscale_levels = grayscale_levels_for_ramp(session.get("grayscale_ramp_steps", 11))
     latest_pre = latest_grayscale_pass(
         session["pre_measurements"], max_count=len(grayscale_levels),
         signal_range=signal_range, code_scale=code_scale,
     )
+    if not latest_pre and session["pre_measurements"]:
+        latest_pre = latest_grayscale_pass(
+            session["pre_measurements"], max_count=len(grayscale_levels),
+            signal_range=signal_range, code_scale=code_scale, detect_sessions=False,
+        )
     latest_post = latest_grayscale_pass(
         session["post_measurements"], max_count=len(grayscale_levels),
         signal_range=signal_range, code_scale=code_scale,
     )
+    if not latest_post and session["post_measurements"]:
+        latest_post = latest_grayscale_pass(
+            session["post_measurements"], max_count=len(grayscale_levels),
+            signal_range=signal_range, code_scale=code_scale, detect_sessions=False,
+        )
     latest_wb = latest_wb_measurements(session["wb_measurements"])
     latest_cms: Dict[str, Any] = {}
     for measurement in session["cms_measurements"]:
@@ -63,6 +78,11 @@ def report_payload(session: Dict[str, Any]) -> Dict[str, Any]:
     latest_gamma = latest_gamma_pass(
         session["gamma_measurements"], gamma_levels, signal_range, code_scale
     )
+    if not latest_gamma and session["gamma_measurements"]:
+        latest_gamma = latest_gamma_pass(
+            session["gamma_measurements"], gamma_levels, signal_range, code_scale,
+            detect_sessions=False,
+        )
 
     pre = stats(latest_pre)
     post = stats(latest_post)
