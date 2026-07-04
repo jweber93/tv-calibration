@@ -159,6 +159,126 @@ class TestReadXyzParsing:
         assert "warning" not in result
 
 
+# ── read_xyz: refresh-timing / integration tuning (issue #600) ─────────────────
+
+class TestReadXyzRefreshTiming:
+    def test_default_unset_command_is_byte_identical_to_e_O(self):
+        """No refresh_mode/refresh_rate_hz/integration_mode passed — no -Y flags
+        of any kind, reproducing today's command exactly."""
+        stdout = "Result is XYZ: 1.0 2.0 3.0\n"
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", return_value=_mock_proc(stdout=stdout)) as mock_run:
+            argyll_backend.read_xyz()
+
+        cmd = mock_run.call_args.args[0]
+        assert cmd == ["/usr/bin/spotread", "-e", "-O"]
+
+    def test_refresh_mode_refresh_passes_Y_r(self):
+        stdout = "Result is XYZ: 1.0 2.0 3.0\n"
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", return_value=_mock_proc(stdout=stdout)) as mock_run:
+            argyll_backend.read_xyz(refresh_mode="refresh")
+
+        cmd = mock_run.call_args.args[0]
+        assert cmd == ["/usr/bin/spotread", "-e", "-O", "-Y", "r"]
+
+    def test_refresh_mode_non_refresh_passes_Y_n(self):
+        stdout = "Result is XYZ: 1.0 2.0 3.0\n"
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", return_value=_mock_proc(stdout=stdout)) as mock_run:
+            argyll_backend.read_xyz(refresh_mode="non_refresh")
+
+        cmd = mock_run.call_args.args[0]
+        assert cmd == ["/usr/bin/spotread", "-e", "-O", "-Y", "n"]
+
+    def test_refresh_rate_hz_passes_Y_R_rate(self):
+        stdout = "Result is XYZ: 1.0 2.0 3.0\n"
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", return_value=_mock_proc(stdout=stdout)) as mock_run:
+            argyll_backend.read_xyz(refresh_rate_hz=119.88)
+
+        cmd = mock_run.call_args.args[0]
+        assert cmd == ["/usr/bin/spotread", "-e", "-O", "-Y", "R:119.88"]
+
+    def test_integration_mode_non_adaptive_passes_Y_A(self):
+        stdout = "Result is XYZ: 1.0 2.0 3.0\n"
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", return_value=_mock_proc(stdout=stdout)) as mock_run:
+            argyll_backend.read_xyz(integration_mode="non_adaptive")
+
+        cmd = mock_run.call_args.args[0]
+        assert cmd == ["/usr/bin/spotread", "-e", "-O", "-Y", "A"]
+
+    def test_integration_mode_averaging_passes_Y_a(self):
+        stdout = "Result is XYZ: 1.0 2.0 3.0\n"
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", return_value=_mock_proc(stdout=stdout)) as mock_run:
+            argyll_backend.read_xyz(integration_mode="averaging")
+
+        cmd = mock_run.call_args.args[0]
+        assert cmd == ["/usr/bin/spotread", "-e", "-O", "-Y", "a"]
+
+    def test_all_options_combine_before_port_in_documented_order(self):
+        """-X, then the -Y sub-flags in refresh_mode/refresh_rate_hz/
+        integration_mode order, then the trailing port — matching the
+        existing correction_path -> -X ordering convention."""
+        stdout = "Result is XYZ: 1.0 2.0 3.0\n"
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", return_value=_mock_proc(stdout=stdout)) as mock_run:
+            argyll_backend.read_xyz(
+                port="/dev/ttyUSB0",
+                correction_path="/some/correction.ccmx",
+                refresh_mode="refresh",
+                refresh_rate_hz=120,
+                integration_mode="averaging",
+            )
+
+        cmd = mock_run.call_args.args[0]
+        assert cmd == [
+            "/usr/bin/spotread", "-e", "-O",
+            "-X", "/some/correction.ccmx",
+            "-Y", "r",
+            "-Y", "R:120",
+            "-Y", "a",
+            "/dev/ttyUSB0",
+        ]
+
+    def test_read_xyz_async_forwards_refresh_timing_params(self):
+        stdout = "Result is XYZ: 1.0 2.0 3.0\n"
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", return_value=_mock_proc(stdout=stdout)) as mock_run:
+            asyncio.run(argyll_backend.read_xyz_async(
+                refresh_mode="non_refresh",
+                refresh_rate_hz=60,
+                integration_mode="non_adaptive",
+            ))
+
+        cmd = mock_run.call_args.args[0]
+        assert cmd == [
+            "/usr/bin/spotread", "-e", "-O",
+            "-Y", "n",
+            "-Y", "R:60",
+            "-Y", "A",
+        ]
+
+    def test_rejected_flag_fails_loudly_as_spotread_error(self):
+        """If the installed Argyll version rejects a -Y flag, spotread's
+        non-zero exit surfaces as a clear spotread_error, not a silent
+        misread."""
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch(
+                 "subprocess.run",
+                 return_value=_mock_proc(
+                     stderr="spotread: Unknown option 'q'\n", returncode=1
+                 ),
+             ):
+            result = argyll_backend.read_xyz(refresh_mode="refresh")
+
+        assert result["ok"] is False
+        assert result["error_type"] == "spotread_error"
+        assert "raw" in result
+
+
 # ── read_xyz: HDR absolute-nit verification (issue #534) ───────────────────────
 
 class TestAbsoluteNits:
@@ -515,6 +635,107 @@ class TestBridgeInstrumentEndpoints:
 
         assert resp.status_code == 200
         assert captured_cmds[-1][-1] == "2"
+
+    def test_set_argyll_refresh_timing_updates_runtime_config(self):
+        bridge._config["backend"] = "argyll"
+
+        async def _run():
+            transport = httpx.ASGITransport(app=bridge.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://bridge.test") as client:
+                return await client.post(
+                    "/config/argyll-port",
+                    json={
+                        "port": "2",
+                        "refresh_mode": "refresh",
+                        "refresh_rate_hz": 119.88,
+                        "integration_mode": "averaging",
+                    },
+                )
+
+        resp = asyncio.run(_run())
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "ok": True,
+            "argyll_port": "2",
+            "refresh_mode": "refresh",
+            "refresh_rate_hz": 119.88,
+            "integration_mode": "averaging",
+        }
+        assert bridge._config["argyll_refresh_mode"] == "refresh"
+        assert bridge._config["argyll_refresh_rate_hz"] == 119.88
+        assert bridge._config["argyll_integration_mode"] == "averaging"
+
+    def test_set_argyll_refresh_mode_rejects_invalid_value(self):
+        bridge._config["backend"] = "argyll"
+
+        async def _run():
+            transport = httpx.ASGITransport(app=bridge.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://bridge.test") as client:
+                return await client.post(
+                    "/config/argyll-port",
+                    json={"port": "2", "refresh_mode": "bogus"},
+                )
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 400
+
+    def test_set_argyll_integration_mode_rejects_invalid_value(self):
+        bridge._config["backend"] = "argyll"
+
+        async def _run():
+            transport = httpx.ASGITransport(app=bridge.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://bridge.test") as client:
+                return await client.post(
+                    "/config/argyll-port",
+                    json={"port": "2", "integration_mode": "bogus"},
+                )
+
+        resp = asyncio.run(_run())
+        assert resp.status_code == 400
+
+    def test_instruments_reports_refresh_timing_fields(self):
+        bridge._config["backend"] = "argyll"
+        bridge._config["argyll_refresh_mode"] = "non_refresh"
+        bridge._config["argyll_refresh_rate_hz"] = 60.0
+        bridge._config["argyll_integration_mode"] = "non_adaptive"
+
+        async def _run():
+            transport = httpx.ASGITransport(app=bridge.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://bridge.test") as client:
+                return await client.get("/instruments")
+
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", return_value=_mock_proc(stdout=_SPOTREAD_HELP_TWO_INSTRUMENTS, returncode=1)):
+            resp = asyncio.run(_run())
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["refresh_mode"] == "non_refresh"
+        assert data["refresh_rate_hz"] == 60.0
+        assert data["integration_mode"] == "non_adaptive"
+
+    def test_set_argyll_refresh_timing_takes_effect_on_next_measure(self):
+        bridge._config["backend"] = "argyll"
+
+        captured_cmds = []
+
+        def recording_run(cmd, **kwargs):
+            captured_cmds.append(cmd)
+            return _mock_proc(stdout="Result is XYZ: 1.0 2.0 3.0\n")
+
+        async def _run():
+            transport = httpx.ASGITransport(app=bridge.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://bridge.test") as client:
+                await client.post("/config/argyll-port", json={"port": None, "refresh_mode": "refresh"})
+                return await client.post("/measure")
+
+        with patch("shutil.which", return_value="/usr/bin/spotread"), \
+             patch("subprocess.run", side_effect=recording_run):
+            resp = asyncio.run(_run())
+
+        assert resp.status_code == 200
+        assert captured_cmds[-1] == ["/usr/bin/spotread", "-e", "-O", "-Y", "r"]
 
     def test_config_write_concurrent_with_in_flight_measure_does_not_race(self):
         """

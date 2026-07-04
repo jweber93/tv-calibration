@@ -151,7 +151,10 @@ class TestZroBridgeInstruments:
 
     def test_select_persists_and_pushes_to_bridge(self):
         srv._zro_bridge.set("http://192.168.1.50:7070")
-        srv._prefs["argyll"] = {"port": "", "instrument_name": "", "correction_path": ""}
+        srv._prefs["argyll"] = {
+            "port": "", "instrument_name": "", "correction_path": "",
+            "refresh_mode": "", "refresh_rate_hz": None, "integration_mode": "",
+        }
         captured = {}
 
         def mock_post(url, **kwargs):
@@ -177,14 +180,66 @@ class TestZroBridgeInstruments:
             "port": "2",
             "instrument_name": "X-Rite i1 Display Pro, USB",
             "correction_path": "/etc/argyll/i1d3.ccss",
+            "refresh_mode": "",
+            "refresh_rate_hz": None,
+            "integration_mode": "",
         }
         assert srv._prefs["argyll"] == {
             "port": "2",
             "instrument_name": "X-Rite i1 Display Pro, USB",
             "correction_path": "/etc/argyll/i1d3.ccss",
+            "refresh_mode": "",
+            "refresh_rate_hz": None,
+            "integration_mode": "",
         }
         assert captured["url"] == "http://192.168.1.50:7070/config/argyll-port"
-        assert captured["json"] == {"port": "2", "correction_path": "/etc/argyll/i1d3.ccss"}
+        assert captured["json"] == {
+            "port": "2",
+            "correction_path": "/etc/argyll/i1d3.ccss",
+            "refresh_mode": None,
+            "refresh_rate_hz": None,
+            "integration_mode": None,
+        }
+
+    def test_select_persists_and_pushes_refresh_timing_fields(self):
+        srv._zro_bridge.set("http://192.168.1.50:7070")
+        captured = {}
+
+        def mock_post(url, **kwargs):
+            captured["url"] = url
+            captured["json"] = kwargs.get("json")
+            return _mock_httpx_post({"ok": True, "argyll_port": "2"})
+
+        with patch("httpx.post", side_effect=mock_post):
+            r = client.post(
+                "/api/zro/bridge/instrument",
+                json={
+                    "port": "2",
+                    "refresh_mode": "refresh",
+                    "refresh_rate_hz": 119.88,
+                    "integration_mode": "averaging",
+                },
+            )
+
+        assert r.status_code == 200
+        d = r.json()
+        assert d["argyll"]["refresh_mode"] == "refresh"
+        assert d["argyll"]["refresh_rate_hz"] == 119.88
+        assert d["argyll"]["integration_mode"] == "averaging"
+        assert captured["json"] == {
+            "port": "2",
+            "correction_path": None,
+            "refresh_mode": "refresh",
+            "refresh_rate_hz": 119.88,
+            "integration_mode": "averaging",
+        }
+
+    def test_select_rejects_invalid_refresh_mode(self):
+        r = client.post(
+            "/api/zro/bridge/instrument",
+            json={"port": "2", "refresh_mode": "bogus"},
+        )
+        assert r.status_code == 422
 
     def test_select_persists_even_if_bridge_unreachable(self):
         srv._zro_bridge.set("http://192.168.1.50:7070")
@@ -204,7 +259,14 @@ class TestZroBridgeInstruments:
         assert r.status_code == 200
         d = r.json()
         assert d["pushed_to_bridge"] is False
-        assert srv._prefs["argyll"] == {"port": "3", "instrument_name": "Meter", "correction_path": ""}
+        assert srv._prefs["argyll"] == {
+            "port": "3",
+            "instrument_name": "Meter",
+            "correction_path": "",
+            "refresh_mode": "",
+            "refresh_rate_hz": None,
+            "integration_mode": "",
+        }
 
 
 # ── POST /api/zro/trigger ──────────────────────────────────────────────────────

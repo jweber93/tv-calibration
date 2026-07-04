@@ -16,6 +16,15 @@ need and must be preserved end to end (see ``read_xyz``'s docstring).
 
 Meter discovery/selection (issue #531) is a separate follow-up. CCMX/CCSS
 spectral correction is supported via the ``correction_path`` parameter.
+
+For flicker-prone panels (PWM-dimmed backlights, some VA/edge-lit LCDs, and
+other non-constant-refresh displays), spotread's adaptive-integration default
+can beat against the panel's refresh behavior and bias or add noise to a
+reading. ``refresh_mode``, ``refresh_rate_hz``, and ``integration_mode`` map
+onto spotread's ``-Y`` sub-flags (verified against ``spotread`` v3.x's
+``-?`` usage text and https://www.argyllcms.com/doc/spotread.html) to tune
+that behavior; all three are opt-in and default to ``None``, which reproduces
+today's ``-e -O`` command byte-for-byte.
 """
 
 import logging
@@ -43,6 +52,16 @@ class XyzReadOk(TypedDict):
 
 
 ErrorType = Literal["not_found", "no_meter", "timeout", "parse_error", "spotread_error"]
+
+# spotread -Y r|n — force refresh or non-refresh display measurement mode,
+# overriding the -y display-type default. Relevant for flicker-prone panels:
+# "refresh" is for CRT-like/PWM-backlit displays with periodic brightness
+# modulation, "non_refresh" is for steady-state panels (most modern LCD/OLED).
+RefreshMode = Literal["refresh", "non_refresh"]
+
+# spotread -Y A|a — non-adaptive (fixed) integration time vs. an instrument's
+# averaging mode, where supported by the connected meter.
+IntegrationMode = Literal["non_adaptive", "averaging"]
 
 
 class XyzReadError(TypedDict):
@@ -165,6 +184,9 @@ def read_xyz(
     spotread_path: str = "spotread",
     timeout: float = _DEFAULT_TIMEOUT_S,
     correction_path: Optional[str] = None,
+    refresh_mode: Optional[RefreshMode] = None,
+    refresh_rate_hz: Optional[float] = None,
+    integration_mode: Optional[IntegrationMode] = None,
 ) -> XyzReadResult:
     """
     Take one single-shot emissive reading via ``spotread -e -O`` and return XYZ.
@@ -191,6 +213,26 @@ def read_xyz(
     correction file — if it cannot find one, a ``warning`` field is added to
     the result dict.
 
+    ``refresh_mode``, ``refresh_rate_hz``, and ``integration_mode`` tune
+    spotread's read timing for flicker-prone panels (PWM-dimmed backlights,
+    some VA/edge-lit LCDs) so XYZ readings aren't corrupted by beat-frequency
+    or sampling artifacts against the panel's refresh behavior:
+
+    - ``refresh_mode="refresh"`` passes ``-Y r``, forcing refresh-display
+      measurement mode (periodic brightness modulation, e.g. PWM backlights).
+      ``refresh_mode="non_refresh"`` passes ``-Y n`` for steady-state panels.
+      Leave unset to use the instrument's ``-y`` display-type default.
+    - ``refresh_rate_hz`` passes ``-Y R:<rate>``, overriding spotread's
+      auto-measured refresh rate calibration with a known value (e.g. the
+      panel's PWM dimming frequency) when auto-detection is unreliable.
+    - ``integration_mode="non_adaptive"`` passes ``-Y A`` (fixed integration
+      time, faster but potentially less accurate on low light levels).
+      ``integration_mode="averaging"`` passes ``-Y a`` (instrument averaging
+      mode, where the connected meter supports it).
+
+    All three are opt-in; leaving them unset reproduces today's ``-e -O``
+    command exactly, with no ``-Y`` flags added.
+
     Returns on success::
 
         {"ok": True, "method": "argyll", "X": .., "Y": .., "Z": .., "x": .., "y": ..,
@@ -216,6 +258,12 @@ def read_xyz(
     cmd = [resolved, "-e", "-O"]
     if correction_path:
         cmd.extend(["-X", correction_path])
+    if refresh_mode:
+        cmd.extend(["-Y", "r" if refresh_mode == "refresh" else "n"])
+    if refresh_rate_hz:
+        cmd.extend(["-Y", f"R:{refresh_rate_hz}"])
+    if integration_mode:
+        cmd.extend(["-Y", "A" if integration_mode == "non_adaptive" else "a"])
     if port:
         cmd.append(port)
 
@@ -305,6 +353,9 @@ async def read_xyz_async(
     spotread_path: str = "spotread",
     timeout: float = _DEFAULT_TIMEOUT_S,
     correction_path: Optional[str] = None,
+    refresh_mode: Optional[RefreshMode] = None,
+    refresh_rate_hz: Optional[float] = None,
+    integration_mode: Optional[IntegrationMode] = None,
 ) -> XyzReadResult:
     """
     Async wrapper around ``read_xyz()``.
@@ -320,6 +371,9 @@ async def read_xyz_async(
         spotread_path=spotread_path,
         timeout=timeout,
         correction_path=correction_path,
+        refresh_mode=refresh_mode,
+        refresh_rate_hz=refresh_rate_hz,
+        integration_mode=integration_mode,
     )
 
 
