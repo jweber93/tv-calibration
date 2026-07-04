@@ -92,6 +92,14 @@ class TestExternalPid:
         with patch("subprocess.run", side_effect=OSError("no such tool")):
             assert agent.external_dogegen_pid() is None
 
+    def test_logs_info_when_external_pid_detected(self, caplog):
+        proc = MagicMock()
+        proc.stdout = "4321\n"
+        with caplog.at_level("INFO", logger="agent"), \
+             patch.object(os, "name", "posix"), patch("subprocess.run", return_value=proc):
+            agent.external_dogegen_pid()
+        assert any("4321" in rec.message for rec in caplog.records)
+
 
 # ── GET /status ──────────────────────────────────────────────────────────────
 
@@ -231,6 +239,10 @@ class TestStart:
         assert r.status_code == 200
         cmd = mock_popen.call_args[0][0]
         assert cmd == ["C:/Dogegen.exe"]
+
+    def test_start_rejects_invalid_mode(self):
+        r = client.post("/start", json={"mode": "Hdr10"})
+        assert r.status_code == 422
 
 
 # ── POST /stop ───────────────────────────────────────────────────────────────

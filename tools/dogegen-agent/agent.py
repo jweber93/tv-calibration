@@ -39,7 +39,7 @@ import sys
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -170,7 +170,14 @@ class DogegenState:
 _dogegen_state = DogegenState()
 
 
-# ── Dogegen process control (ported from server.py, essentially unchanged) ──
+# ── Dogegen process control ─────────────────────────────────────────────────
+#
+# Ported from server.py:643-790 (as of the split-host Companion Agent work,
+# issue #584/#588) essentially unchanged. server.py's copy still runs today
+# for local-subprocess setups; #585 will switch the backend to call this
+# agent instead, at which point server.py's copy can be removed. There is no
+# shared module between the two, so if server.py's Dogegen launch/detection
+# logic changes after this port, re-sync it here by hand.
 
 def find_dogegen_executable(config: dict) -> Optional[str]:
     configured = (config.get("path") or "").strip()
@@ -209,9 +216,11 @@ def external_dogegen_pid() -> Optional[int]:
                     parts = [part.strip().strip('"') for part in line.split('","')]
                     if len(parts) >= 2 and parts[0].lower().startswith("dogegen"):
                         try:
-                            return int(parts[1])
+                            pid = int(parts[1])
                         except ValueError:
                             continue
+                        logger.info("Detected externally-running Dogegen, PID %d", pid)
+                        return pid
             return None
 
         proc = subprocess.run(
@@ -225,9 +234,11 @@ def external_dogegen_pid() -> Optional[int]:
             if not line:
                 continue
             try:
-                return int(line)
+                pid = int(line)
             except ValueError:
                 continue
+            logger.info("Detected externally-running Dogegen, PID %d", pid)
+            return pid
     except Exception:
         return None
     return None
@@ -332,7 +343,7 @@ app.add_middleware(
 
 
 class StartBody(BaseModel):
-    mode: Optional[str] = None
+    mode: Optional[Literal["HDR10", "SDR"]] = None
 
 
 @app.get("/status")

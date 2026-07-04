@@ -26,6 +26,25 @@ The agent listens on `0.0.0.0:7071` by default so a backend on another
 machine on your LAN can reach it. Point your backend's Dogegen agent URL
 setting at `http://<this-pc-ip>:7071`.
 
+### Running persistently (surviving reboot)
+
+`start.bat` is meant for manual/on-demand use — it exits once you close its
+console window, and it doesn't come back after a reboot. To keep the agent
+running in the background across reboots, register it as a Windows service
+or scheduled task instead of double-clicking `start.bat`:
+
+* **[NSSM](https://nssm.cc/)** (Non-Sucking Service Manager) — the simplest
+  option. `nssm install DogegenAgent "C:\Path\To\python.exe" "C:\Path\To\tools\dogegen-agent\agent.py" --config "C:\Path\To\tools\dogegen-agent\agent.json"`,
+  then `nssm start DogegenAgent`. NSSM restarts it automatically if it
+  crashes and it starts on boot like any other Windows service.
+* **Task Scheduler** — create a task triggered "At log on" (or "At startup"
+  for a service-like account), action = run `python.exe` with the same
+  arguments as above, and "Run whether user is logged on or not" if you
+  want it up before anyone signs in.
+
+Either way, point the action/task at `agent.py` directly (not `start.bat`)
+so it doesn't sit waiting at the `pause` prompt at the end of the script.
+
 ## Configuration
 
 Edit `agent.json` (created from `agent.example.json` on first run):
@@ -80,8 +99,10 @@ process it launched (`managed: true`); a Dogegen instance detected via
 ### `POST /start`
 
 Body: `{"mode": "HDR10" | "SDR" | null}`. Launches Dogegen with the launch
-arguments appropriate to the mode. Returns `{"ok": true, "already_running":
-bool, ...status fields}`. Returns `400` if Dogegen can't be found.
+arguments appropriate to the mode. Any other `mode` value is rejected with
+`422` (fails fast on typos like `"Hdr10"`). Returns `{"ok": true,
+"already_running": bool, ...status fields}`. Returns `400` if Dogegen can't
+be found.
 
 ### `POST /stop`
 
