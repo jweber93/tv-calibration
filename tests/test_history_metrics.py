@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from calibrator import Measurement
-from calibrator.history import history_summary, load_history, record_session
+from calibrator.history import count_sessions, history_summary, load_history, record_session
 import server as server_module
 from server import app, _sessions
 
@@ -302,3 +302,16 @@ class TestHistorySummarySessionCount:
                 tv_key="u8g", session_id=f"sid-{i}", mode="SDR", report=self._report(),
             )
         assert history_summary("u8g")["session_count"] == 12
+
+    def test_partial_trailing_line_is_skipped_conservatively(self, tmp_path):
+        """A truncated/malformed trailing line (e.g. concurrent in-progress
+        append) must not crash count_sessions and is excluded from the count."""
+        for i in range(3):
+            record_session(
+                tv_key="u8g", session_id=f"sid-{i}", mode="SDR", report=self._report(),
+            )
+        sessions_path = tmp_path / "u8g" / "sessions.jsonl"
+        with open(sessions_path, "a", encoding="utf-8") as fh:
+            fh.write('{"session_id": "sid-partial", "date": "2026-0')
+
+        assert count_sessions("u8g") == 3

@@ -151,7 +151,10 @@ def count_sessions(tv_key: str) -> int:
     """Return the total number of recorded sessions for this TV.
 
     Unlike load_history(), this counts every line in sessions.jsonl and is
-    not capped by the display limit.
+    not capped by the display limit. A line that fails to parse as JSON
+    (e.g. a partial line from a concurrent in-progress append) is skipped
+    rather than counted, so this is a conservative lower bound if
+    record_session() is writing at the exact moment this is called.
     """
     path = _sessions_path(tv_key)
     if not path.exists():
@@ -268,6 +271,8 @@ def history_summary(tv_key: str) -> Dict[str, Any]:
     """Return a lightweight summary dict for API exposure.
 
     Keys: session_count, latest_date, latest_post_de, baseline_post_de.
+    session_count is the total number of recorded sessions (via
+    count_sessions), not capped by load_history()'s display limit.
     """
     history = load_history(tv_key)
     baseline = load_baseline(tv_key)
