@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from calibrator import Measurement
-from calibrator.history import load_history, record_session
+from calibrator.history import count_sessions, history_summary, load_history, record_session
 import server as server_module
 from server import app, _sessions
 
@@ -276,3 +276,42 @@ class TestRecordSessionIdempotent:
         entries = load_history("u8g", limit=100)
         assert len(entries) == 1
         assert entries[0]["session_id"] == "sid-3"
+
+
+class TestHistorySummarySessionCount:
+    """#578: history_summary()["session_count"] must not saturate at the display cap."""
+
+    @pytest.fixture(autouse=True)
+    def _history_dir(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("TVCAL_HISTORY_DIR", str(tmp_path))
+
+    def _report(self) -> dict:
+        return {
+            "pre_cal": {"avg_de": 5.0},
+            "post_cal": {"avg_de": 1.2},
+            "gamma": {"avg_gamma": 2.2},
+            "peak_luminance": 500.0,
+            "improvement_pct": 76.0,
+            "white_balance": {"avg_de": 0.8},
+            "color_tuner": {"avg_de": 1.5},
+        }
+
+    def test_session_count_not_capped_at_display_limit(self):
+        for i in range(12):
+            record_session(
+                tv_key="u8g", session_id=f"sid-{i}", mode="SDR", report=self._report(),
+            )
+        assert history_summary("u8g")["session_count"] == 12
+
+    def test_partial_trailing_line_is_skipped_conservatively(self, tmp_path):
+        """A truncated/malformed trailing line (e.g. concurrent in-progress
+        append) must not crash count_sessions and is excluded from the count."""
+        for i in range(3):
+            record_session(
+                tv_key="u8g", session_id=f"sid-{i}", mode="SDR", report=self._report(),
+            )
+        sessions_path = tmp_path / "u8g" / "sessions.jsonl"
+        with open(sessions_path, "a", encoding="utf-8") as fh:
+            fh.write('{"session_id": "sid-partial", "date": "2026-0')
+
+        assert count_sessions("u8g") == 3
