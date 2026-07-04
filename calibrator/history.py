@@ -147,6 +147,33 @@ def load_history(tv_key: str, limit: int = 10) -> List[Dict[str, Any]]:
     return list(reversed(entries))[:limit]
 
 
+def count_sessions(tv_key: str) -> int:
+    """Return the total number of recorded sessions for this TV.
+
+    Unlike load_history(), this counts every line in sessions.jsonl and is
+    not capped by the display limit.
+    """
+    path = _sessions_path(tv_key)
+    if not path.exists():
+        return 0
+
+    count = 0
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line:
+                    try:
+                        json.loads(line)
+                        count += 1
+                    except json.JSONDecodeError:
+                        pass
+    except OSError:
+        return 0
+
+    return count
+
+
 def load_baseline(tv_key: str) -> Optional[Dict[str, Any]]:
     """Return the first-ever calibration baseline for this TV, or None."""
     path = _baseline_path(tv_key)
@@ -248,7 +275,7 @@ def history_summary(tv_key: str) -> Dict[str, Any]:
         return {"session_count": 0, "latest_date": None, "latest_post_de": None, "baseline_post_de": None}
     latest = history[0]
     return {
-        "session_count": len(history),
+        "session_count": count_sessions(tv_key),
         "latest_date": latest.get("date"),
         "latest_post_de": latest.get("post_grayscale_avg_de"),
         "baseline_post_de": baseline.get("post_grayscale_avg_de") if baseline else None,
