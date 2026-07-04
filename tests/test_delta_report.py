@@ -67,6 +67,7 @@ def _make_session_with_measurements(client, mode="SDR"):
             Z=float(pct) * 1.09,
             label=f"{pct}% Gray",
             stimulus_rgb=(pct * 2, pct * 2, pct * 2),
+            timestamp="2024-01-01T10:00:00",
         )
         for pct in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     ]
@@ -80,6 +81,7 @@ def _make_session_with_measurements(client, mode="SDR"):
             Z=float(pct) * 1.07,
             label=f"{pct}% Gray",
             stimulus_rgb=(pct * 2, pct * 2, pct * 2),
+            timestamp="2024-01-01T10:00:00",
         )
         for pct in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     ]
@@ -232,6 +234,7 @@ class TestComparisonEdgeCases:
                 X=0.0, Z=0.0,
                 label=f"{pct}% Gray",
                 stimulus_rgb=(pct * 2, pct * 2, pct * 2),
+                timestamp="2024-01-01T10:00:00",
             )
             for pct in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
         ]
@@ -271,6 +274,7 @@ class TestComparisonEdgeCases:
                 Z=float("nan"),
                 label="Invalid",
                 stimulus_rgb=(128, 128, 128),
+                timestamp="2024-01-01T10:00:00",
             )
         ]
         _sessions[sid_a]["pre_measurements"] = invalid_measurements
@@ -282,6 +286,102 @@ class TestComparisonEdgeCases:
         assert report_a["pre_cal"]["avg_de"] is None
         assert report_a["pre_cal"]["invalid_count"] == 1
         assert report_a["improvement_pct"] is None
+
+
+class TestReportUsesLatestPassOnly:
+    """Issue #577: report_payload must reduce each bucket to the latest pass
+    before averaging, matching the live grayscale view / quality gate."""
+
+    def test_report_uses_latest_grayscale_pass(self, client):
+        from calibrator.reports import report_payload
+
+        sid = _make_session_with_measurements(client)
+        sess = _sessions[sid]
+
+        bad_pass = [
+            Measurement(
+                x=0.3127 + 0.05, y=0.3290 + 0.05,
+                Y=float(pct), X=float(pct) * 0.95, Z=float(pct) * 1.09,
+                label=f"{pct}% Gray",
+                stimulus_rgb=(pct * 2, pct * 2, pct * 2),
+                timestamp="2024-01-01T10:00:00",
+            )
+            for pct in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        ]
+        good_pass = [
+            Measurement(
+                x=0.3127, y=0.3290,
+                Y=float(pct), X=float(pct) * 0.95, Z=float(pct) * 1.09,
+                label=f"{pct}% Gray",
+                stimulus_rgb=(pct * 2, pct * 2, pct * 2),
+                timestamp="2024-01-01T11:00:00",
+            )
+            for pct in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        ]
+        good_only_sess = dict(sess)
+        good_only_sess["pre_measurements"] = good_pass
+        good_only_report = report_payload(good_only_sess)
+
+        sess["pre_measurements"] = bad_pass + good_pass
+        report = report_payload(sess)
+
+        # The combined bucket (bad pass + good re-measured pass) must report the
+        # same avg_de as the good pass alone, not a blend of both passes.
+        assert report["pre_cal"]["avg_de"] == good_only_report["pre_cal"]["avg_de"]
+        assert report["pre_cal"]["max_de"] == good_only_report["pre_cal"]["max_de"]
+        assert len(report["pre_cal"]["measurements"]) == len(good_pass)
+
+    def test_report_uses_latest_cms_reading_per_colour(self, client):
+        from calibrator.reports import report_payload
+
+        sid = _make_session_with_measurements(client)
+        sess = _sessions[sid]
+        target = sess["target"]
+
+        stale = Measurement(
+            x=target.white_point_xy[0] + 0.05, y=target.white_point_xy[1] + 0.05,
+            Y=100.0, X=90.0, Z=100.0,
+            label="Red 100%",
+            stimulus_rgb=(255, 0, 0),
+        )
+        fresh = Measurement(
+            x=target.white_point_xy[0], y=target.white_point_xy[1],
+            Y=100.0, X=90.0, Z=100.0,
+            label="Red 100%",
+            stimulus_rgb=(255, 0, 0),
+        )
+        sess["cms_measurements"] = [stale, fresh]
+
+        report = report_payload(sess)
+        assert report["color_tuner"]["avg_de"] == 0.0
+        assert report["color_tuner"]["max_de"] == 0.0
+
+    def test_report_uses_latest_gamma_pass(self, client):
+        from calibrator.reports import report_payload
+        from calibrator.session import GAMMA_TRACKING_LEVELS
+
+        sid = _make_session_with_measurements(client)
+        sess = _sessions[sid]
+
+        level = GAMMA_TRACKING_LEVELS[0]
+        code_value = round(level / 100.0 * 255)
+        stale = Measurement(
+            x=0.3127, y=0.3290, Y=1.0, X=0.95, Z=1.09,
+            label=f"Gamma {level}%",
+            stimulus_rgb=(code_value, code_value, code_value),
+            timestamp="2024-01-01T10:00:00",
+        )
+        fresh = Measurement(
+            x=0.3127, y=0.3290, Y=50.0, X=0.95, Z=1.09,
+            label=f"Gamma {level}%",
+            stimulus_rgb=(code_value, code_value, code_value),
+            timestamp="2024-01-01T11:00:00",
+        )
+        sess["gamma_measurements"] = [stale, fresh]
+
+        report = report_payload(sess)
+        assert len(report["gamma_measurements"]) == 1
+        assert report["gamma_measurements"][0]["Y"] == 50.0
 
 
 class TestReportPayloadEdgeCases:
@@ -322,6 +422,7 @@ class TestReportPayloadEdgeCases:
             X=0.0, Z=0.0,
             label="50% Gray",
             stimulus_rgb=(100, 100, 100),
+            timestamp="2024-01-01T10:00:00",
         )
         slightly_off = Measurement(
             x=target.white_point_xy[0] + 0.01,
@@ -330,6 +431,7 @@ class TestReportPayloadEdgeCases:
             X=0.0, Z=0.0,
             label="51% Gray",
             stimulus_rgb=(102, 102, 102),
+            timestamp="2024-01-01T10:00:00",
         )
 
         sess["pre_measurements"] = [perfect]
