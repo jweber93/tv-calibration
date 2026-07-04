@@ -292,6 +292,34 @@ Dogegen is a Windows GUI application that needs a real desktop, GPU, and HDMI ou
 - **Same-host** (backend and Dogegen on the *same* Windows PC, e.g. via Docker Desktop + WSL2): bind-mount `Dogegen.exe` into the container and set `DOGEGEN_PATH` to that in-container path, exactly as before. The backend launches it directly with `subprocess.Popen`.
 - **Split-host** (backend in Docker on a different machine — e.g. Unraid — while Dogegen stays on the Windows PC): a bind-mounted `.exe` path does nothing, since a Linux container cannot execute a Windows binary and cannot spawn a process on a different physical machine. Instead, run the **[Dogegen Companion Agent](tools/dogegen-agent/README.md)** on the Windows PC (`tools/dogegen-agent/start.bat`) and point the backend at it with `DOGEGEN_AGENT_URL=http://<windows-pc-ip>:7071` (env var, `.prefs.json`, or the Agent URL field on the Dogegen card in the app). The backend then proxies start/stop/status to the agent over HTTP instead of managing a local process. Leave `DOGEGEN_AGENT_URL` empty to keep today's same-host behavior unchanged.
 
+### Full split-host: math + UI in Docker, spectrometer + Dogegen on a Windows PC
+
+This is the topology for running the container on a server/NAS with no hardware attached at all — no USB meter, no GPU, no HDMI output — while a Windows PC next to the TV owns both physical devices. The container never touches either device directly; it only makes outbound HTTP calls to whatever `ZRO_BRIDGE_URL` / `DOGEGEN_AGENT_URL` point at.
+
+| Windows PC (has the meter + GPU/HDMI) | Container (has neither) |
+|---|---|
+| **[ZRO Bridge](tools/zro-bridge/)** (`bridge.py`) — reads the meter, either by triggering ColourSpace ZRO or directly via ArgyllCMS `spotread` (see [ArgyllCMS Direct-Meter Backend](#argyllcms-direct-meter-backend-no-paid-products) if you don't have a ColourSpace license) | `calcore-server` — session state, ΔE/gamma/PQ math, report generation, the web UI |
+| **[Dogegen Companion Agent](tools/dogegen-agent/README.md)** (`agent.py`) — starts/stops Dogegen, reports status | Calls both services over HTTP; never spawns a local process or opens a serial/USB port |
+
+Setup:
+
+1. On the Windows PC, start both companion services:
+   - `tools/zro-bridge/start.bat` — copy `bridge.example.json` → `bridge.json` first; set `"backend": "argyll"` if you're using ArgyllCMS instead of ColourSpace.
+   - `tools/dogegen-agent/start.bat` — copy `agent.example.json` → `agent.json` first.
+   - Confirm both are reachable: `curl http://<windows-pc-ip>:7070/status` and `curl http://<windows-pc-ip>:7071/status`.
+2. On the Docker host, point the container at both before (or after) starting it:
+   ```bash
+   export ZRO_BRIDGE_URL=http://<windows-pc-ip>:7070
+   export DOGEGEN_AGENT_URL=http://<windows-pc-ip>:7071
+   docker compose up -d
+   ```
+   Both can also be set later from the app's Bridge/Dogegen cards, or in `.prefs.json`, without restarting the container.
+3. Leave `DOGEGEN_PATH` empty — it's a same-host-only setting and is ignored whenever `DOGEGEN_AGENT_URL` is set.
+
+Everything else — the workflow, session state, quality gates, reports — runs from the container exactly as in a same-host install; the only difference is two lightweight Windows services sitting between it and the physical hardware.
+
+> **ADB TV auto-apply is not part of this split yet.** ADB commands run from wherever `server.py` runs, so in this topology that's the container — which would need network line-of-sight to the TV's ADB port and the `adb` client installed. Neither is wired up today: the container image doesn't ship `adb`, and there's no companion-agent equivalent for it. Manual OSD entry is unaffected; only the ADB "auto-apply" convenience path is out of scope for now.
+
 ---
 
 ## Unraid
@@ -335,6 +363,8 @@ Expose the `/mnt/user/downloads/zro-drops` directory as an Unraid SMB share (Use
 **Dogegen on Unraid (split-host):**
 
 Since Unraid runs Linux, Dogegen must stay on a separate Windows PC and be controlled over the network — a bind-mounted `.exe` path will not run. Install the **[Dogegen Companion Agent](tools/dogegen-agent/README.md)** on that Windows PC (`tools/dogegen-agent/start.bat`), then set `DOGEGEN_AGENT_URL` on the `tv-calibration` container to `http://<WINDOWS_PC_IP>:7071` — either as an extra parameter (`-e DOGEGEN_AGENT_URL=http://<WINDOWS_PC_IP>:7071`) or via the template's **Dogegen Agent URL** field. The app's Dogegen card also lets you set/change this URL at runtime without restarting the container.
+
+The spectrometer follows the same shape: rather than passing a USB meter through to Unraid, run the **[ZRO Bridge](tools/zro-bridge/)** on that same Windows PC and set `ZRO_BRIDGE_URL` to `http://<WINDOWS_PC_IP>:7070`. See [Full split-host](#full-split-host-math--ui-in-docker-spectrometer--dogegen-on-a-windows-pc) for the combined setup.
 
 **AI assistant on Unraid:**
 

@@ -1,5 +1,11 @@
 # Docker Architecture Roadmap
 
+**Status: shipped.** #584 and #585 landed as `tools/dogegen-agent/` and the
+`DOGEGEN_AGENT_URL` backend wiring, respectively. This doc is kept as the
+scoping record; for the current user-facing setup see README.md's
+["Full split-host"](../README.md#full-split-host-math--ui-in-docker-spectrometer--dogegen-on-a-windows-pc)
+section.
+
 Scoping for making Docker a first-class deployment target: split the backend
 into a container that can run anywhere on the LAN (Docker Desktop, Unraid) while
 Dogegen — a Windows GUI app that needs a real desktop / GPU / HDMI output —

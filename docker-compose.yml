@@ -11,6 +11,11 @@
 #   # App UI: http://localhost:8000
 #   # LiteLLM endpoint for app config: http://localhost:4000
 #
+# Split-host (spectrometer + Dogegen on a separate Windows PC instead of
+# this Docker host): set ZRO_BRIDGE_URL / DOGEGEN_AGENT_URL below to that
+# PC's tools/zro-bridge and tools/dogegen-agent services. See README.md
+# "Full split-host" section.
+#
 # Unraid: use unraid-template.xml instead of this file.
 
 services:
@@ -26,7 +31,10 @@ services:
       - LITELLM_ENDPOINT=http://litellm:4000
       - LITELLM_MODEL=tvcal-analyst
       - ZRO_BRIDGE_URL=
+      # DOGEGEN_PATH is for same-host installs only (bind-mounted exe) and is
+      # ignored whenever DOGEGEN_AGENT_URL is set — see README.md.
       - DOGEGEN_PATH=
+      - DOGEGEN_AGENT_URL=
       - PYTHONUNBUFFERED=1
     depends_on:
       litellm:
