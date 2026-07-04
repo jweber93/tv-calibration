@@ -694,6 +694,25 @@ class TestBridgeInstrumentEndpoints:
         resp = asyncio.run(_run())
         assert resp.status_code == 400
 
+    def test_partial_refresh_settings_updates_persist_unmodified_fields(self):
+        """Setting refresh_mode in one request, then refresh_rate_hz in a
+        separate request that omits refresh_mode, must not clobber the
+        value set by the first request (same omit-a-key-to-leave-it-alone
+        contract as correction_path)."""
+        bridge._config["backend"] = "argyll"
+
+        async def _run():
+            transport = httpx.ASGITransport(app=bridge.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://bridge.test") as client:
+                await client.post("/config/argyll-port", json={"port": "1", "refresh_mode": "refresh"})
+                return await client.post("/config/argyll-port", json={"port": "1", "refresh_rate_hz": 120})
+
+        resp = asyncio.run(_run())
+
+        assert resp.status_code == 200
+        assert bridge._config["argyll_refresh_mode"] == "refresh"
+        assert bridge._config["argyll_refresh_rate_hz"] == 120
+
     def test_instruments_reports_refresh_timing_fields(self):
         bridge._config["backend"] = "argyll"
         bridge._config["argyll_refresh_mode"] = "non_refresh"

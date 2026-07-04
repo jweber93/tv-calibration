@@ -130,11 +130,13 @@ export function ArgyllCard({ argyllPrefs, onScanInstruments, onSaveInstrument })
           <div className="bridge-url-row">
             <input
               type="number"
-              min={0}
+              min={0.1}
+              max={500}
               step="any"
               value={refreshRateHz}
               onChange={e => setRefreshRateHz(e.target.value)}
               placeholder="e.g. 120"
+              title="Panel refresh/PWM frequency in Hz (typical: 30-240)"
               style={{ width: 120 }}
             />
           </div>

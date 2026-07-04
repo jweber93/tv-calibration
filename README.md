@@ -491,6 +491,8 @@ Modern wide-gamut panels (QD-OLED, WOLED, QD-LCD) need a per-panel spectral corr
 
 To identify the right settings for a given TV: start with everything unset and take a few readings at a fixed patch to check for noise or drift. If readings are noisy or drift over repeated measurements of the same patch, try `argyll_refresh_mode: "refresh"` first (most likely culprit on PWM-dimmed panels); if the panel's PWM/refresh frequency is known, add `argyll_refresh_rate_hz`; if readings are still noisy at low light levels, try `argyll_integration_mode: "averaging"` if your meter supports it. These flags are verified against the installed ArgyllCMS version's `spotread -?` output — if a flag is rejected by your version, `spotread` fails loudly with a clear `spotread_error` rather than silently misreading.
 
+> **Requires ArgyllCMS v3.x+** for `spotread`'s `-Y` sub-flags. Older Argyll releases don't support them and will reject any of these three settings with a `spotread_error` — leave them unset if you're on an older version.
+
 **Graceful "ArgyllCMS not found" handling** — if `spotread` isn't on PATH/at the configured path, or no meter is detected, `GET /api/zro/bridge/status` still returns `200` with `spotread_found: false` (or a `no_meter` error type from a triggered read) and a human-readable message instead of a crash, so the UI can show a clear "install ArgyllCMS" / "check the meter connection" prompt rather than a generic failure.
 
 ### Dogegen Integration

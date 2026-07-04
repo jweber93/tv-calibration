@@ -22,6 +22,8 @@
   "argyll_port": null,
   "argyll_timeout_s": 20.0,
   "argyll_correction": null,
+
+  "_comment_refresh_timing": "argyll_refresh_mode / argyll_refresh_rate_hz / argyll_integration_mode need ArgyllCMS v3.x+ (spotread -Y support); older versions reject them with spotread_error.",
   "argyll_refresh_mode": null,
   "argyll_refresh_rate_hz": null,
   "argyll_integration_mode": null
