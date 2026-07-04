@@ -301,6 +301,8 @@ This is the topology for running the container on a server/NAS with no hardware 
 | **[ZRO Bridge](tools/zro-bridge/)** (`bridge.py`) — reads the meter, either by triggering ColourSpace ZRO or directly via ArgyllCMS `spotread` (see [ArgyllCMS Direct-Meter Backend](#argyllcms-direct-meter-backend-no-paid-products) if you don't have a ColourSpace license) | `calcore-server` — session state, ΔE/gamma/PQ math, report generation, the web UI |
 | **[Dogegen Companion Agent](tools/dogegen-agent/README.md)** (`agent.py`) — starts/stops Dogegen, reports status | Calls both services over HTTP; never spawns a local process or opens a serial/USB port |
 
+**Where ArgyllCMS sits:** `spotread` is a command-line tool, not a service — it must run on the same physical machine as the USB-connected meter, because that's an OS/USB-driver constraint, not something you can configure around. It never runs in the container. When the Bridge's `bridge.json` has `"backend": "argyll"`, the Bridge itself (running on the Windows PC) shells out to `spotread` as a local subprocess, parses the XYZ reading, and returns it over the same `GET /status` / `POST /measure` HTTP endpoints it always exposes. The container only ever receives JSON over HTTP — it never sees the meter, the serial/USB port, or the `spotread` process itself.
+
 Setup:
 
 1. On the Windows PC, start both companion services:
