@@ -280,9 +280,17 @@ AI features require a separately-reachable LLM endpoint; set `LITELLM_ENDPOINT` 
 | `LITELLM_ENDPOINT` | *(empty)* | URL of the LiteLLM proxy or any OpenAI-compatible endpoint |
 | `LITELLM_MODEL` | *(empty)* | Model name to send in chat completion requests |
 | `ZRO_BRIDGE_URL` | *(empty)* | URL of the ZRO Bridge for triggered measurements |
-| `DOGEGEN_PATH` | *(empty)* | Path to the Dogegen executable inside the container |
+| `DOGEGEN_PATH` | *(empty)* | Path to the Dogegen executable, for same-host setups only (see below) |
+| `DOGEGEN_AGENT_URL` | *(empty)* | URL of a [Dogegen Companion Agent](tools/dogegen-agent/README.md) for split-host setups (see below) |
 | `OPENROUTER_API_KEY` | *(empty)* | OpenRouter API key (read by the LiteLLM service) |
 | `TZ` | `UTC` | Timezone for the Samba sidecar |
+
+### Dogegen: same-host vs. split-host
+
+Dogegen is a Windows GUI application that needs a real desktop, GPU, and HDMI output — it cannot run inside the Linux backend container.
+
+- **Same-host** (backend and Dogegen on the *same* Windows PC, e.g. via Docker Desktop + WSL2): bind-mount `Dogegen.exe` into the container and set `DOGEGEN_PATH` to that in-container path, exactly as before. The backend launches it directly with `subprocess.Popen`.
+- **Split-host** (backend in Docker on a different machine — e.g. Unraid — while Dogegen stays on the Windows PC): a bind-mounted `.exe` path does nothing, since a Linux container cannot execute a Windows binary and cannot spawn a process on a different physical machine. Instead, run the **[Dogegen Companion Agent](tools/dogegen-agent/README.md)** on the Windows PC (`tools/dogegen-agent/start.bat`) and point the backend at it with `DOGEGEN_AGENT_URL=http://<windows-pc-ip>:7071` (env var, `.prefs.json`, or the Agent URL field on the Dogegen card in the app). The backend then proxies start/stop/status to the agent over HTTP instead of managing a local process. Leave `DOGEGEN_AGENT_URL` empty to keep today's same-host behavior unchanged.
 
 ---
 
@@ -315,13 +323,18 @@ Search for **tv-calibration** in the Community Applications plugin and click Ins
    | `/app/.sessions` | `/mnt/user/appdata/tv-calibration/.sessions` | Recommended |
    | `/app/.calibration-history` | `/mnt/user/appdata/tv-calibration/.calibration-history` | Recommended |
    | `/app/.prefs.json` | `/mnt/user/appdata/tv-calibration/.prefs.json` | Recommended |
-   | `/app/tools/dogegen` | path to Dogegen on host | Optional |
+
+   There is no path mapping for Dogegen — Unraid is a Linux host, so it can never bind-mount or execute a Windows `Dogegen.exe` directly. See "Dogegen on Unraid" below.
 
 4. Click **Apply**. Open `http://<UNRAID_IP>:8000` in your browser.
 
 **ZRO watch folder on Unraid:**
 
 Expose the `/mnt/user/downloads/zro-drops` directory as an Unraid SMB share (User Shares → Add Share, or enable an existing share). On your Windows machine, map that share as a network drive and point ColourSpace ZRO's export folder to it. The app's Watch Folder on the Prepare page should match the container path (`/data/zro-drops`).
+
+**Dogegen on Unraid (split-host):**
+
+Since Unraid runs Linux, Dogegen must stay on a separate Windows PC and be controlled over the network — a bind-mounted `.exe` path will not run. Install the **[Dogegen Companion Agent](tools/dogegen-agent/README.md)** on that Windows PC (`tools/dogegen-agent/start.bat`), then set `DOGEGEN_AGENT_URL` on the `tv-calibration` container to `http://<WINDOWS_PC_IP>:7071` — either as an extra parameter (`-e DOGEGEN_AGENT_URL=http://<WINDOWS_PC_IP>:7071`) or via the template's **Dogegen Agent URL** field. The app's Dogegen card also lets you set/change this URL at runtime without restarting the container.
 
 **AI assistant on Unraid:**
 
@@ -429,7 +442,7 @@ When Dogegen is selected as the pattern generator, the app manages the Dogegen p
 - Configures the recommended settings for HDR10: ST2084 Rec.2020, 10 bpc, RGB 4:4:4 Full, 10% window
 - Shows a status indicator in the header bar (green when running and ready)
 
-Configure the Dogegen executable path and signal settings in the **Dogegen Companion** card on the Prepare page.
+Configure the Dogegen executable path and signal settings in the **Dogegen Companion** card on the Prepare page. If Dogegen runs on a separate machine from the backend (e.g. backend in Docker on Unraid, Dogegen on a Windows PC), set the card's **Agent URL** to a [Dogegen Companion Agent](tools/dogegen-agent/README.md) instead — see [Dogegen: same-host vs. split-host](#dogegen-same-host-vs-split-host).
 
 ### LightSpace Connect
 
