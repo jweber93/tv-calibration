@@ -1085,6 +1085,35 @@ class TestPredictNextSettings:
         assert result is not None
         assert result.adjustments[0]["to"] == "Movie"
 
+    def test_round1_drops_numeric_absolute_adjustment_with_null_from(self):
+        # #579: a compliant model can emit "from": null with a numeric "to" on
+        # round 1. Passing that through undamped would bypass the ~0.55 clamp
+        # entirely, so it must be dropped rather than auto-applied as-is.
+        llm = _llm_mock()
+        plan = {
+            "adjustments": [
+                {
+                    "menu": "White Balance",
+                    "setting": "R Gain",
+                    "from": None,
+                    "to": -20,
+                    "scope": "global",
+                    "reason": "Full correction, no known current value.",
+                }
+            ],
+            "next_step": "rerun_grayscale",
+            "confidence": 0.9,
+        }
+        p, mock_urlopen = _patch_urlopen(plan)
+        try:
+            result = predict_next_settings(
+                _summary(avg_de=5.0, max_de=7.0), _cfg_mock(), "post_grayscale", llm
+            )
+        finally:
+            p.stop()
+        assert result is not None
+        assert result.adjustments == []
+
     def test_round2_deltas_are_not_damped_by_the_deterministic_clamp(self):
         # rounds_used == 1 (one prior round already recorded): the clamp only
         # backstops Round 1, so a full delta here should pass through as-is —
