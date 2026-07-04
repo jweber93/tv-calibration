@@ -1536,6 +1536,14 @@ def _apply_round1_damping(
     Only the first round is damped here (there is no prior residual to trend
     against yet). Later rounds rely on the prior-rounds history fed back into
     the prompt, which already tells the model what did and didn't work.
+
+    A numeric ``to`` with a null ``from`` has no baseline to damp against —
+    the schema permits ``"from": null`` for cases where the model doesn't know
+    the current value. Passing such an adjustment through as-is on round 1
+    would apply the full, undamped absolute value and bypass the clamp
+    entirely (#579), so it is dropped rather than auto-applied undamped.
+    Non-numeric targets (e.g. an enum/preset like "Movie") aren't a damping
+    concern at all and pass through unchanged.
     """
     if rounds_used != 0:
         return adjustments
@@ -1544,7 +1552,17 @@ def _apply_round1_damping(
     for adj in adjustments:
         from_val = _safe_float(adj.get("from"))
         to_val = _safe_float(adj.get("to"))
-        if from_val is None or to_val is None or from_val == to_val:
+        if to_val is None:
+            damped.append(adj)
+            continue
+        if from_val is None:
+            logger.warning(
+                "_apply_round1_damping: dropping round-1 adjustment for %s/%s "
+                "— numeric 'to' with null 'from' has no baseline to damp against",
+                adj.get("menu"), adj.get("setting"),
+            )
+            continue
+        if from_val == to_val:
             damped.append(adj)
             continue
         new_to = from_val + _ROUND1_DAMPING_FACTOR * (to_val - from_val)
