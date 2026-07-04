@@ -257,9 +257,9 @@ export function useSession() {
     setLlmStreaming(false);
   }
 
-  async function createSession(tv, mode, sdrPeakNits) {
+  async function createSession(tv, sdrPeakNits) {
     stopLlmSSE();
-    const sess = await api.createSession(tv, mode, sdrPeakNits);
+    const sess = await api.createSession(tv, sdrPeakNits);
     setSession(sess);
     startSSE(sess.id);
     setLlmInsight(null);

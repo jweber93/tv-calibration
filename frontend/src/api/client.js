@@ -55,7 +55,7 @@ export const api = {
   // Session
   getSession:    ()           => api.get('/api/session'),
   deleteSession: (sid)        => api.delete(`/api/session/${sid}`),
-  createSession: (tv, mode, sdrPeakNits) =>
+  createSession: (tv, sdrPeakNits) =>
     api.post('/api/session', { tv_key: tv, sdr_peak_nits: sdrPeakNits }),
   nextStep:      (sid)        => api.post(`/api/session/${sid}/next`),
   prevStep:      (sid)        => api.post(`/api/session/${sid}/prev`),
