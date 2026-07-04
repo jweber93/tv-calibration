@@ -27,9 +27,11 @@ def _reset_globals():
         "window_pct": 10,
         "maxcll": 1000,
     }
+    server_module._dogegen_agent.set("")
     server_module._prefs = {
         "dogegen": {},
         "bridge_url": "",
+        "dogegen_agent_url": "",
         "watch_folder": "",
         "llm": {"endpoint": "", "model": ""},
         "session_defaults": {

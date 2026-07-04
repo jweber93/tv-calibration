@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Button } from './Button';
+import { api } from '../api/client';
 
 export function DogegenCard({ dogegenStatus, session, onSaveConfig, onStart, onStop }) {
   const [path, setPath] = useState(dogegenStatus?.path || '');
   const [resolveHost, setResolveHost] = useState(dogegenStatus?.resolve_host || '');
   const [windowPct, setWindowPct] = useState(dogegenStatus?.window_pct || 10);
   const [maxcll, setMaxcll] = useState(dogegenStatus?.maxcll || 1000);
+  const [agentUrl, setAgentUrl] = useState(dogegenStatus?.agent_url || '');
   const [showSettings, setShowSettings] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
 
   useEffect(() => {
     setMsg('');
@@ -16,10 +20,14 @@ export function DogegenCard({ dogegenStatus, session, onSaveConfig, onStart, onS
     setResolveHost(dogegenStatus?.resolve_host || '');
     setWindowPct(dogegenStatus?.window_pct || 10);
     setMaxcll(dogegenStatus?.maxcll || 1000);
+    setAgentUrl(dogegenStatus?.agent_url || '');
+    setTestResult(null);
   }, [dogegenStatus]);
 
   const running = dogegenStatus?.running;
   const configured = dogegenStatus?.configured;
+  const isRemote = Boolean(dogegenStatus?.agent_url);
+  const agentUnreachable = isRemote && dogegenStatus?.agent_reachable === false;
 
   async function handleSave() {
     setBusy(true);
@@ -30,6 +38,7 @@ export function DogegenCard({ dogegenStatus, session, onSaveConfig, onStart, onS
         resolve_host: resolveHost,
         window_pct: Number(windowPct),
         maxcll: Number(maxcll),
+        agent_url: agentUrl,
       });
       setMsg('Dogegen settings saved');
       setShowSettings(false);
@@ -66,23 +75,51 @@ export function DogegenCard({ dogegenStatus, session, onSaveConfig, onStart, onS
     }
   }
 
+  async function handleTestAgentUrl() {
+    const url = agentUrl.trim();
+    if (!url) {
+      setTestResult({ ok: false, message: 'Enter an Agent URL first' });
+      return;
+    }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const status = await api.testDogegenAgent(url);
+      setTestResult(
+        status.agent_reachable
+          ? { ok: true, message: 'Agent reachable' }
+          : { ok: false, message: status.last_error || 'Agent unreachable' }
+      );
+    } catch (e) {
+      setTestResult({ ok: false, message: e.message });
+    } finally {
+      setTesting(false);
+    }
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <span
           style={{
             width: 8, height: 8, borderRadius: '50%',
-            background: running ? 'var(--green)' : 'var(--ink2)',
-            boxShadow: running ? '0 0 6px var(--green)' : 'none',
+            background: agentUnreachable ? 'var(--red)' : running ? 'var(--green)' : 'var(--ink2)',
+            boxShadow: agentUnreachable
+              ? '0 0 6px var(--red)'
+              : running ? '0 0 6px var(--green)' : 'none',
             flexShrink: 0,
           }}
         />
         <span className="text-sm muted">
-          {running
-            ? <span className="green">Dogegen running</span>
-            : configured
-              ? 'Dogegen ready to launch'
-              : 'Dogegen path not configured'}
+          {agentUnreachable
+            ? <span className="red">Dogegen agent unreachable</span>
+            : running
+              ? <span className="green">Dogegen running{isRemote ? ' (remote agent)' : ''}</span>
+              : configured
+                ? `Dogegen ready to launch${isRemote ? ' via remote agent' : ''}`
+                : isRemote
+                  ? 'Dogegen path not configured on agent'
+                  : 'Dogegen path not configured'}
         </span>
         <button
           className="btn btn-sm"
@@ -99,13 +136,35 @@ export function DogegenCard({ dogegenStatus, session, onSaveConfig, onStart, onS
 
       {showSettings && (
         <div className="bridge-settings">
-          <div className="text-sm muted">Dogegen executable path</div>
+          <div className="text-sm muted">Agent URL (optional — for a remote Dogegen Companion Agent)</div>
+          <div className="bridge-url-row">
+            <input
+              type="text"
+              value={agentUrl}
+              onChange={e => { setAgentUrl(e.target.value); setTestResult(null); }}
+              placeholder="http://<windows-pc>:7071"
+            />
+            <Button small onClick={handleTestAgentUrl} disabled={testing}>
+              {testing ? <span className="spinner" /> : 'Test'}
+            </Button>
+          </div>
+          {testResult && (
+            <div className={`text-sm mt-2 ${testResult.ok ? 'green' : 'red'}`}>
+              {testResult.message}
+            </div>
+          )}
+          <div className="text-sm muted" style={{ marginTop: 10 }}>
+            {isRemote
+              ? 'Dogegen executable path (on the agent host — set in agent.json, not here)'
+              : 'Dogegen executable path'}
+          </div>
           <div className="bridge-url-row">
             <input
               type="text"
               value={path}
               onChange={e => setPath(e.target.value)}
               placeholder="C:\Program Files\Dogegen\Dogegen.exe"
+              disabled={isRemote}
             />
           </div>
           <div className="text-sm muted" style={{ marginTop: 10 }}>Resolve host (optional)</div>
@@ -115,6 +174,7 @@ export function DogegenCard({ dogegenStatus, session, onSaveConfig, onStart, onS
               value={resolveHost}
               onChange={e => setResolveHost(e.target.value)}
               placeholder="127.0.0.1"
+              disabled={isRemote}
             />
           </div>
           <div className="bridge-url-row" style={{ marginTop: 10 }}>
@@ -125,6 +185,7 @@ export function DogegenCard({ dogegenStatus, session, onSaveConfig, onStart, onS
               value={windowPct}
               onChange={e => setWindowPct(Number(e.target.value))}
               style={{ width: 120 }}
+              disabled={isRemote}
             />
             <span className="text-sm muted">Window %</span>
             <input
@@ -133,6 +194,7 @@ export function DogegenCard({ dogegenStatus, session, onSaveConfig, onStart, onS
               value={maxcll}
               onChange={e => setMaxcll(Number(e.target.value))}
               style={{ width: 140, marginLeft: 8 }}
+              disabled={isRemote}
             />
             <span className="text-sm muted">MaxCLL</span>
             <Button small onClick={handleSave} disabled={busy}>Save</Button>

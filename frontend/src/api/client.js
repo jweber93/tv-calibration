@@ -96,6 +96,7 @@ export const api = {
 
   // Dogegen
   getDogegenStatus: ()        => api.get('/api/dogegen/status'),
+  testDogegenAgent: (url)     => api.get(`/api/dogegen/status?url=${encodeURIComponent(url)}`),
   saveDogegenConfig: (body)   => api.post('/api/dogegen/config', body),
   startDogegen: (sid)         => api.post(`/api/session/${sid}/dogegen/start`),
   stopDogegen: ()             => api.post('/api/dogegen/stop'),

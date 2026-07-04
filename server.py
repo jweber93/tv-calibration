@@ -355,9 +355,28 @@ class _ZroBridgeState:
             self._url = url
 
 
+class _DogegenAgentState:
+    """URL of a remote Dogegen Companion Agent (#584), mirroring
+    _ZroBridgeState. Empty = today's local-Popen behavior, unchanged."""
+
+    def __init__(self, url: str) -> None:
+        self._lock = threading.Lock()
+        self._url = url
+
+    def get(self) -> str:
+        with self._lock:
+            return self._url
+
+    def set(self, url: str) -> None:
+        with self._lock:
+            self._url = url
+
+
 _watched_session = _WatchedSessionState()
 _dogegen_state = _DogegenState()
 _zro_bridge = _ZroBridgeState(os.getenv("ZRO_BRIDGE_URL", "http://localhost:7070").rstrip("/"))
+_dogegen_agent = _DogegenAgentState(os.getenv("DOGEGEN_AGENT_URL", "").strip().rstrip("/"))
+_DOGEGEN_AGENT_TIMEOUT = 5.0
 _DOGEGEN_READY_DELAY_SECONDS = 2.0
 _DOGEGEN_DEFAULT_WINDOW_PCT = 10
 _DOGEGEN_DEFAULT_MAXCLL = 1000
@@ -414,6 +433,7 @@ _AUTOCAL_DEFAULTS: Dict[str, Any] = {
 _prefs: Dict[str, Any] = {
     "dogegen": {},
     "bridge_url": "",
+    "dogegen_agent_url": "",
     "watch_folder": "",
     "llm": {"endpoint": "", "model": ""},
     "session_defaults": {
@@ -442,7 +462,7 @@ def _load_prefs() -> None:
     except Exception:
         logger.warning("Failed to parse .prefs.json; using defaults", exc_info=True)
         return
-    for key in ("dogegen", "bridge_url", "watch_folder", "llm", "session_defaults", "argyll"):
+    for key in ("dogegen", "bridge_url", "dogegen_agent_url", "watch_folder", "llm", "session_defaults", "argyll"):
         if key in saved:
             _prefs[key] = saved[key]
     if "autocal" in saved:
@@ -454,12 +474,15 @@ def _load_prefs() -> None:
             _dogegen_config[field] = _prefs["dogegen"][field]
     if _prefs.get("bridge_url"):
         _zro_bridge.set(_prefs["bridge_url"])
+    if _prefs.get("dogegen_agent_url"):
+        _dogegen_agent.set(_prefs["dogegen_agent_url"])
 
 
 def _save_prefs() -> None:
     """Snapshot current globals into _prefs and write atomically."""
     _prefs["dogegen"] = dict(_dogegen_config)
     _prefs["bridge_url"] = _zro_bridge.get()
+    _prefs["dogegen_agent_url"] = _dogegen_agent.get()
     try:
         tmp = _PREFS_PATH.with_suffix(".tmp")
         tmp.write_text(json.dumps(_prefs, indent=2), encoding="utf-8")
@@ -517,6 +540,7 @@ class DogegenConfigReq(BaseModel):
     resolve_host: Optional[str] = None
     window_pct: Optional[int] = None
     maxcll: Optional[int] = None
+    agent_url: Optional[str] = None
 
 
 class PrefsReq(BaseModel):
@@ -702,7 +726,75 @@ def _external_dogegen_pid() -> Optional[int]:
     return None
 
 
-def _dogegen_status_payload() -> Dict[str, Any]:
+# ── Dogegen Companion Agent proxy (#585b) ───────────────────────────────────
+#
+# Contract with tools/dogegen-agent/agent.py (see tools/dogegen-agent/README.md):
+#   GET  {agent_url}/status         -> payload shape-compatible with
+#                                      _dogegen_status_payload() below (running,
+#                                      managed, ready, ready_in_ms, pid, path,
+#                                      configured, last_error, launch_cmd,
+#                                      resolve_host, window_pct, maxcll).
+#   POST {agent_url}/start {"mode"} -> {"ok", "already_running", **status}
+#   POST {agent_url}/stop           -> {"ok", "already_stopped", **status}
+# The agent owns all Popen/tasklist/pgrep logic; this backend only forwards
+# session.mode and reads the agent's response back, adding agent_url /
+# agent_reachable so the frontend can distinguish local vs. remote state.
+
+def _dogegen_agent_error_message(exc: Exception) -> str:
+    if isinstance(exc, httpx.ConnectError):
+        return "Cannot reach Dogegen Companion Agent — is it running on the Windows PC?"
+    if isinstance(exc, httpx.TimeoutException):
+        return "Dogegen Companion Agent timed out — check the Windows PC and network."
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.text or str(exc)
+    return str(exc)
+
+
+def _dogegen_agent_unreachable_payload(url: str, error: str) -> Dict[str, Any]:
+    return {
+        "configured": False,
+        "path": None,
+        "running": False,
+        "pid": None,
+        "managed": False,
+        "ready": False,
+        "ready_in_ms": 0,
+        "resolve_host": "",
+        "window_pct": _DOGEGEN_DEFAULT_WINDOW_PCT,
+        "maxcll": _DOGEGEN_DEFAULT_MAXCLL,
+        "last_error": error,
+        "launch_cmd": [],
+        "agent_url": url,
+        "agent_reachable": False,
+    }
+
+
+def _dogegen_status_payload_via_agent(url: str) -> Dict[str, Any]:
+    """Proxy GET {url}/status — readiness/pid/etc. come from the agent's own
+    payload, not local _dogegen_state (#585b)."""
+    try:
+        resp = httpx.get(f"{url}/status", timeout=_DOGEGEN_AGENT_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        return _dogegen_agent_unreachable_payload(url, _dogegen_agent_error_message(exc))
+    data["agent_url"] = url
+    data["agent_reachable"] = True
+    return data
+
+
+def _dogegen_status_payload(url_override: Optional[str] = None) -> Dict[str, Any]:
+    """url_override lets a caller test a candidate agent URL (e.g. the
+    frontend's "Test connection" button) without first persisting it via
+    /api/dogegen/config — mirrors the ZRO Bridge's ?url= passthrough (#555)."""
+    agent_url = (
+        url_override.strip()
+        if (url_override is not None and url_override.strip())
+        else _dogegen_agent.get()
+    )
+    if agent_url:
+        return _dogegen_status_payload_via_agent(agent_url)
+
     path = _find_dogegen_executable()
     managed_running = _managed_dogegen_is_running()
     external_pid = None if managed_running else _external_dogegen_pid()
@@ -734,6 +826,7 @@ def _dogegen_status_payload() -> Dict[str, Any]:
         "maxcll": int(_dogegen_config.get("maxcll") or _DOGEGEN_DEFAULT_MAXCLL),
         "last_error": _dogegen_state.get_last_error(),
         "launch_cmd": _dogegen_state.get_launch_cmd(),
+        "agent_url": "",
     }
 
 
@@ -757,7 +850,43 @@ def _dogegen_command_for_session(session: Dict[str, Any], exe_path: str) -> List
     return [exe_path]
 
 
+def _dogegen_agent_request_error(url: str, exc: Exception) -> HTTPException:
+    if isinstance(exc, httpx.HTTPStatusError):
+        return HTTPException(exc.response.status_code, _dogegen_agent_error_message(exc))
+    return HTTPException(502, _dogegen_agent_error_message(exc))
+
+
+def _start_dogegen_via_agent(url: str, session: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        resp = httpx.post(
+            f"{url}/start", json={"mode": session.get("mode")}, timeout=_DOGEGEN_AGENT_TIMEOUT
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        raise _dogegen_agent_request_error(url, exc) from exc
+    data["agent_url"] = url
+    data["agent_reachable"] = True
+    return data
+
+
+def _stop_dogegen_via_agent(url: str) -> Dict[str, Any]:
+    try:
+        resp = httpx.post(f"{url}/stop", timeout=_DOGEGEN_AGENT_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        raise _dogegen_agent_request_error(url, exc) from exc
+    data["agent_url"] = url
+    data["agent_reachable"] = True
+    return data
+
+
 def _start_dogegen_for_session(session: Dict[str, Any]) -> Dict[str, Any]:
+    agent_url = _dogegen_agent.get()
+    if agent_url:
+        return _start_dogegen_via_agent(agent_url, session)
+
     with _dogegen_state._lock:
         if _managed_dogegen_is_running() or _external_dogegen_pid() is not None:
             return {"ok": True, "already_running": True, **_dogegen_status_payload()}
@@ -783,6 +912,10 @@ def _start_dogegen_for_session(session: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _stop_dogegen() -> Dict[str, Any]:
+    agent_url = _dogegen_agent.get()
+    if agent_url:
+        return _stop_dogegen_via_agent(agent_url)
+
     with _dogegen_state._lock:
         if not _managed_dogegen_is_running():
             return {"ok": True, "already_stopped": True, **_dogegen_status_payload()}
@@ -1228,8 +1361,8 @@ def set_code_scale(sid: str, req: CodeScaleReq):
 
 
 @app.get("/api/dogegen/status")
-def dogegen_status():
-    return _dogegen_status_payload()
+def dogegen_status(url: Optional[str] = Query(None)):
+    return _dogegen_status_payload(url)
 
 
 @app.post("/api/dogegen/config")
@@ -1246,6 +1379,15 @@ def dogegen_config(req: DogegenConfigReq):
         if req.maxcll <= 0:
             raise HTTPException(400, "maxcll must be greater than 0")
         _dogegen_config["maxcll"] = int(req.maxcll)
+    if req.agent_url is not None:
+        agent_url = req.agent_url.strip().rstrip("/")
+        if agent_url:
+            parsed = urlparse(agent_url)
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                raise HTTPException(
+                    400, "agent_url must be a valid http(s) URL, e.g. http://192.168.1.50:7071"
+                )
+        _dogegen_agent.set(agent_url)
     _save_prefs()
     return {"ok": True, **_dogegen_status_payload()}
 
