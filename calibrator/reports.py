@@ -7,7 +7,14 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from .session import m_to_dict
+from .session import (
+    gamma_levels_for_session,
+    grayscale_levels_for_ramp,
+    latest_gamma_pass,
+    latest_grayscale_pass,
+    latest_wb_measurements,
+    m_to_dict,
+)
 
 
 def report_payload(session: Dict[str, Any]) -> Dict[str, Any]:
@@ -38,11 +45,50 @@ def report_payload(session: Dict[str, Any]) -> Dict[str, Any]:
             "measurements": items,
         }
 
-    pre = stats(session["pre_measurements"])
-    post = stats(session["post_measurements"])
-    wb = stats(session["wb_measurements"])
-    cms = stats(session["cms_measurements"])
-    gamma = gamma_stats(session["gamma_measurements"])
+    # latest_grayscale_pass / latest_gamma_pass reduce by walking timestamps
+    # backwards; if a bucket carries no timestamps (e.g. legacy/pre-#577 data),
+    # that walk finds nothing to anchor on and returns empty. Fall back to
+    # treating the whole bucket as one coherent pass rather than reporting
+    # None/empty stats for measurements that are actually there.
+    grayscale_levels = grayscale_levels_for_ramp(session.get("grayscale_ramp_steps", 11))
+    latest_pre = latest_grayscale_pass(
+        session["pre_measurements"], max_count=len(grayscale_levels),
+        signal_range=signal_range, code_scale=code_scale,
+    )
+    if not latest_pre and session["pre_measurements"]:
+        latest_pre = latest_grayscale_pass(
+            session["pre_measurements"], max_count=len(grayscale_levels),
+            signal_range=signal_range, code_scale=code_scale, detect_sessions=False,
+        )
+    latest_post = latest_grayscale_pass(
+        session["post_measurements"], max_count=len(grayscale_levels),
+        signal_range=signal_range, code_scale=code_scale,
+    )
+    if not latest_post and session["post_measurements"]:
+        latest_post = latest_grayscale_pass(
+            session["post_measurements"], max_count=len(grayscale_levels),
+            signal_range=signal_range, code_scale=code_scale, detect_sessions=False,
+        )
+    latest_wb = latest_wb_measurements(session["wb_measurements"])
+    latest_cms: Dict[str, Any] = {}
+    for measurement in session["cms_measurements"]:
+        colour = (measurement.label or "").replace(" 100%", "")
+        latest_cms[colour] = measurement
+    gamma_levels = gamma_levels_for_session(session)
+    latest_gamma = latest_gamma_pass(
+        session["gamma_measurements"], gamma_levels, signal_range, code_scale
+    )
+    if not latest_gamma and session["gamma_measurements"]:
+        latest_gamma = latest_gamma_pass(
+            session["gamma_measurements"], gamma_levels, signal_range, code_scale,
+            detect_sessions=False,
+        )
+
+    pre = stats(latest_pre)
+    post = stats(latest_post)
+    wb = stats([m for m in latest_wb.values() if m is not None])
+    cms = stats(list(latest_cms.values()))
+    gamma = gamma_stats(latest_gamma)
     improvement = None
     if pre["avg_de"] is not None and post["avg_de"] is not None and pre["avg_de"] > 0:
         improvement = round((1 - post["avg_de"] / pre["avg_de"]) * 100, 1)

@@ -21,6 +21,7 @@ def _measurement(
     y: float = 0.3290,
     x_scale: float = 0.95,
     z_scale: float = 1.09,
+    timestamp: str = "2026-04-19T09:30:00",
 ) -> Measurement:
     stimulus = round(stimulus_pct * 255 / 100)
     return Measurement(
@@ -31,6 +32,7 @@ def _measurement(
         Z=y_value * z_scale,
         label=label,
         stimulus_rgb=(stimulus, stimulus, stimulus),
+        timestamp=timestamp,
     )
 
 
@@ -58,10 +60,10 @@ def build_sample_report() -> Dict[str, Any]:
         _measurement("80% Gray", 80, 82.1, x=0.3128, y=0.3292),
     ]
     gamma_measurements = [
-        _measurement("10% Gray", 10, 2.6, x=0.3125, y=0.3289),
-        _measurement("25% Gray", 25, 9.7, x=0.3125, y=0.3290),
-        _measurement("50% Gray", 50, 27.4, x=0.3126, y=0.3290),
-        _measurement("75% Gray", 75, 58.9, x=0.3127, y=0.3291),
+        _measurement("20% Gray", 20, 9.7, x=0.3125, y=0.3289),
+        _measurement("40% Gray", 40, 27.4, x=0.3125, y=0.3290),
+        _measurement("60% Gray", 60, 58.9, x=0.3126, y=0.3290),
+        _measurement("80% Gray", 80, 89.3, x=0.3127, y=0.3291),
     ]
 
     session = {

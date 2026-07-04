@@ -1137,30 +1137,34 @@ def latest_gamma_pass(
     levels: Tuple[int, ...] = GAMMA_TRACKING_LEVELS,
     signal_range: str = "auto",
     code_scale: str = "8bit",
+    detect_sessions: bool = True,
 ) -> List[Measurement]:
-    latest_reversed: List[Measurement] = []
-    prev_dt: Optional[datetime] = None
-    for measurement in reversed(measurements):
-        ts = measurement.timestamp
-        if not ts:
-            if latest_reversed:
-                break
-            continue
-        try:
-            current_dt = datetime.fromisoformat(ts)
-        except ValueError:
-            if latest_reversed:
-                break
-            continue
-        if prev_dt is not None:
-            if current_dt > prev_dt:
-                break
-            gap = (prev_dt - current_dt).total_seconds()
-            if gap >= ZRO_SESSION_BREAK_SECONDS:
-                break
-        latest_reversed.append(measurement)
-        prev_dt = current_dt
-    latest = list(reversed(latest_reversed))
+    if detect_sessions:
+        latest_reversed: List[Measurement] = []
+        prev_dt: Optional[datetime] = None
+        for measurement in reversed(measurements):
+            ts = measurement.timestamp
+            if not ts:
+                if latest_reversed:
+                    break
+                continue
+            try:
+                current_dt = datetime.fromisoformat(ts)
+            except ValueError:
+                if latest_reversed:
+                    break
+                continue
+            if prev_dt is not None:
+                if current_dt > prev_dt:
+                    break
+                gap = (prev_dt - current_dt).total_seconds()
+                if gap >= ZRO_SESSION_BREAK_SECONDS:
+                    break
+            latest_reversed.append(measurement)
+            prev_dt = current_dt
+        latest = list(reversed(latest_reversed))
+    else:
+        latest = list(measurements)
     latest_by_target: Dict[int, Measurement] = {}
     for measurement in latest:
         target_pct = gamma_target_for_measurement(

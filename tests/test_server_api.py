@@ -2041,11 +2041,13 @@ class TestImprovementPercentZeroDeltaE:
         })()
         _sessions[session_id]["pre_measurements"] = [
             Measurement(x=0.35, y=0.35, Y=50.0, X=48.0, Z=56.0,
-                        stimulus_rgb=(255, 0, 0), label="Red 100%"),
+                        stimulus_rgb=(255, 0, 0), label="Red 100%",
+                        timestamp="2024-01-01T10:00:00"),
         ]
         _sessions[session_id]["post_measurements"] = [
             Measurement(x=0.3127, y=0.3290, Y=50.0, X=48.3, Z=55.1,
-                        stimulus_rgb=(255, 0, 0), label="Red 100%"),
+                        stimulus_rgb=(255, 0, 0), label="Red 100%",
+                        timestamp="2024-01-01T10:00:00"),
         ]
         _sessions[session_id]["wb_measurements"] = []
         _sessions[session_id]["gamma_measurements"] = []
@@ -2068,11 +2070,13 @@ class TestImprovementPercentZeroDeltaE:
         })()
         _sessions[session_id]["pre_measurements"] = [
             Measurement(x=0.40, y=0.40, Y=50.0, X=40.0, Z=48.0,
-                        stimulus_rgb=(255, 0, 0), label="Red 100%"),
+                        stimulus_rgb=(255, 0, 0), label="Red 100%",
+                        timestamp="2024-01-01T10:00:00"),
         ]
         _sessions[session_id]["post_measurements"] = [
             Measurement(x=0.35, y=0.35, Y=50.0, X=48.0, Z=56.0,
-                        stimulus_rgb=(255, 0, 0), label="Red 100%"),
+                        stimulus_rgb=(255, 0, 0), label="Red 100%",
+                        timestamp="2024-01-01T10:00:00"),
         ]
         _sessions[session_id]["wb_measurements"] = []
         _sessions[session_id]["gamma_measurements"] = []
@@ -2330,19 +2334,22 @@ class TestReportPayloadInvalidMeasurements:
         })()
         _sessions[session_id]["pre_measurements"] = [
             Measurement(x=0.35, y=0.35, Y=50.0, X=48.0, Z=56.0,
-                        stimulus_rgb=(128, 128, 128), label="50% Gray"),
+                        stimulus_rgb=(128, 128, 128), label="50% Gray",
+                        timestamp="2024-01-01T10:00:00"),
             Measurement(x=-1.0, y=-1.0, Y=-1.0, X=48.0, Z=56.0,
-                        stimulus_rgb=(128, 128, 128), label="Bad Gray"),
+                        stimulus_rgb=(129, 129, 129), label="Bad Gray",
+                        timestamp="2024-01-01T10:00:01"),
         ]
         _sessions[session_id]["post_measurements"] = [
             Measurement(x=0.3127, y=0.3290, Y=50.0, X=48.3, Z=55.1,
-                        stimulus_rgb=(128, 128, 128), label="50% Gray"),
+                        stimulus_rgb=(128, 128, 128), label="50% Gray",
+                        timestamp="2024-01-01T10:00:00"),
         ]
         _sessions[session_id]["wb_measurements"] = [
             Measurement(x=-1.0, y=-1.0, Y=-1.0, X=48.0, Z=56.0,
-                        stimulus_rgb=(128, 128, 128), label="Bad WB"),
+                        stimulus_rgb=(128, 128, 128), label="Bad WB Offset 30%"),
             Measurement(x=0.3150, y=0.3280, Y=50.0, X=48.3, Z=55.1,
-                        stimulus_rgb=(128, 128, 128), label="Good WB"),
+                        stimulus_rgb=(128, 128, 128), label="Good WB Gain 80%"),
         ]
         _sessions[session_id]["gamma_measurements"] = []
         _sessions[session_id]["cms_measurements"] = []
@@ -2370,9 +2377,11 @@ class TestReportPayloadInvalidMeasurements:
         })()
         _sessions[session_id]["pre_measurements"] = [
             Measurement(x=-1.0, y=-1.0, Y=-1.0, X=48.0, Z=56.0,
-                        stimulus_rgb=(128, 128, 128), label="Bad Gray 1"),
+                        stimulus_rgb=(128, 128, 128), label="Bad Gray 1",
+                        timestamp="2024-01-01T10:00:00"),
             Measurement(x=0.0, y=0.0, Y=0.0, X=48.0, Z=56.0,
-                        stimulus_rgb=(128, 128, 128), label="Bad Gray 2"),
+                        stimulus_rgb=(129, 129, 129), label="Bad Gray 2",
+                        timestamp="2024-01-01T10:00:01"),
         ]
         _sessions[session_id]["post_measurements"] = []
         _sessions[session_id]["wb_measurements"] = []
