@@ -726,6 +726,20 @@ def _external_dogegen_pid() -> Optional[int]:
     return None
 
 
+# ── Dogegen Companion Agent proxy (#585b) ───────────────────────────────────
+#
+# Contract with tools/dogegen-agent/agent.py (see tools/dogegen-agent/README.md):
+#   GET  {agent_url}/status         -> payload shape-compatible with
+#                                      _dogegen_status_payload() below (running,
+#                                      managed, ready, ready_in_ms, pid, path,
+#                                      configured, last_error, launch_cmd,
+#                                      resolve_host, window_pct, maxcll).
+#   POST {agent_url}/start {"mode"} -> {"ok", "already_running", **status}
+#   POST {agent_url}/stop           -> {"ok", "already_stopped", **status}
+# The agent owns all Popen/tasklist/pgrep logic; this backend only forwards
+# session.mode and reads the agent's response back, adding agent_url /
+# agent_reachable so the frontend can distinguish local vs. remote state.
+
 def _dogegen_agent_error_message(exc: Exception) -> str:
     if isinstance(exc, httpx.ConnectError):
         return "Cannot reach Dogegen Companion Agent — is it running on the Windows PC?"
@@ -1359,7 +1373,14 @@ def dogegen_config(req: DogegenConfigReq):
             raise HTTPException(400, "maxcll must be greater than 0")
         _dogegen_config["maxcll"] = int(req.maxcll)
     if req.agent_url is not None:
-        _dogegen_agent.set(req.agent_url.strip().rstrip("/"))
+        agent_url = req.agent_url.strip().rstrip("/")
+        if agent_url:
+            parsed = urlparse(agent_url)
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                raise HTTPException(
+                    400, "agent_url must be a valid http(s) URL, e.g. http://192.168.1.50:7071"
+                )
+        _dogegen_agent.set(agent_url)
     _save_prefs()
     return {"ok": True, **_dogegen_status_payload()}
 

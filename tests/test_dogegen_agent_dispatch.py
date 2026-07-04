@@ -178,6 +178,25 @@ class TestDogegenConfigAgentUrl:
         client.post("/api/dogegen/config", json={"agent_url": ""})
         assert srv._dogegen_agent.get() == ""
 
+    @pytest.mark.parametrize("bad_url", [
+        "not-a-url",
+        "192.168.1.50:7071",
+        "ftp://192.168.1.50:7071",
+        "http://",
+    ])
+    def test_rejects_malformed_agent_url(self, bad_url):
+        srv._dogegen_agent.set("")
+        r = client.post("/api/dogegen/config", json={"agent_url": bad_url})
+        assert r.status_code == 400
+        assert "valid http" in r.json()["detail"]
+        assert srv._dogegen_agent.get() == ""
+
+    def test_accepts_https_agent_url(self):
+        with patch("httpx.get", return_value=_mock_httpx_get({"running": False, "configured": False})):
+            r = client.post("/api/dogegen/config", json={"agent_url": "https://agent.example.com:7071"})
+        assert r.status_code == 200
+        assert srv._dogegen_agent.get() == "https://agent.example.com:7071"
+
 
 # ── POST /api/session/{sid}/dogegen/start via agent ────────────────────────────
 
