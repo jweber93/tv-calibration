@@ -308,7 +308,11 @@ Setup:
 1. On the Windows PC, start both companion services:
    - `tools/zro-bridge/start.bat` — copy `bridge.example.json` → `bridge.json` first; set `"backend": "argyll"` if you're using ArgyllCMS instead of ColourSpace.
    - `tools/dogegen-agent/start.bat` — copy `agent.example.json` → `agent.json` first.
-   - Confirm both are reachable: `curl http://<windows-pc-ip>:7070/status` and `curl http://<windows-pc-ip>:7071/status`.
+   - Confirm both are reachable before wiring up the container, so you fail fast if one didn't start:
+     ```bash
+     curl http://<windows-pc-ip>:7070/status && echo "✓ ZRO Bridge"
+     curl http://<windows-pc-ip>:7071/status && echo "✓ Dogegen Agent"
+     ```
 2. On the Docker host, point the container at both before (or after) starting it:
    ```bash
    export ZRO_BRIDGE_URL=http://<windows-pc-ip>:7070
@@ -317,6 +321,13 @@ Setup:
    ```
    Both can also be set later from the app's Bridge/Dogegen cards, or in `.prefs.json`, without restarting the container.
 3. Leave `DOGEGEN_PATH` empty — it's a same-host-only setting and is ignored whenever `DOGEGEN_AGENT_URL` is set.
+
+**Troubleshooting split-host:**
+
+- **"Agent unreachable" / "Cannot reach Dogegen Companion Agent"** — the container could reach the URL at config time but can't now, or never could. Re-run the two `curl` checks above from the Docker host itself (not from your laptop) — same-LAN doesn't guarantee same-subnet/VLAN reachability.
+- **Windows Firewall blocking the ports** — `start.bat` binds `0.0.0.0:7070`/`0.0.0.0:7071`, but a fresh Windows Firewall prompt (or a Domain/Public network profile) can silently block inbound connections from other hosts. Allow inbound TCP 7070 and 7071 for `python.exe` (or add a rule for the ports directly).
+- **`DOGEGEN_PATH` set alongside `DOGEGEN_AGENT_URL`** — harmless but confusing: whenever `DOGEGEN_AGENT_URL` is non-empty the backend proxies to the agent unconditionally and never looks at `DOGEGEN_PATH`, so a stale value won't break anything, but clear it anyway to avoid wondering which path is actually in effect.
+- **Bridge reachable but reads fail** — check the Bridge's own `backend` setting in `bridge.json` (`pyautogui` / `remote_control` / `argyll`) matches what you actually have running (ColourSpace ZRO vs. ArgyllCMS) — a reachable-but-misconfigured Bridge returns a clean error rather than a connection failure, so `curl .../status` succeeding doesn't guarantee a measurement will.
 
 Everything else — the workflow, session state, quality gates, reports — runs from the container exactly as in a same-host install; the only difference is two lightweight Windows services sitting between it and the physical hardware.
 
