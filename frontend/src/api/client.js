@@ -94,6 +94,10 @@ export const api = {
   saveBridgeUrl:   (url)      => api.post('/api/bridge/url', { url }),
   triggerMeasure:  (url)      => api.post('/api/bridge/measure', { url }),
 
+  // ArgyllCMS instrument (backend="argyll" only)
+  getArgyllInstruments: ()    => api.get('/api/zro/bridge/instruments'),
+  saveArgyllInstrument: (body) => api.post('/api/zro/bridge/instrument', body),
+
   // Dogegen
   getDogegenStatus: ()        => api.get('/api/dogegen/status'),
   testDogegenAgent: (url)     => api.get(`/api/dogegen/status?url=${encodeURIComponent(url)}`),

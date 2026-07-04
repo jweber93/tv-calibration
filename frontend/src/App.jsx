@@ -50,7 +50,7 @@ import { AppShell }     from './components/AppShell';
 
 export default function App() {
   const sess = useSession();
-  const { session, profiles, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, dogegenStatus, adbStatus, loading,
+  const { session, profiles, watchStatus, watchDefaultPath, bridgeStatus, bridgeUrl, dogegenStatus, adbStatus, argyllPrefs, loading,
           llmInsight, llmStreaming, llmError, dismissLlmInsight, saveTvSettings, getSuggestedPatches, runSuggestedPatches, getPredictedSettings } = sess;
   const [showStartOver, setShowStartOver] = useState(false);
   const [showComparison, setShowComparison] = useState(false);
@@ -161,6 +161,7 @@ export default function App() {
         bridgeUrl={bridgeUrl}
         dogegenStatus={dogegenStatus}
         adbStatus={adbStatus}
+        argyllPrefs={argyllPrefs}
         onMeasure={sess.triggerMeasure}
         onSaveBridgeUrl={sess.saveBridgeUrl}
         onStartWatch={sess.startWatch}
@@ -169,6 +170,8 @@ export default function App() {
         onSaveDogegenConfig={sess.saveDogegenConfig}
         onStartDogegen={sess.startDogegen}
         onStopDogegen={sess.stopDogegen}
+        onScanArgyllInstruments={sess.scanArgyllInstruments}
+        onSaveArgyllInstrument={sess.saveArgyllInstrument}
       >
         {showComparison ? (
           <ComparisonPage profiles={profiles} />

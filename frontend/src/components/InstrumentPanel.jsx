@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { fmtDateTime, measurementTimeSummary } from '../utils/fmt';
 import { Button } from './Button';
 import { DogegenCard } from './DogegenCard';
+import { ArgyllCard } from './ArgyllCard';
 
 function StatusDot({ ok }) {
   return (
@@ -18,10 +19,12 @@ export function InstrumentPanel({
   watchStatus, watchDefaultPath,
   bridgeStatus, bridgeUrl,
   dogegenStatus, adbStatus,
+  argyllPrefs,
   onMeasure, onSaveBridgeUrl,
   onStartWatch, onStopWatch,
   onUpload,
   onSaveDogegenConfig, onStartDogegen, onStopDogegen,
+  onScanArgyllInstruments, onSaveArgyllInstrument,
 }) {
   const [measureBusy, setMeasureBusy] = useState(false);
   const [measureMsg, setMeasureMsg] = useState('');
@@ -146,6 +149,17 @@ export function InstrumentPanel({
               onSaveConfig={onSaveDogegenConfig}
               onStart={onStartDogegen}
               onStop={onStopDogegen}
+            />
+          </div>
+        )}
+
+        {/* ArgyllCMS direct-meter backend */}
+        {bridgeStatus?.backend === 'argyll' && (
+          <div style={{ marginTop: 10 }}>
+            <ArgyllCard
+              argyllPrefs={argyllPrefs}
+              onScanInstruments={onScanArgyllInstruments}
+              onSaveInstrument={onSaveArgyllInstrument}
             />
           </div>
         )}

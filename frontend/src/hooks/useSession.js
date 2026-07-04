@@ -33,6 +33,7 @@ export function useSession() {
   const [watchDefaultPath, setWatchDefaultPath] = useState('');
   const [bridgeStatus, setBridgeStatus] = useState(null);
   const [dogegenStatus, setDogegenStatus] = useState(null);
+  const [argyllPrefs, setArgyllPrefs] = useState(null);
   const [adbStatus, setAdbStatus] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -173,6 +174,7 @@ export function useSession() {
         setBridgeUrl(url);
         api.saveBridgeUrl(url).catch(() => { /* best-effort sync */ });
         setWatchDefaultPath(prefs?.watch_folder || '');
+        setArgyllPrefs(prefs?.argyll || null);
       })
       .catch(() => { /* load failure is non-fatal */ })
       .finally(() => setLoading(false));
@@ -400,6 +402,16 @@ export function useSession() {
     return status;
   }
 
+  async function scanArgyllInstruments() {
+    return api.getArgyllInstruments();
+  }
+
+  async function saveArgyllInstrument(config) {
+    const result = await api.saveArgyllInstrument(config);
+    setArgyllPrefs(result?.argyll || null);
+    return result;
+  }
+
   async function adbDeploy() {
     const result = await api.adbDeploy();
     await refreshAdbStatus();
@@ -463,10 +475,12 @@ export function useSession() {
 
   return {
     session, profiles, watchStatus, watchDefaultPath, bridgeUrl, bridgeStatus, dogegenStatus, adbStatus, loading,
+    argyllPrefs,
     createSession, deleteSession, nextStep, prevStep, jumpToStep, confirmMode, confirmPrepared, setGammaWorkflow, setSignalRange, setGrayscaleRamp, setCodeScale, setPatternGenerator, setLightspaceTier,
     uploadCsv, startWatch, stopWatch,
     saveBridgeUrl, triggerMeasure, refreshBridgeStatus,
     saveDogegenConfig, startDogegen, stopDogegen, refreshDogegenStatus,
+    scanArgyllInstruments, saveArgyllInstrument,
     adbDeploy, adbApply, adbReset, adbSetPicture, adbGetPicture, refreshAdbStatus,
     configureLlm, getLlmStatus, saveTvSettings,
     llmInsight, llmStreaming, llmError, dismissLlmInsight,

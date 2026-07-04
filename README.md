@@ -452,28 +452,46 @@ Copy `tools/zro-bridge/bridge.example.json` to `bridge.json` and set:
   "argyll_spotread_path": "spotread",
   "argyll_port": null,
   "argyll_timeout_s": 20.0,
-  "argyll_correction": null
+  "argyll_correction": null,
+  "argyll_refresh_mode": null,
+  "argyll_refresh_rate_hz": null,
+  "argyll_integration_mode": null
 }
 ```
 
 - `argyll_spotread_path` — leave as `"spotread"` to resolve via PATH, or set a full path if it isn't on PATH.
 - `argyll_port` — the serial/USB port `spotread -c` should use. Leave `null` to auto-detect (most USB meters); set it explicitly if you have multiple meters attached.
 - `argyll_correction` — path to a CCMX/CCSS meter-correction file (see below).
+- `argyll_refresh_mode`, `argyll_refresh_rate_hz`, `argyll_integration_mode` — refresh-timing tuning for flicker-prone panels (see below). All default to `null`, which reproduces the original `spotread -e -O` read exactly.
 
 **4. Meter discovery and selection**
 
 With `backend: "argyll"` and the Bridge running, the app can list and persist which detected instrument to use:
 
 ```
-GET  /api/zro/bridge/instruments   → { instruments: [{index, name}, ...], selected_port, correction_path }
-POST /api/zro/bridge/instrument    { port, instrument_name?, correction_path? }
+GET  /api/zro/bridge/instruments   → { instruments: [{index, name}, ...], selected_port, correction_path,
+                                        refresh_mode, refresh_rate_hz, integration_mode }
+POST /api/zro/bridge/instrument    { port, instrument_name?, correction_path?,
+                                      refresh_mode?, refresh_rate_hz?, integration_mode? }
 ```
 
-The selection (and correction path) is saved to the app's `.prefs.json` (`argyll.port` / `argyll.instrument_name` / `argyll.correction_path`) so it survives app restarts, and is pushed to the Bridge immediately if it's reachable; if the Bridge is offline the choice still saves and is re-applied the next time the app reconnects.
+The selection (correction path and refresh-timing settings included) is saved to the app's `.prefs.json` under `argyll.*` (`argyll.port` / `argyll.instrument_name` / `argyll.correction_path` / `argyll.refresh_mode` / `argyll.refresh_rate_hz` / `argyll.integration_mode`) so it survives app restarts, and is pushed to the Bridge immediately if it's reachable; if the Bridge is offline the choice still saves and is re-applied the next time the app reconnects. In the app itself, these controls live in the Argyll meter card on the Prepare page's instrument panel, alongside the meter/port picker and correction-file field.
 
 **5. CCMX/CCSS meter correction**
 
 Modern wide-gamut panels (QD-OLED, WOLED, QD-LCD) need a per-panel spectral correction for **colorimeters** (i1Display and similar) to read accurately — spectrophotometers (i1Pro) do not need one. Acquire a `.ccmx`/`.ccss` file for your meter/panel combination and set its path via `argyll_correction` in `bridge.json` or `correction_path` in the `POST /api/zro/bridge/instrument` call above. If a colorimeter takes a reading with no correction configured, `spotread`'s output is checked for a missing-correction warning and it's surfaced back through the reading result (`warning` field) rather than failing silently.
+
+**6. Refresh-timing tuning for flicker-prone panels**
+
+`spotread`'s default adaptive-integration read timing assumes a steady-state light source. Some panels don't hold still: PWM-dimmed backlights, some VA/edge-lit LCDs, and other displays with periodic brightness modulation can beat against that timing and bias or add noise to a reading. Three opt-in settings tune `spotread`'s `-Y` refresh-timing flags for exactly this — all default to unset, which is byte-for-byte the original `-e -O` command:
+
+- **`argyll_refresh_mode`** (`"refresh"` / `"non_refresh"` / unset) — passes `-Y r` or `-Y n`, forcing spotread's refresh vs. non-refresh measurement mode instead of relying on the instrument's own display-type default. Use `"refresh"` for panels with periodic backlight modulation (PWM dimming, CRT-like behavior); use `"non_refresh"` for steady-state panels (most modern LCD/OLED without PWM dimming).
+- **`argyll_refresh_rate_hz`** (number or unset) — passes `-Y R:<rate>`, overriding spotread's auto-measured refresh-rate calibration with a known value. Useful when auto-detection is unreliable; set it to the panel's PWM dimming frequency if you know it (check the TV's service menu or manufacturer documentation — this varies by model and is not always the panel's native refresh rate).
+- **`argyll_integration_mode`** (`"non_adaptive"` / `"averaging"` / unset) — passes `-Y A` (fixed, non-adaptive integration time — faster, but can be less accurate at low light levels) or `-Y a` (the instrument's averaging mode, where the connected meter supports it).
+
+To identify the right settings for a given TV: start with everything unset and take a few readings at a fixed patch to check for noise or drift. If readings are noisy or drift over repeated measurements of the same patch, try `argyll_refresh_mode: "refresh"` first (most likely culprit on PWM-dimmed panels); if the panel's PWM/refresh frequency is known, add `argyll_refresh_rate_hz`; if readings are still noisy at low light levels, try `argyll_integration_mode: "averaging"` if your meter supports it. These flags are verified against the installed ArgyllCMS version's `spotread -?` output — if a flag is rejected by your version, `spotread` fails loudly with a clear `spotread_error` rather than silently misreading.
+
+> **Requires ArgyllCMS v3.x+** for `spotread`'s `-Y` sub-flags. Older Argyll releases don't support them and will reject any of these three settings with a `spotread_error` — leave them unset if you're on an older version.
 
 **Graceful "ArgyllCMS not found" handling** — if `spotread` isn't on PATH/at the configured path, or no meter is detected, `GET /api/zro/bridge/status` still returns `200` with `spotread_found: false` (or a `no_meter` error type from a triggered read) and a human-readable message instead of a crash, so the UI can show a clear "install ArgyllCMS" / "check the meter connection" prompt rather than a generic failure.
 

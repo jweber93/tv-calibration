@@ -86,6 +86,19 @@ DEFAULT_CONFIG = {
     # Colorimeters (i1Display, etc.) need one on wide-gamut panels for
     # accuracy; spectrophotometers (i1Pro) do not. Leave null to skip -X.
     "argyll_correction": None,
+    # Refresh-timing tuning for flicker-prone panels (PWM-dimmed backlights,
+    # some VA/edge-lit LCDs) — all optional, unset reproduces today's
+    # `-e -O` command exactly. See README's ArgyllCMS section.
+    # "refresh" (-Y r) or "non_refresh" (-Y n); leave null to use the
+    # instrument's own display-type default.
+    "argyll_refresh_mode": None,
+    # Override spotread's auto-measured refresh rate (Hz), e.g. the panel's
+    # PWM dimming frequency, via -Y R:<rate>. Leave null to auto-detect.
+    "argyll_refresh_rate_hz": None,
+    # "non_adaptive" (-Y A, fixed integration time) or "averaging" (-Y a,
+    # instrument averaging mode where supported). Leave null for spotread's
+    # adaptive default.
+    "argyll_integration_mode": None,
 }
 
 _config: dict = dict(DEFAULT_CONFIG)
@@ -166,15 +179,17 @@ async def list_instruments():
 
     Returns {"ok": True, "instruments": [{"index": int, "name": str}, ...],
              "selected_port": <current argyll_port, or null>,
-             "correction_path": <current argyll_correction, or null>}.
+             "correction_path": <current argyll_correction, or null>,
+             "refresh_mode": <current argyll_refresh_mode, or null>,
+             "refresh_rate_hz": <current argyll_refresh_rate_hz, or null>,
+             "integration_mode": <current argyll_integration_mode, or null>}.
     An empty instruments list means spotread ran but nothing is connected —
     that's a valid result, not an error.
 
-    ``selected_port`` and ``correction_path`` reflect whichever values are
-    currently in effect for reads: bridge.json's static ``argyll_port`` /
-    ``argyll_correction`` until/unless a client has since called
-    ``POST /config/argyll-port``, which overrides them in memory for the
-    rest of this bridge process's life.
+    These reflect whichever values are currently in effect for reads:
+    bridge.json's static ``argyll_*`` settings until/unless a client has
+    since called ``POST /config/argyll-port``, which overrides them in
+    memory for the rest of this bridge process's life.
     """
     backend = _config.get("backend", "pyautogui")
     if backend != "argyll":
@@ -191,6 +206,9 @@ async def list_instruments():
         **result,
         "selected_port": _config.get("argyll_port"),
         "correction_path": _config.get("argyll_correction"),
+        "refresh_mode": _config.get("argyll_refresh_mode"),
+        "refresh_rate_hz": _config.get("argyll_refresh_rate_hz"),
+        "integration_mode": _config.get("argyll_integration_mode"),
     }
 
 
@@ -198,12 +216,16 @@ async def list_instruments():
 def set_argyll_port(body: dict):
     """
     Select which detected instrument/port argyll reads use, and optionally
-    its CCMX/CCSS correction file path, for the rest of this bridge
-    process's lifetime (in-memory only — edit argyll_port / argyll_correction
-    in bridge.json if you want the choice to survive a bridge restart too).
+    its CCMX/CCSS correction file path and refresh-timing tuning, for the
+    rest of this bridge process's lifetime (in-memory only — edit the
+    corresponding argyll_* keys in bridge.json if you want the choice to
+    survive a bridge restart too).
 
-    Body: {"port": <str|null>, "correction_path"?: <str|null>}. The
-    ``correction_path`` key is optional — omit it to change the port only.
+    Body: {"port": <str|null>, "correction_path"?: <str|null>,
+           "refresh_mode"?: "refresh"|"non_refresh"|null,
+           "refresh_rate_hz"?: <number|null>,
+           "integration_mode"?: "non_adaptive"|"averaging"|null}.
+    All keys besides ``port`` are optional — omit a key to leave it unchanged.
     """
     port = body.get("port") or None
     _config["argyll_port"] = port
@@ -214,6 +236,25 @@ def set_argyll_port(body: dict):
         _config["argyll_correction"] = correction_path
         logger.info("Argyll correction path set to %r (runtime only)", correction_path)
         response["argyll_correction"] = correction_path
+    if "refresh_mode" in body:
+        refresh_mode = body.get("refresh_mode") or None
+        if refresh_mode not in (None, "refresh", "non_refresh"):
+            raise HTTPException(400, "refresh_mode must be 'refresh', 'non_refresh', or null.")
+        _config["argyll_refresh_mode"] = refresh_mode
+        logger.info("Argyll refresh mode set to %r (runtime only)", refresh_mode)
+        response["refresh_mode"] = refresh_mode
+    if "refresh_rate_hz" in body:
+        refresh_rate_hz = body.get("refresh_rate_hz") or None
+        _config["argyll_refresh_rate_hz"] = refresh_rate_hz
+        logger.info("Argyll refresh rate set to %r (runtime only)", refresh_rate_hz)
+        response["refresh_rate_hz"] = refresh_rate_hz
+    if "integration_mode" in body:
+        integration_mode = body.get("integration_mode") or None
+        if integration_mode not in (None, "non_adaptive", "averaging"):
+            raise HTTPException(400, "integration_mode must be 'non_adaptive', 'averaging', or null.")
+        _config["argyll_integration_mode"] = integration_mode
+        logger.info("Argyll integration mode set to %r (runtime only)", integration_mode)
+        response["integration_mode"] = integration_mode
     return response
 
 
@@ -262,6 +303,9 @@ async def trigger_measure():
             spotread_path=_config.get("argyll_spotread_path", "spotread"),
             timeout=_config.get("argyll_timeout_s", 20.0),
             correction_path=_config.get("argyll_correction"),
+            refresh_mode=_config.get("argyll_refresh_mode"),
+            refresh_rate_hz=_config.get("argyll_refresh_rate_hz"),
+            integration_mode=_config.get("argyll_integration_mode"),
         )
         if not result["ok"]:
             raise HTTPException(502, result.get("error", "Measurement failed"))
@@ -325,6 +369,9 @@ async def trigger_measure_sequence(body: dict):
                 spotread_path=_config.get("argyll_spotread_path", "spotread"),
                 timeout=_config.get("argyll_timeout_s", 20.0),
                 correction_path=_config.get("argyll_correction"),
+                refresh_mode=_config.get("argyll_refresh_mode"),
+                refresh_rate_hz=_config.get("argyll_refresh_rate_hz"),
+                integration_mode=_config.get("argyll_integration_mode"),
             )
         else:
             result = {"ok": False, "error": f"Unknown backend: {backend!r}"}

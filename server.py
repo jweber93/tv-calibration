@@ -21,7 +21,7 @@ import threading
 from contextlib import asynccontextmanager, suppress as context_suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import urlparse
 
 import httpx
@@ -447,8 +447,18 @@ _prefs: Dict[str, Any] = {
     # scan, kept alongside so the UI can show a selection without re-scanning.
     # correction_path (issue #535) is the CCMX/CCSS meter-correction file
     # passed through to spotread -X; colorimeters need one on wide-gamut
-    # panels, spectrophotometers (i1Pro) don't.
-    "argyll": {"port": "", "instrument_name": "", "correction_path": ""},
+    # panels, spectrophotometers (i1Pro) don't. refresh_mode/refresh_rate_hz/
+    # integration_mode (issue #600) tune spotread -Y for flicker-prone panels
+    # (PWM-dimmed backlights, some VA/edge-lit LCDs) — all empty by default,
+    # which reproduces the original -e -O read exactly.
+    "argyll": {
+        "port": "",
+        "instrument_name": "",
+        "correction_path": "",
+        "refresh_mode": "",
+        "refresh_rate_hz": None,
+        "integration_mode": "",
+    },
 }
 
 
@@ -616,6 +626,9 @@ class ZroBridgeInstrumentBody(BaseModel):
     port: Optional[str] = None
     instrument_name: Optional[str] = None
     correction_path: Optional[str] = None
+    refresh_mode: Optional[Literal["refresh", "non_refresh"]] = None
+    refresh_rate_hz: Optional[float] = None
+    integration_mode: Optional[Literal["non_adaptive", "averaging"]] = None
 
 
 class ZroBridgeMeasureBody(BaseModel):
@@ -2619,15 +2632,19 @@ def zro_bridge_instruments():
 @app.post("/api/zro/bridge/instrument")
 def zro_bridge_select_instrument(body: ZroBridgeInstrumentBody):
     """
-    Persist the selected ArgyllCMS meter and CCMX/CCSS correction path
-    across app sessions (#531, #535) and push them to the bridge so they
-    take effect immediately. If the bridge is unreachable the selection
-    still saves — it applies next time the app reconnects and re-pushes it.
+    Persist the selected ArgyllCMS meter, CCMX/CCSS correction path, and
+    flicker/refresh-timing tuning across app sessions (#531, #535, #600) and
+    push them to the bridge so they take effect immediately. If the bridge is
+    unreachable the selection still saves — it applies next time the app
+    reconnects and re-pushes it.
     """
     _prefs["argyll"] = {
         "port": body.port or "",
         "instrument_name": body.instrument_name or "",
         "correction_path": body.correction_path or "",
+        "refresh_mode": body.refresh_mode or "",
+        "refresh_rate_hz": body.refresh_rate_hz,
+        "integration_mode": body.integration_mode or "",
     }
     _save_prefs()
 
@@ -2637,7 +2654,13 @@ def zro_bridge_select_instrument(body: ZroBridgeInstrumentBody):
         try:
             resp = httpx.post(
                 f"{url}/config/argyll-port",
-                json={"port": body.port, "correction_path": body.correction_path},
+                json={
+                    "port": body.port,
+                    "correction_path": body.correction_path,
+                    "refresh_mode": body.refresh_mode,
+                    "refresh_rate_hz": body.refresh_rate_hz,
+                    "integration_mode": body.integration_mode,
+                },
                 timeout=_ZRO_BRIDGE_TIMEOUT,
             )
             resp.raise_for_status()

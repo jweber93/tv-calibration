@@ -6,10 +6,12 @@ export function AppShell({
   watchStatus, watchDefaultPath,
   bridgeStatus, bridgeUrl,
   dogegenStatus, adbStatus,
+  argyllPrefs,
   onMeasure, onSaveBridgeUrl,
   onStartWatch, onStopWatch,
   onUpload,
   onSaveDogegenConfig, onStartDogegen, onStopDogegen,
+  onScanArgyllInstruments, onSaveArgyllInstrument,
 }) {
   const showInstrument = session != null;
 
@@ -31,6 +33,7 @@ export function AppShell({
             bridgeUrl={bridgeUrl}
             dogegenStatus={dogegenStatus}
             adbStatus={adbStatus}
+            argyllPrefs={argyllPrefs}
             onMeasure={onMeasure}
             onSaveBridgeUrl={onSaveBridgeUrl}
             onStartWatch={onStartWatch}
@@ -39,6 +42,8 @@ export function AppShell({
             onSaveDogegenConfig={onSaveDogegenConfig}
             onStartDogegen={onStartDogegen}
             onStopDogegen={onStopDogegen}
+            onScanArgyllInstruments={onScanArgyllInstruments}
+            onSaveArgyllInstrument={onSaveArgyllInstrument}
           />
         </aside>
       )}
