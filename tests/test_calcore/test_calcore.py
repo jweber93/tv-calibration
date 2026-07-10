@@ -265,6 +265,74 @@ class AnalyzeTests(unittest.TestCase):
                 self.assertIsNotNone(summary.color_75_avg_de)
                 self.assertLess(summary.color_75_avg_de, 0.5)
 
+    def test_target_xyz_for_patch_falls_back_to_100_peak_when_measured_peak_missing(self):
+        # PR #612 review: measured_peak_y can be None or 0.0 (e.g. no
+        # grayscale patches measured yet). Confirm target_xyz_for_patch
+        # doesn't raise (no ZeroDivisionError from the color EOTF-linearize
+        # path) and falls back to the same 100.0 peak used elsewhere.
+        patch = Patch("191,0,0", 191, 0, 0, (0.0, 0.0, 0.0), kind="color")
+        cfg = AnalysisConfig(mode="sdr", eotf="gamma22", target_space="bt709", code_max=255)
+        xyz_explicit_100 = target_xyz_for_patch(patch, 255, cfg, 100.0, 0.0)
+
+        for missing_peak in (None, 0.0):
+            with self.subTest(measured_peak_y=missing_peak):
+                xyz_missing = target_xyz_for_patch(patch, 255, cfg, missing_peak, 0.0)
+                for i in range(3):
+                    self.assertAlmostEqual(xyz_missing[i], xyz_explicit_100[i], places=6)
+
+    def test_linear_fraction_of_peak_guards_against_none_mode_and_eotf(self):
+        # PR #612 review: cfg.mode / cfg.eotf must not be assumed non-None —
+        # _linear_fraction_of_peak() calls .lower() on both, which would
+        # raise AttributeError on a malformed config without a guard.
+        patch = Patch("128,128,128", 128, 128, 128, (0.0, 0.0, 0.0), kind="grayscale")
+        cfg = AnalysisConfig(target_space="bt709", code_max=255)
+        cfg.mode = None
+        cfg.eotf = None
+
+        xyz = target_xyz_for_patch(patch, 255, cfg, 100.0, 0.0)
+        self.assertIsInstance(xyz, tuple)
+
+    def test_color_75_fix_unlocks_cms_to_verify_phase_gate(self):
+        # PR #612 review: prove the fix's real-world effect, not just that
+        # dE is small in isolation. Before #604 was fixed, a perfectly
+        # calibrated display's 75% color patches reported dE ~6.67, which
+        # failed determine_phase()'s color_ok <= 3.0 gate (calcore/phase.py)
+        # and stuck a flawless display in the "cms" phase forever.
+        from calcore.eotf import gamma_eotf
+        from calcore.spaces import BT709_RGB_TO_XYZ
+
+        code_max = 255
+        peak = 100.0
+        gamma = 2.2
+
+        def lin(n):
+            return gamma_eotf(n, gamma=gamma)
+
+        def ideal_xyz(r, g, b):
+            # BT709_RGB_TO_XYZ is normalized so (1,1,1) maps to the D65
+            # white point at Y=100; reusing it for r==g==b grayscale patches
+            # gives the same XYZ target_xyz_for_patch derives via xyY_to_xyz.
+            lin_rgb = [lin(c / code_max) for c in (r, g, b)]
+            return tuple(
+                peak * sum(BT709_RGB_TO_XYZ[row][i] * lin_rgb[i] for i in range(3))
+                for row in range(3)
+            )
+
+        def gray_patch(code):
+            return Patch(str(code), code, code, code, ideal_xyz(code, code, code), kind="grayscale")
+
+        def color_patch(label, r, g, b):
+            return Patch(label, r, g, b, ideal_xyz(r, g, b), kind="color")
+
+        patches = [gray_patch(0), gray_patch(code_max), color_patch("191,0,0", 191, 0, 0)]
+
+        summary = analyze(
+            patches,
+            AnalysisConfig(mode="sdr", eotf="gamma22", target_space="bt709", code_max=code_max),
+        )
+
+        self.assertEqual(determine_phase(summary, "cms"), "verify")
+
 
 class DeterminePhaseTests(unittest.TestCase):
     def make_summary(self, **overrides):

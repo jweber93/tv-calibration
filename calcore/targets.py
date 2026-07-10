@@ -22,20 +22,34 @@ def _linear_fraction_of_peak(
     Shares the session EOTF dispatch (PQ / BT.1886 / gamma) so grayscale and
     color-patch targets linearize signal the same way before either is
     turned into an XYZ target (see issue #604 — color patches previously
-    skipped this step entirely).
+    skipped this step entirely). The return value is always a fraction in
+    [0, 1] where 1.0 represents *peak*; multiply by an absolute peak (nits)
+    to get an absolute target luminance, or feed several channels' fractions
+    directly into rgb_to_xyz() for a color-patch target.
+
+    Per-EOTF calling convention:
+    - PQ: pq_target_nits() returns absolute ST.2084 nits for signal *n*,
+      clipped at *peak*; dividing by *peak* expresses that as the same
+      0..1 fraction the other branches return.
+    - BT.1886: bt1886_eotf(v, lw, lb, gamma) expects white/black levels
+      (lw/lb) in the same units. Passing lw=1.0 and lb=black_frac (the
+      display's measured black normalized to *peak* = 1.0) returns the
+      fractional curve directly — algebraically identical to calling
+      bt1886_eotf(n, peak, measured_black_y, gamma) and then dividing by
+      peak, just without the extra division.
+    - gamma: n**gamma is already a 0..1 fraction of peak (n=1 -> 1.0), no
+      rescaling needed.
     """
-    if cfg.mode.lower() == "hdr" or cfg.eotf.lower() == "pq":
+    eotf = (cfg.eotf or "gamma22").lower()
+    mode = (cfg.mode or "sdr").lower()
+    if mode == "hdr" or eotf == "pq":
         return pq_target_nits(n, peak) / peak
-    elif cfg.eotf.lower() == "bt1886":
-        gamma = 2.2 if cfg.mode.lower() == "sdr" else 2.4
+    elif eotf == "bt1886":
+        gamma = 2.2 if mode == "sdr" else 2.4
         black_frac = measured_black_y / peak if peak > 0 else 0.0
         return bt1886_eotf(n, 1.0, black_frac, gamma=gamma)
     else:
-        gamma = (
-            2.2
-            if cfg.eotf.lower() in ("gamma22", "2.2", "gamma")
-            else float(cfg.eotf)
-        )
+        gamma = 2.2 if eotf in ("gamma22", "2.2", "gamma") else float(eotf)
         return gamma_eotf(n, gamma=gamma)
 
 
