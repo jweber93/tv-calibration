@@ -237,11 +237,11 @@ class AnalyzeTests(unittest.TestCase):
                         return bt1886_eotf(n, 1.0, black_y / peak, gamma=2.2)
                     return pq_target_nits(n, peak) / peak
 
-                def gray_patch(code):
+                def gray_patch(code, peak=peak):
                     y = lin_frac(code / code_max) * peak
                     return Patch(str(code), code, code, code, (0.0, y, 0.0), kind="grayscale")
 
-                def color_patch(label, r, g, b):
+                def color_patch(label, r, g, b, matrix=matrix, peak=peak):
                     lin = [lin_frac(c / code_max) for c in (r, g, b)]
                     return Patch(label, r, g, b, ideal_xyz(matrix, lin, peak), kind="color")
 
