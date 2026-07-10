@@ -85,7 +85,9 @@ class AnalyzeTests(unittest.TestCase):
                 768,
                 0,
                 0,
-                (30.92856, 15.947926, 1.4498115),
+                # EOTF-linearized target for a 75%-signal (768/1023) red patch
+                # under gamma 2.2 (issue #604) — not the raw-signal XYZ.
+                (21.947105836855492, 11.316476646700588, 1.0287706526265932),
                 kind="color",
             ),
             Patch(
@@ -93,7 +95,7 @@ class AnalyzeTests(unittest.TestCase):
                 0,
                 768,
                 0,
-                (26.8188255, 53.637651, 8.9396085),
+                (19.030350229884174, 38.06070045976835, 6.343450076628058),
                 kind="color",
             ),
         ]
@@ -105,7 +107,10 @@ class AnalyzeTests(unittest.TestCase):
 
         self.assertEqual(summary.meta["patch_count"], 5)
         self.assertLess(summary.grayscale_avg_de or 999.0, 0.5)
-        self.assertLess(summary.color_75_avg_de or 999.0, 1.0)
+        # Note: "x or 999.0" would misfire here since a perfectly EOTF-linearized
+        # target/measurement pair legitimately yields dE == 0.0 (falsy).
+        self.assertIsNotNone(summary.color_75_avg_de)
+        self.assertLess(summary.color_75_avg_de, 1.0)
         self.assertLess(abs((summary.gamma_midtones or 0.0) - 2.2), 0.1)
         self.assertEqual(summary.grayscale_over_3, 0)
 
@@ -194,6 +199,71 @@ class AnalyzeTests(unittest.TestCase):
                 self.assertLess(summary.color_100_avg_de or 999.0, 0.5)
                 for row in summary.color_rows:
                     self.assertLess(row["dE2000"], 0.5)
+
+    def test_analyze_75pct_color_de_is_zero_for_perfect_display(self):
+        # Issue #604: target_xyz_for_patch() fed gamma/PQ/BT.1886-encoded
+        # signal RGB straight into the linear-light RGB->XYZ matrix for color
+        # patches, only applying the session EOTF for grayscale. A 100%
+        # patch is unaffected (signal == linear at the top of the range),
+        # but a 75% patch's target luminance was badly inflated. Reproduce a
+        # flawless display's 75% R/G/B patches (measured XYZ computed from
+        # the *linearized* signal, independently of target_xyz_for_patch)
+        # for each supported EOTF and confirm color_75_avg_de stays ~0.
+        from calcore.eotf import bt1886_eotf, gamma_eotf, pq_target_nits
+        from calcore.spaces import BT2020_RGB_TO_XYZ, BT709_RGB_TO_XYZ
+
+        code_max = 255
+
+        def ideal_xyz(matrix, lin_fracs, peak):
+            return tuple(
+                peak * sum(matrix[row][i] * lin_fracs[i] for i in range(3))
+                for row in range(3)
+            )
+
+        cases = [
+            # (eotf, mode, target_space, matrix, peak, black_y)
+            ("gamma22", "sdr", "bt709", BT709_RGB_TO_XYZ, 100.0, 0.0),
+            ("bt1886", "sdr", "bt709", BT709_RGB_TO_XYZ, 100.0, 0.05),
+            ("pq", "hdr", "bt2020", BT2020_RGB_TO_XYZ, 1000.0, 0.0),
+        ]
+
+        for eotf, mode, target_space, matrix, peak, black_y in cases:
+            with self.subTest(eotf=eotf):
+
+                def lin_frac(n, eotf=eotf, peak=peak, black_y=black_y):
+                    if eotf == "gamma22":
+                        return gamma_eotf(n, gamma=2.2)
+                    if eotf == "bt1886":
+                        return bt1886_eotf(n, 1.0, black_y / peak, gamma=2.2)
+                    return pq_target_nits(n, peak) / peak
+
+                def gray_patch(code):
+                    y = lin_frac(code / code_max) * peak
+                    return Patch(str(code), code, code, code, (0.0, y, 0.0), kind="grayscale")
+
+                def color_patch(label, r, g, b):
+                    lin = [lin_frac(c / code_max) for c in (r, g, b)]
+                    return Patch(label, r, g, b, ideal_xyz(matrix, lin, peak), kind="color")
+
+                patches = [gray_patch(0), gray_patch(code_max)]
+                patches += [
+                    color_patch("191,0,0", 191, 0, 0),
+                    color_patch("0,191,0", 0, 191, 0),
+                    color_patch("0,0,191", 0, 0, 191),
+                ]
+
+                summary = analyze(
+                    patches,
+                    AnalysisConfig(
+                        mode=mode, eotf=eotf, target_space=target_space, code_max=code_max
+                    ),
+                )
+
+                # A perfect display's linearized 75% patches legitimately give
+                # dE == 0.0 (falsy), so check for None explicitly rather than
+                # using the "x or 999.0" pattern.
+                self.assertIsNotNone(summary.color_75_avg_de)
+                self.assertLess(summary.color_75_avg_de, 0.5)
 
 
 class DeterminePhaseTests(unittest.TestCase):
