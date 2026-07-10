@@ -60,4 +60,13 @@ def target_xyz_for_patch(
         return xyY_to_xyz(white_point_xy[0], white_point_xy[1], target_y)
 
     matrix = detect_matrix(cfg.target_space)
-    return rgb_to_xyz(target_rgb, matrix)
+    xyz_at_100 = rgb_to_xyz(target_rgb, matrix)
+    # rgb_to_xyz() is normalized colorimetry (white -> Y=100). Color-patch
+    # targets must be compared against absolute measured XYZ (nits), so scale
+    # into the same relative colorimetry the grayscale branch above uses:
+    # target luminance relative to the display's measured peak, not a fixed
+    # 100-nit reference. Otherwise every display whose peak isn't exactly
+    # 100 nits reports false color dE (see issue #603).
+    peak = measured_peak_y if measured_peak_y and measured_peak_y > 0 else 100.0
+    scale = peak / 100.0
+    return (xyz_at_100[0] * scale, xyz_at_100[1] * scale, xyz_at_100[2] * scale)

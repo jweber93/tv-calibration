@@ -153,6 +153,48 @@ class AnalyzeTests(unittest.TestCase):
         self.assertIsNone(summary.grayscale_rows[1]["gamma"])
         self.assertIsNone(summary.gamma_midtones)
 
+    def test_analyze_color_de_is_zero_for_perfect_display_at_any_peak(self):
+        # Issue #603: color-patch targets were compared on a fixed 100-nit
+        # scale while grayscale targets scaled by the measured peak. A
+        # perfectly calibrated display at any peak other than 100 nits
+        # reported large, false color dE. Reproduce a flawless BT.709 SDR
+        # display at several peaks and confirm color dE stays ~0.
+        from calcore.spaces import BT709_RGB_TO_XYZ
+
+        gamma = 2.2
+
+        def ideal_xyz(r, g, b, peak, code_max=255):
+            lin = [(c / code_max) ** gamma for c in (r, g, b)]
+            return tuple(
+                sum(BT709_RGB_TO_XYZ[row][i] * lin[i] for i in range(3)) * peak
+                for row in range(3)
+            )
+
+        for peak in (100.0, 120.0, 300.0, 1000.0):
+            with self.subTest(peak=peak):
+                grays = (0, 64, 128, 191, 255)
+                patches = [
+                    Patch(f"{c},{c},{c}", c, c, c, ideal_xyz(c, c, c, peak), kind="grayscale")
+                    for c in grays
+                ]
+                patches += [
+                    Patch("255,0,0", 255, 0, 0, ideal_xyz(255, 0, 0, peak), kind="color"),
+                    Patch("0,255,0", 0, 255, 0, ideal_xyz(0, 255, 0, peak), kind="color"),
+                    Patch("0,0,255", 0, 0, 255, ideal_xyz(0, 0, 255, peak), kind="color"),
+                ]
+
+                summary = analyze(
+                    patches,
+                    AnalysisConfig(
+                        mode="sdr", eotf="gamma22", target_space="bt709", code_max=255
+                    ),
+                )
+
+                self.assertLess(summary.grayscale_avg_de or 999.0, 0.5)
+                self.assertLess(summary.color_100_avg_de or 999.0, 0.5)
+                for row in summary.color_rows:
+                    self.assertLess(row["dE2000"], 0.5)
+
 
 class DeterminePhaseTests(unittest.TestCase):
     def make_summary(self, **overrides):
