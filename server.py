@@ -21,7 +21,7 @@ import threading
 from contextlib import asynccontextmanager, suppress as context_suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 from urllib.parse import urlparse
 
 import httpx
@@ -1105,6 +1105,7 @@ def _run_llm_background(
     tv_key: str = "",
     session_step_history: Optional[List[Dict[str, Any]]] = None,
     tv_settings: Optional[TVSettings] = None,
+    white_point: Optional[Tuple[float, float]] = None,
 ) -> None:
     _parsed_ep = urlparse(llm_cfg.endpoint)
     _safe_endpoint = f"{_parsed_ep.scheme}://{_parsed_ep.hostname or ''}{_parsed_ep.path}"
@@ -1128,7 +1129,7 @@ def _run_llm_background(
         },
     )
     try:
-        summary = _calcore_analyze(patches, cfg)
+        summary = _calcore_analyze(patches, cfg, white_point)
 
         # Build history block for this TV so the LLM has prior-session context.
         history_block: Optional[str] = None
@@ -1248,6 +1249,8 @@ def _maybe_trigger_llm(sid: str, session: Dict[str, Any]) -> None:
 
     patches = [_measurement_to_patch(m) for m in all_measurements]
     cfg = _session_to_analysis_config(session)
+    target = session.get("target")
+    white_point = target.white_point_xy if target else None
     llm_cfg = LLMConfig.from_dict(llm_cfg_dict, default_timeout=30.0)
     has_key = bool(llm_cfg_dict.get("api_key"))
     logger.info(
@@ -1274,6 +1277,7 @@ def _maybe_trigger_llm(sid: str, session: Dict[str, Any]) -> None:
             "tv_key": session.get("tv_key", ""),
             "session_step_history": session.get("llm_step_history", []),
             "tv_settings": tv_settings,
+            "white_point": white_point,
         },
         daemon=True,
     ).start()
@@ -1571,12 +1575,15 @@ def llm_run(sid: str):
 
     patches = [_measurement_to_patch(m) for m in all_measurements]
     cfg = _session_to_analysis_config(session)
+    target = session.get("target")
+    white_point = target.white_point_xy if target else None
     llm_cfg = LLMConfig.from_dict(llm_cfg_dict, default_timeout=30.0)
     phase_str = session.get("step", "baseline")
 
     t = threading.Thread(
         target=_run_llm_background,
         args=(sid, patches, cfg, phase_str, llm_cfg),
+        kwargs={"white_point": white_point},
         daemon=True,
     )
     t.start()
