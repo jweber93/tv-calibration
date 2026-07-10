@@ -402,6 +402,20 @@ class TestTranslateCorrections:
         assert len(result.skipped_reasons) >= 1
         assert "NonExistentControl" in result.skipped_reasons[0]
 
+    def test_one_step_per_adjustment(self):
+        """Regression test for #605: each mappable adjustment must produce
+        exactly one OSD step, not two, and step numbers must be unique."""
+        adjustments = [
+            _llm_adj("Red Gain", "", 0, -3, "x too high"),
+            _llm_adj("Green Gain", "", 0, 2, "y too low"),
+            _llm_adj("Blue Offset", "", 0, -1, "z shadows too cool"),
+        ]
+        result = translate_corrections(adjustments, U8G)
+        assert not result.skipped_reasons
+        assert len(result.steps) == len(adjustments)
+        step_numbers = [step.step_number for step in result.steps]
+        assert step_numbers == sorted(set(step_numbers))
+
     def test_step_to_dict(self):
         step = OSDStep(step_number=1, menu_path="A > B", action="Adjust X", value="5")
         d = step.to_dict()
