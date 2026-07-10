@@ -11,6 +11,48 @@ from .spaces import detect_matrix, rgb_to_xyz
 logger = logging.getLogger(__name__)
 
 
+def _linear_fraction_of_peak(
+    n: float,
+    cfg: AnalysisConfig,
+    peak: float,
+    measured_black_y: float,
+) -> float:
+    """Linearize a normalized code value *n* into a 0..1 fraction of peak luminance.
+
+    Shares the session EOTF dispatch (PQ / BT.1886 / gamma) so grayscale and
+    color-patch targets linearize signal the same way before either is
+    turned into an XYZ target (see issue #604 — color patches previously
+    skipped this step entirely). The return value is always a fraction in
+    [0, 1] where 1.0 represents *peak*; multiply by an absolute peak (nits)
+    to get an absolute target luminance, or feed several channels' fractions
+    directly into rgb_to_xyz() for a color-patch target.
+
+    Per-EOTF calling convention:
+    - PQ: pq_target_nits() returns absolute ST.2084 nits for signal *n*,
+      clipped at *peak*; dividing by *peak* expresses that as the same
+      0..1 fraction the other branches return.
+    - BT.1886: bt1886_eotf(v, lw, lb, gamma) expects white/black levels
+      (lw/lb) in the same units. Passing lw=1.0 and lb=black_frac (the
+      display's measured black normalized to *peak* = 1.0) returns the
+      fractional curve directly — algebraically identical to calling
+      bt1886_eotf(n, peak, measured_black_y, gamma) and then dividing by
+      peak, just without the extra division.
+    - gamma: n**gamma is already a 0..1 fraction of peak (n=1 -> 1.0), no
+      rescaling needed.
+    """
+    eotf = (cfg.eotf or "gamma22").lower()
+    mode = (cfg.mode or "sdr").lower()
+    if mode == "hdr" or eotf == "pq":
+        return pq_target_nits(n, peak) / peak
+    elif eotf == "bt1886":
+        gamma = 2.2 if mode == "sdr" else 2.4
+        black_frac = measured_black_y / peak if peak > 0 else 0.0
+        return bt1886_eotf(n, 1.0, black_frac, gamma=gamma)
+    else:
+        gamma = 2.2 if eotf in ("gamma22", "2.2", "gamma") else float(eotf)
+        return gamma_eotf(n, gamma=gamma)
+
+
 def target_xyz_for_patch(
     patch: Patch,
     code_max: int,
@@ -38,35 +80,30 @@ def target_xyz_for_patch(
         _normalize_code(patch.g_target, cfg.signal_range) / code_max,
         _normalize_code(patch.b_target, cfg.signal_range) / code_max,
     )
+    peak = measured_peak_y if measured_peak_y and measured_peak_y > 0 else 100.0
 
     if patch.is_grayscale:
-        n = _normalize_code(patch.r_target, cfg.signal_range) / code_max
-        if cfg.mode.lower() == "hdr" or cfg.eotf.lower() == "pq":
-            # PQ (ST.2084) is an absolute EOTF: the signal encodes nits
-            # directly, not a fraction of peak. Clip at the display's
-            # measured peak (its tone-map knee).
-            target_y = pq_target_nits(n, measured_peak_y)
-        elif cfg.eotf.lower() == "bt1886":
-            # Use target's gamma: 2.2 for SDR (per SDR_TARGET in models.py), 2.4 for others
-            gamma = 2.2 if cfg.mode.lower() == "sdr" else 2.4
-            target_y = bt1886_eotf(n, measured_peak_y, measured_black_y, gamma=gamma)
-        else:
-            gamma = (
-                2.2
-                if cfg.eotf.lower() in ("gamma22", "2.2", "gamma")
-                else float(cfg.eotf)
-            )
-            target_y = gamma_eotf(n, gamma=gamma) * measured_peak_y
+        n = target_rgb[0]
+        target_y = _linear_fraction_of_peak(n, cfg, peak, measured_black_y) * peak
         return xyY_to_xyz(white_point_xy[0], white_point_xy[1], target_y)
 
+    # Color-patch targets must be linearized with the same session EOTF as
+    # grayscale before matrixing to XYZ: signal RGB is gamma/PQ/BT.1886-encoded,
+    # not linear light, so feeding it straight into rgb_to_xyz() (a linear-light
+    # matrix) understates the EOTF's compression at non-100% signal levels
+    # (see issue #604).
+    linear_rgb = (
+        _linear_fraction_of_peak(target_rgb[0], cfg, peak, measured_black_y),
+        _linear_fraction_of_peak(target_rgb[1], cfg, peak, measured_black_y),
+        _linear_fraction_of_peak(target_rgb[2], cfg, peak, measured_black_y),
+    )
     matrix = detect_matrix(cfg.target_space)
-    xyz_at_100 = rgb_to_xyz(target_rgb, matrix)
+    xyz_at_100 = rgb_to_xyz(linear_rgb, matrix)
     # rgb_to_xyz() is normalized colorimetry (white -> Y=100). Color-patch
     # targets must be compared against absolute measured XYZ (nits), so scale
     # into the same relative colorimetry the grayscale branch above uses:
     # target luminance relative to the display's measured peak, not a fixed
     # 100-nit reference. Otherwise every display whose peak isn't exactly
     # 100 nits reports false color dE (see issue #603).
-    peak = measured_peak_y if measured_peak_y and measured_peak_y > 0 else 100.0
     scale = peak / 100.0
     return (xyz_at_100[0] * scale, xyz_at_100[1] * scale, xyz_at_100[2] * scale)
