@@ -614,6 +614,12 @@ class TestMixedGroupColourExtraction:
         r = parse_zro_csv(_MIXED_GROUP_CSV)
         assert len(r.pre_measurements) == 11
 
+    def test_colour_rows_in_mixed_group_not_counted_as_unknown(self):
+        """Colour rows in a grayscale-dominated group are imported by
+        _extract_colour_rows and must NOT be double-counted as unknown."""
+        r = parse_zro_csv(_MIXED_GROUP_CSV)
+        assert r.unknown_rows == 0
+
 
 class TestImportZroEndpoint:
 
