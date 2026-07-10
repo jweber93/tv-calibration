@@ -601,17 +601,6 @@ def translate_corrections(
             )
             continue
 
-        has_schema = _has_schema_for_setting(tv_profile, adj)
-        if not has_schema and setting_key.startswith(("white_balance_", "cms.", "gamma", "backlight", "black_level", "contrast")):
-            # Known category but no schema - still generate steps from TV profile paths
-            valid_adjustments.append(adj)
-        elif has_schema:
-            valid_adjustments.append(adj)
-        else:
-            result.skipped_reasons.append(
-                f"Cannot map adjustment '{adj.get('setting', '?')}': no menu path found for this setting on {tv_profile.name}."
-            )
-
     if not valid_adjustments:
         return result
 
