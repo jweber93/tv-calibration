@@ -561,8 +561,10 @@ def _process_grayscale_group(
     gray_rows: List[_Row] = []
     for row in group:
         patch_type = _classify(row.r, row.g, row.b)
-        if patch_type not in {"grayscale", "black", "white"}:
+        if patch_type == "unknown":
             result.unknown_rows += 1
+            continue
+        if patch_type not in {"grayscale", "black", "white"}:
             continue
         gray_rows.append(row)
 
