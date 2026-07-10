@@ -68,7 +68,7 @@ describe('ArgyllCard', () => {
     );
     await userEvent.type(screen.getByPlaceholderText('e.g. 120'), '120');
     await userEvent.selectOptions(
-      screen.getByText('Adaptive (spotread default)').closest('select'),
+      screen.getByText('Adaptive (Argyll default)').closest('select'),
       'non_adaptive'
     );
     await userEvent.click(screen.getByText('Save'));

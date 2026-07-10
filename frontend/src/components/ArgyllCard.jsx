@@ -8,7 +8,7 @@ const REFRESH_MODE_OPTIONS = [
 ];
 
 const INTEGRATION_MODE_OPTIONS = [
-  { value: '', label: 'Adaptive (spotread default)' },
+  { value: '', label: 'Adaptive (Argyll default)' },
   { value: 'non_adaptive', label: 'Non-adaptive (fixed integration time)' },
   { value: 'averaging', label: 'Averaging (where the instrument supports it)' },
 ];
@@ -91,7 +91,7 @@ export function ArgyllCard({ argyllPrefs, onScanInstruments, onSaveInstrument })
           <div className="text-sm muted" style={{ marginBottom: 6 }}>Meter / port</div>
           <div className="bridge-url-row">
             <select value={port} onChange={e => setPort(e.target.value)}>
-              <option value="">Auto-detect (spotread default)</option>
+              <option value="">Auto-detect (Argyll default)</option>
               {instruments.map(i => (
                 <option key={i.index} value={i.index}>{i.name}</option>
               ))}
