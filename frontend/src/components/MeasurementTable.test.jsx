@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect } from 'vitest';
+import { SDR_GAMMA_TARGET } from '../utils/fmt';
 import { MeasurementTable } from './MeasurementTable';
 
 const sampleMeasurements = [
@@ -40,7 +41,7 @@ describe('MeasurementTable', () => {
     const trigger = gammaHeader.querySelector('.tooltip-trigger');
     await user.hover(trigger);
     await waitFor(() => {
-      expect(screen.getByText(/SDR target: 2\.2/)).toBeInTheDocument();
+      expect(screen.getByText(new RegExp(`SDR target: ${SDR_GAMMA_TARGET}`))).toBeInTheDocument();
     });
   });
 });

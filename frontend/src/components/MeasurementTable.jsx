@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { fmtDe, fmtDateTime } from '../utils/fmt';
+import { fmtDe, fmtDateTime, SDR_GAMMA_TARGET } from '../utils/fmt';
 import { Tooltip } from './Tooltip';
 
 const COLUMNS = [
@@ -11,7 +11,7 @@ const COLUMNS = [
   { header: 'CCT',     key: 'cct',     tooltip: 'Correlated Color Temperature in Kelvin. D65 (the standard white point) is 6504 K.' },
   { header: 'ΔE',      key: 'delta_e', tooltip: 'Delta E — perceptual color difference. ΔE < 2 is invisible to most viewers; < 1 is excellent.' },
 ];
-const GAMMA_COL = { header: 'γ', key: 'effective_gamma', tooltip: 'Effective gamma — the measured power-law exponent at each stimulus step. SDR target: 2.2 (PQ/HDR tracks 1.0).' };
+const GAMMA_COL = { header: 'γ', key: 'effective_gamma', tooltip: `Effective gamma — the measured power-law exponent at each stimulus step. SDR target: ${SDR_GAMMA_TARGET} (PQ/HDR tracks 1.0).` };
 
 function getValue(m, key) {
   if (key === 'label')     return m.label || '';

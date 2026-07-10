@@ -36,10 +36,12 @@ export function measurementTimeSummary(startTs, endTs) {
   return fmtTime(endTs || startTs);
 }
 
+export const SDR_GAMMA_TARGET = 2.2;
+
 /**
  * Check if EOTF denotes PQ / SMPTE ST.2084.
  * Mirrors calibrator/utils.py:is_pq_eotf — PQ does not follow a power law,
- * so gamma tracking must be compared against 1.0 instead of 2.2.
+ * so gamma tracking must be compared against 1.0 instead of SDR_GAMMA_TARGET.
  */
 export function isPqEotf(eotf) {
   const e = (eotf || '').toLowerCase();
