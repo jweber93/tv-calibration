@@ -565,6 +565,7 @@ def _process_grayscale_group(
             result.unknown_rows += 1
             continue
         if patch_type not in {"grayscale", "black", "white"}:
+            # Colour types (red, green, etc.) are handled by _extract_colour_rows()
             continue
         gray_rows.append(row)
 
