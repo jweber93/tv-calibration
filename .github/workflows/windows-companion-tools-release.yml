@@ -1,0 +1,93 @@
+name: Windows Companion Tools Release
+
+# Builds both Windows companion services — the Dogegen Companion Agent
+# (tools/dogegen-agent/agent.py) and the ZRO Bridge (tools/zro-bridge/bridge.py)
+# — into standalone .exe files via PyInstaller (Python bundled in, no
+# separate install needed) and publishes them together as one
+# windows-companion-tools.zip GitHub Release asset, since a split-host
+# setup (backend in Docker, e.g. on Unraid; these two services on the
+# Windows PC with the display/meter) needs both running side by side.
+#
+# Triggers:
+#   companion-tools-v* tag → release named after the tag
+#   workflow_dispatch       → manual build; uploads to a draft release
+
+on:
+  push:
+    tags: ["companion-tools-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Windows executables
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dogegen-agent dependencies
+        working-directory: tools/dogegen-agent
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build dogegen-agent.exe
+        working-directory: tools/dogegen-agent
+        run: |
+          pyinstaller --onefile --name dogegen-agent `
+            --hidden-import uvicorn.lifespan.on `
+            --hidden-import uvicorn.protocols.http.auto `
+            --hidden-import uvicorn.protocols.websockets.auto `
+            --hidden-import uvicorn.loops.auto `
+            agent.py
+
+      - name: Install zro-bridge dependencies
+        working-directory: tools/zro-bridge
+        run: |
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build zro-bridge.exe
+        working-directory: tools/zro-bridge
+        run: |
+          pyinstaller --onefile --name zro-bridge `
+            --hidden-import uvicorn.lifespan.on `
+            --hidden-import uvicorn.protocols.http.auto `
+            --hidden-import uvicorn.protocols.websockets.auto `
+            --hidden-import uvicorn.loops.auto `
+            --collect-submodules pyautogui `
+            --collect-submodules pygetwindow `
+            bridge.py
+
+      - name: Assemble release bundle
+        run: |
+          New-Item -ItemType Directory -Path bundle | Out-Null
+          Copy-Item tools\dogegen-agent\dist\dogegen-agent.exe bundle\
+          Copy-Item tools\dogegen-agent\agent.example.json bundle\
+          Copy-Item tools\dogegen-agent\README.md bundle\dogegen-agent.README.md
+          Copy-Item tools\zro-bridge\dist\zro-bridge.exe bundle\
+          Copy-Item tools\zro-bridge\bridge.example.json bundle\
+          Copy-Item tools\zro-bridge\README.md bundle\zro-bridge.README.md
+          Copy-Item tools\windows-companion-tools\RELEASE_README.md bundle\README.md
+          Compress-Archive -Path bundle\* -DestinationPath windows-companion-tools.zip
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-companion-tools
+          path: windows-companion-tools.zip
+
+      - name: Create/update release
+        if: startsWith(github.ref, 'refs/tags/companion-tools-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: windows-companion-tools.zip
+          draft: true
+          generate_release_notes: true

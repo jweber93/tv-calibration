@@ -13,11 +13,13 @@ as direct `subprocess.Popen` calls.
 
 ### Option A: prebuilt executable (recommended, no Python required)
 
-1. Download `dogegen-agent-windows.zip` from the
+1. Download `windows-companion-tools.zip` from the
    [Releases page](https://github.com/jweber93/tv-calibration/releases) and
    unzip it into a folder on the Windows PC that runs Dogegen. It contains
-   `dogegen-agent.exe`, `agent.example.json`, and this README — Python
-   itself is bundled into the `.exe`, nothing else to install.
+   `dogegen-agent.exe`, `agent.example.json`, and (alongside it) the
+   [ZRO Bridge](../zro-bridge/)'s `zro-bridge.exe` — Python itself is
+   bundled into both `.exe`s, nothing else to install. You only need to run
+   `dogegen-agent.exe` if this PC isn't also handling meter measurements.
 2. Double-click `dogegen-agent.exe`. On first run it creates `agent.json`
    from `agent.example.json` next to it.
 3. Confirm it's up:
@@ -137,13 +139,14 @@ true`) if nothing is running under agent management. Returns
 
 ## Releasing (maintainers)
 
-Pushing a tag matching `dogegen-agent-v*` (e.g. `dogegen-agent-v1.0.0`)
-triggers the [`dogegen-agent-release`](../../.github/workflows/dogegen-agent-release.yml)
-GitHub Actions workflow, which builds `dogegen-agent.exe` with PyInstaller
-on `windows-latest` and attaches `dogegen-agent-windows.zip` to a draft
-GitHub Release for that tag. Review and publish the draft once it's built.
-The workflow can also be run manually (`workflow_dispatch`) to sanity-check
-the build without cutting a release.
+Pushing a tag matching `companion-tools-v*` (e.g. `companion-tools-v1.0.0`)
+triggers the [`windows-companion-tools-release`](../../.github/workflows/windows-companion-tools-release.yml)
+GitHub Actions workflow, which builds both `dogegen-agent.exe` and
+[ZRO Bridge](../zro-bridge/)'s `zro-bridge.exe` with PyInstaller on
+`windows-latest` and attaches them together in `windows-companion-tools.zip`
+to a draft GitHub Release for that tag. Review and publish the draft once
+it's built. The workflow can also be run manually (`workflow_dispatch`) to
+sanity-check the build without cutting a release.
 
 ## Tests
 
