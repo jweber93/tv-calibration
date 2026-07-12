@@ -31,17 +31,19 @@
   <Icon>https://raw.githubusercontent.com/jweber93/tv-calibration/main/frontend/public/logo.svg</Icon>
   <ExtraParams>
 --name tv-calibration \
---restart unless-stopped \
--v /mnt/user/appdata/tv-calibration/.sessions:/app/.sessions \
--v /mnt/user/appdata/tv-calibration/.calibration-history:/app/.calibration-history \
--v /mnt/user/appdata/tv-calibration/.prefs.json:/app/.prefs.json \
--v ZRO_DROPS:/data/zro-drops
+--restart unless-stopped
   </ExtraParams>
   <Config>
     <Config Name="App port" Target="8000" Default="8000" Mode="tcp" Display="always" Description="Port for the FastAPI web UI">
       <Value>8000</Value>
     </Config>
-    <Config Name="ZRO Drops Share" Target="/data/zro-drops" Default="" Mode="rw" Description="Host path for ZRO CSV auto-import. Map your ColourSpace export folder here. The Samba sidecar exposes this as \\\\&lt;UNRAID_IP&gt;\\zro-drops" Display="always" Required="true">
+    <Config Name="Samba NetBIOS port" Target="139" Default="139" Mode="tcp" Display="always" Description="Samba NetBIOS session port for ZRO CSV auto-import share">
+      <Value>139</Value>
+    </Config>
+    <Config Name="Samba CIFS port" Target="445" Default="445" Mode="tcp" Display="always" Description="Samba CIFS port for ZRO CSV auto-import share">
+      <Value>445</Value>
+    </Config>
+    <Config Name="ZRO Drops Share" Target="/data/zro-drops" Default="/mnt/user/downloads/zro-drops" Mode="rw" Description="Host path for ZRO CSV auto-import. Map your ColourSpace export folder here. The Samba sidecar exposes this as \\\\&lt;UNRAID_IP&gt;\\zro-drops" Display="always" Required="true">
       <Value>/mnt/user/downloads/zro-drops</Value>
     </Config>
     <Config Name="Sessions dir" Target="/app/.sessions" Default="/mnt/user/appdata/tv-calibration/.sessions" Mode="rw" Description="Persisted session storage. Maps to /mnt/user/appdata/tv-calibration/.sessions" Display="always" Required="false">
