@@ -11,12 +11,21 @@ name: Windows Companion Tools Release
 #
 # Triggers:
 #   companion-tools-v* tag → release named after the tag
-#   workflow_dispatch       → manual build; uploads to a draft release
+#   workflow_dispatch       → manual build; if a version is given, also
+#                             creates/updates a draft release tagged
+#                             companion-tools-v<version> at the current ref
+#                             (no separate tag push needed); otherwise just
+#                             builds and verifies without releasing.
 
 on:
   push:
     tags: ["companion-tools-v*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 1.0.0 (creates tag companion-tools-v1.0.0 + a draft release). Leave blank to just build/verify without releasing."
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -76,9 +85,11 @@ jobs:
           path: tools/windows-companion-tools/windows-companion-tools.zip
 
       - name: Create/update release
-        if: startsWith(github.ref, 'refs/tags/companion-tools-v')
+        if: startsWith(github.ref, 'refs/tags/companion-tools-v') || (github.event_name == 'workflow_dispatch' && inputs.version != '')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('companion-tools-v{0}', inputs.version) }}
+          target_commitish: ${{ github.sha }}
           files: tools/windows-companion-tools/windows-companion-tools.zip
           draft: true
           generate_release_notes: true

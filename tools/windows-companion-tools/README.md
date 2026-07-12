@@ -89,11 +89,18 @@ machines. See each linked README's Trust model section for details.
 
 ## Releasing (maintainers)
 
-Pushing a tag matching `companion-tools-v*` (e.g. `companion-tools-v1.0.0`)
-triggers the [`windows-companion-tools-release`](../../.github/workflows/windows-companion-tools-release.yml)
-GitHub Actions workflow, which builds `companion.exe` with PyInstaller on
+The [`windows-companion-tools-release`](../../.github/workflows/windows-companion-tools-release.yml)
+GitHub Actions workflow builds `companion.exe` with PyInstaller on
 `windows-latest` and attaches it (plus both example config files) in
-`windows-companion-tools.zip` to a draft GitHub Release for that tag.
-Review and publish the draft once it's built. The workflow can also be run
-manually (`workflow_dispatch`) to sanity-check the build without cutting a
-release.
+`windows-companion-tools.zip` to a draft GitHub Release. Two ways to
+trigger it:
+
+* **Push a tag** matching `companion-tools-v*` (e.g. `companion-tools-v1.0.0`)
+  — creates a draft release named after the tag.
+* **Run it manually** (`workflow_dispatch`, from the Actions tab or the
+  GitHub API) with a `version` input (e.g. `1.0.0`) — creates the tag
+  `companion-tools-v1.0.0` at the triggering commit and a draft release,
+  without needing a separate tag push. Leave `version` blank to just build
+  and verify the `.exe` without releasing.
+
+Either way, review and publish the draft once it's built.
