@@ -7,6 +7,16 @@ changes.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`.prefs.json` mistakenly created as a directory.** Docker/Unraid bind
+  mounts of a single host file that doesn't exist yet get created as a
+  directory instead, which previously made every preferences load and save
+  fail (`IsADirectoryError`) for the life of the container. Startup now
+  detects an empty directory at the prefs path, removes it, and lets prefs
+  load/save normally again; a non-empty directory (or one that can't be
+  removed) now logs a clear, actionable warning instead of a bare traceback.
+
 ### Added
 
 - **Split-host Dogegen support.** If you're moving the backend to Docker/Unraid
