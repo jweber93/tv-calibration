@@ -41,6 +41,20 @@ changes.
   a 256×256 raster rendering of the same mark — and pointed the template at
   it instead.
 
+- **`DOGEGEN_AGENT_URL`/`ZRO_BRIDGE_URL` unreachable over Tailscale.** A
+  container on a plain bridge network (the Unraid template's default) has no
+  access to Tailscale's MagicDNS resolver, so a `.ts.net` hostname in either
+  variable resolves fine from your laptop but fails to resolve from inside
+  the container. Documented the fix (use the Windows PC's Tailscale IP, or
+  add `--dns=100.100.100.100` to Extra Parameters) in the README's
+  split-host troubleshooting section and the Unraid template's field
+  description.
+
+- **`ZRO_BRIDGE_URL` missing from the Unraid template.** It was already a
+  documented Compose env var for full split-host setups, but Unraid users
+  had no guided Config field for it — only `DOGEGEN_AGENT_URL` was exposed.
+  Added a matching "ZRO Bridge URL" field to `unraid-template.xml`.
+
 ### Added
 
 - **Split-host Dogegen support.** If you're moving the backend to Docker/Unraid
