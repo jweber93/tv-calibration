@@ -1,0 +1,84 @@
+name: Windows Companion Tools Release
+
+# Builds tools/windows-companion-tools/companion.py — which runs both the
+# Dogegen Companion Agent (tools/dogegen-agent/agent.py) and the ZRO Bridge
+# (tools/zro-bridge/bridge.py) in one process — into a single standalone
+# companion.exe via PyInstaller (Python bundled in, no separate install
+# needed) and publishes it as one windows-companion-tools.zip GitHub
+# Release asset. A split-host setup (backend in Docker, e.g. on Unraid;
+# these services on the Windows PC with the display/meter) then only needs
+# one executable running.
+#
+# Triggers:
+#   companion-tools-v* tag → release named after the tag
+#   workflow_dispatch       → manual build; uploads to a draft release
+
+on:
+  push:
+    tags: ["companion-tools-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Windows executable
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        working-directory: tools/windows-companion-tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build companion.exe
+        working-directory: tools/windows-companion-tools
+        run: |
+          pyinstaller --onefile --name companion `
+            --paths ..\dogegen-agent `
+            --paths ..\zro-bridge `
+            --hidden-import agent `
+            --hidden-import bridge `
+            --hidden-import uvicorn.lifespan.on `
+            --hidden-import uvicorn.protocols.http.auto `
+            --hidden-import uvicorn.protocols.websockets.auto `
+            --hidden-import uvicorn.loops.auto `
+            --collect-submodules pyautogui `
+            --collect-submodules pygetwindow `
+            --collect-submodules backends `
+            companion.py
+
+      - name: Assemble release bundle
+        working-directory: tools/windows-companion-tools
+        run: |
+          New-Item -ItemType Directory -Path dist\bundle | Out-Null
+          Copy-Item dist\companion.exe dist\bundle\
+          Copy-Item ..\dogegen-agent\agent.example.json dist\bundle\
+          Copy-Item ..\zro-bridge\bridge.example.json dist\bundle\
+          Copy-Item README.md dist\bundle\
+          Copy-Item ..\dogegen-agent\README.md dist\bundle\dogegen-agent.README.md
+          Copy-Item ..\zro-bridge\README.md dist\bundle\zro-bridge.README.md
+          Compress-Archive -Path dist\bundle\* -DestinationPath windows-companion-tools.zip
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-companion-tools
+          path: tools/windows-companion-tools/windows-companion-tools.zip
+
+      - name: Create/update release
+        if: startsWith(github.ref, 'refs/tags/companion-tools-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: tools/windows-companion-tools/windows-companion-tools.zip
+          draft: true
+          generate_release_notes: true

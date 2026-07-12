@@ -1,0 +1,2 @@
+-r ../dogegen-agent/requirements.txt
+-r ../zro-bridge/requirements.txt

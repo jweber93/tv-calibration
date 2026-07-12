@@ -11,6 +11,27 @@ as direct `subprocess.Popen` calls.
 
 ## Install & run (Windows)
 
+### Option A: prebuilt executable (recommended, no Python required)
+
+This agent ships as part of the combined
+**[Windows Companion](../windows-companion-tools/)** executable — one
+`companion.exe` that runs this agent alongside the [ZRO Bridge](../zro-bridge/)
+in a single process (pass `--skip-bridge` if this PC isn't also handling
+meter measurements). See [that README](../windows-companion-tools/README.md)
+for download/run instructions.
+
+Once running, confirm this agent specifically is up:
+
+```
+curl http://localhost:7071/status
+```
+
+The agent listens on `0.0.0.0:7071` by default so a backend on another
+machine on your LAN can reach it. Point your backend's Dogegen agent URL
+setting at `http://<this-pc-ip>:7071`.
+
+### Option B: run from source
+
 1. Install [Python 3.10+](https://python.org) if you don't already have it.
 2. Copy this folder (`tools/dogegen-agent/`) to the Windows PC that runs
    Dogegen, or clone the repo there.
@@ -28,10 +49,13 @@ setting at `http://<this-pc-ip>:7071`.
 
 ### Running persistently (surviving reboot)
 
-`start.bat` is meant for manual/on-demand use — it exits once you close its
-console window, and it doesn't come back after a reboot. To keep the agent
-running in the background across reboots, register it as a Windows service
-or scheduled task instead of double-clicking `start.bat`:
+If you're running this agent via the prebuilt `companion.exe`, see
+[Windows Companion: Running persistently](../windows-companion-tools/README.md#running-persistently-surviving-reboot)
+— it covers registering the combined executable as an NSSM service or
+Task Scheduler task.
+
+If you're running `agent.py` standalone from source (not via
+`companion.py`), the same idea applies to just this service:
 
 * **[NSSM](https://nssm.cc/)** (Non-Sucking Service Manager) — the simplest
   option. `nssm install DogegenAgent "C:\Path\To\python.exe" "C:\Path\To\tools\dogegen-agent\agent.py" --config "C:\Path\To\tools\dogegen-agent\agent.json"`,
@@ -109,6 +133,12 @@ be found.
 Terminates a Dogegen process this agent started. No-op (`already_stopped:
 true`) if nothing is running under agent management. Returns
 `{"ok": true, "already_stopped": bool, ...status fields}`.
+
+## Releasing (maintainers)
+
+See [Windows Companion: Releasing](../windows-companion-tools/README.md#releasing-maintainers)
+— this agent is built into the combined `companion.exe` published to
+GitHub Releases, not as a standalone executable.
 
 ## Tests
 

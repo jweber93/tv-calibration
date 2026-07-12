@@ -305,9 +305,9 @@ This is the topology for running the container on a server/NAS with no hardware 
 
 Setup:
 
-1. On the Windows PC, start both companion services:
-   - `tools/zro-bridge/start.bat` — copy `bridge.example.json` → `bridge.json` first; set `"backend": "argyll"` if you're using ArgyllCMS instead of ColourSpace.
-   - `tools/dogegen-agent/start.bat` — copy `agent.example.json` → `agent.json` first.
+1. On the Windows PC, get both companion services running (one process handles both — see [Windows Companion](tools/windows-companion-tools/)). Either:
+   - **Download and run** — grab `windows-companion-tools.zip` from the [Releases page](https://github.com/jweber93/tv-calibration/releases), unzip, copy `bridge.example.json` → `bridge.json` and `agent.example.json` → `agent.json` (set `"backend"` in `bridge.json` to `"argyll"` if you're using ArgyllCMS instead of ColourSpace), then double-click `companion.exe`. No Python install required.
+   - **Run from source** — `tools/windows-companion-tools/start.bat` (copies both example configs on first run). Requires Python 3.10+.
    - Confirm both are reachable before wiring up the container, so you fail fast if one didn't start:
      ```bash
      curl http://<windows-pc-ip>:7070/status && echo "✓ ZRO Bridge"
