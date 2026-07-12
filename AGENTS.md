@@ -222,7 +222,7 @@ All runtime state is file-based, auto-created, and **gitignored — never commit
 
 - `.sessions/` — one JSON file per calibration session (`server.py:SESSION_STORE_DIR`).
 - `.calibration-history/{tv_key}/` — `sessions.jsonl` (one line per completed session, **newest at bottom**) plus `baseline.json` (first-ever session, kept as the improvement reference). `{tv_key}` derives from the TV profile; root is overridable via `TVCAL_HISTORY_DIR` (`calibrator/history.py`).
-- `.prefs.json` — user prefs (watch path, LLM endpoint, Dogegen config, ZRO bridge URL, autocal apply mode/damping/iteration cap). Loaded at startup; env vars set initial values, the file overrides them. Written **atomically** (`.tmp` + replace, `server.py:~460`) on every UI change — preserve that pattern when adding a persisted pref.
+- `.prefs/.prefs.json` — user prefs (watch path, LLM endpoint, Dogegen config, ZRO bridge URL, autocal apply mode/damping/iteration cap). Loaded at startup; env vars set initial values, the file overrides them. Written **atomically** (`.tmp` + replace, `server.py:~460`) on every UI change — preserve that pattern when adding a persisted pref. Lives inside its own `.prefs/` directory rather than being bind-mounted directly (`server.py:_PREFS_DIR`), since mounting a single host file that doesn't exist yet makes Docker create a directory in its place instead.
 
 ---
 

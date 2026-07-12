@@ -76,7 +76,7 @@ flowchart TD
     end
 
     Storage[(".sessions/\nJSON session files")]
-    Prefs[(".prefs.json\nuser preferences")]
+    Prefs[(".prefs/.prefs.json\nuser preferences")]
 
     subgraph External["External Integrations"]
         ZRO["ColourSpace ZRO\nmeasurement software"]
@@ -363,7 +363,7 @@ Search for **tv-calibration** in the Community Applications plugin and click Ins
    | `/data/zro-drops` | e.g. `/mnt/user/downloads/zro-drops` | Yes — ZRO CSV drop folder |
    | `/app/.sessions` | `/mnt/user/appdata/tv-calibration/.sessions` | Recommended |
    | `/app/.calibration-history` | `/mnt/user/appdata/tv-calibration/.calibration-history` | Recommended |
-   | `/app/.prefs.json` | `/mnt/user/appdata/tv-calibration/.prefs.json` | Recommended |
+   | `/app/.prefs` | `/mnt/user/appdata/tv-calibration/.prefs` | Recommended |
 
    There is no path mapping for Dogegen — Unraid is a Linux host, so it can never bind-mount or execute a Windows `Dogegen.exe` directly. See "Dogegen on Unraid" below.
 
@@ -823,10 +823,14 @@ static/               Pre-built frontend assets served by FastAPI
 tests/                API, unit, and integration tests
 tools/                Reference CSV sequences for ZRO workflows
 
-.prefs.json           Persisted user preferences — watch path, LLM endpoint, Dogegen
+.prefs/.prefs.json    Persisted user preferences — watch path, LLM endpoint, Dogegen
                       config, ZRO bridge URL, autocal apply mode/damping/iteration
                       cap. Auto-created; gitignored. Written atomically on every
-                      UI change; loaded at server startup.
+                      UI change; loaded at server startup. Lives inside its own
+                      .prefs/ directory so Docker/Unraid bind-mount the directory
+                      rather than the file itself (mounting a single file that
+                      doesn't exist yet makes Docker create a directory in its
+                      place instead).
 
 .calibration-history/ Per-TV session history (auto-created; gitignored)
   {tv_key}/

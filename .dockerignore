@@ -50,7 +50,7 @@ tests/
 tools/
 
 # Local state
-.prefs.json
+.prefs/
 .sessions/
 .calibration-history/
 test-results.xml

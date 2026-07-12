@@ -201,7 +201,19 @@ def _validate_startup_config() -> List[str]:
     if not os.access(SESSION_STORE_DIR, os.W_OK):
         warnings.append(f"Session store directory {SESSION_STORE_DIR} is not writable")
 
+    if not _PREFS_DIR.exists():
+        try:
+            _PREFS_DIR.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            warnings.append(f"Cannot create prefs directory {_PREFS_DIR}: {exc}")
+
+    if _PREFS_DIR.exists() and not os.access(_PREFS_DIR, os.W_OK):
+        warnings.append(f"Prefs directory {_PREFS_DIR} is not writable")
+
     if _PREFS_PATH.is_dir():
+        # Legacy defense: older deployments bind-mounted .prefs.json itself
+        # (rather than its parent directory), and mounting a host file that
+        # didn't exist yet made Docker create a directory in its place.
         warnings.append(
             f"Prefs path {_PREFS_PATH} is a directory, not a file — this usually "
             "happens when a container bind-mounts a host file that didn't exist "
@@ -435,9 +447,15 @@ store.load_sessions()
 _sessions = store.sessions
 
 # ---------------------------------------------------------------------------
-# Preferences — persisted to .prefs.json, loaded on startup
+# Preferences — persisted to .prefs/.prefs.json, loaded on startup
 # ---------------------------------------------------------------------------
-_PREFS_PATH = Path(__file__).parent / ".prefs.json"
+# The file lives inside its own directory (rather than being bind-mounted
+# directly) so Docker/Unraid bind-mount the *directory* — mounting the file
+# itself turns it into a mount point that can't be renamed or replaced over
+# (see _save_prefs' EBUSY handling and the self-heal below for the fallout
+# when a deployment still does that).
+_PREFS_DIR = Path(__file__).parent / ".prefs"
+_PREFS_PATH = _PREFS_DIR / ".prefs.json"
 _AUTOCAL_DEFAULTS: Dict[str, Any] = {
     "apply_mode": "manual",
     "damping": ControllerConfig().damping,
