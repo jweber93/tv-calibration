@@ -17,6 +17,12 @@ changes.
   load/save normally again; a non-empty directory (or one that can't be
   removed) now logs a clear, actionable warning instead of a bare traceback.
 
+- **Unraid template icon not displaying.** The template's `<Icon>` pointed at
+  `frontend/public/favicon.svg`; Unraid's Docker Manager doesn't render SVG
+  icons, so the app showed no icon at all. Added `frontend/public/icon.png` —
+  a 256×256 raster rendering of the same mark — and pointed the template at
+  it instead.
+
 ### Added
 
 - **Split-host Dogegen support.** If you're moving the backend to Docker/Unraid
