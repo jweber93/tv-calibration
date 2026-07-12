@@ -27,7 +27,7 @@
   <Category>MediaTools: Other</Category>
   <WebUI>http://[IP]:[PORT:8000]</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/jweber93/tv-calibration/main/unraid-template.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/jweber93/tv-calibration/main/frontend/public/favicon.svg</Icon>
+  <Icon>https://raw.githubusercontent.com/jweber93/tv-calibration/main/frontend/public/icon.png</Icon>
   <ExtraParams>
 --name tv-calibration \
 --restart unless-stopped

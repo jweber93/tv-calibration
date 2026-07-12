@@ -200,7 +200,23 @@ def _validate_startup_config() -> List[str]:
     if not os.access(SESSION_STORE_DIR, os.W_OK):
         warnings.append(f"Session store directory {SESSION_STORE_DIR} is not writable")
 
-    if _PREFS_PATH.exists() and not os.access(_PREFS_PATH, os.W_OK):
+    if _PREFS_PATH.is_dir():
+        warnings.append(
+            f"Prefs path {_PREFS_PATH} is a directory, not a file — this usually "
+            "happens when a container bind-mounts a host file that didn't exist "
+            "yet, so Docker created a directory in its place. Attempting to "
+            "self-heal by removing the empty directory."
+        )
+        try:
+            _PREFS_PATH.rmdir()
+        except OSError as exc:
+            warnings.append(
+                f"Could not remove {_PREFS_PATH} automatically ({exc}); preferences "
+                "will not persist until the host-side path is fixed (delete the "
+                "directory on the host, or pre-create it as an empty file, then "
+                "restart the container)."
+            )
+    elif _PREFS_PATH.exists() and not os.access(_PREFS_PATH, os.W_OK):
         warnings.append(f"Prefs file {_PREFS_PATH} exists but is not writable")
 
     dogegen_path = os.getenv("DOGEGEN_PATH", "").strip()
@@ -212,8 +228,8 @@ def _validate_startup_config() -> List[str]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    _load_prefs()
     startup_warnings = _validate_startup_config()
+    _load_prefs()
     for w in startup_warnings:
         logger.warning(f"Startup validation: {w}")
     if startup_warnings:
@@ -466,6 +482,9 @@ def _load_prefs() -> None:
     """Read .prefs.json and apply to live globals. Env vars set initial values;
     saved prefs overwrite them so the user's last UI choice always wins."""
     if not _PREFS_PATH.exists():
+        return
+    if _PREFS_PATH.is_dir():
+        logger.warning("%s is a directory, not a file; using defaults", _PREFS_PATH)
         return
     try:
         saved = json.loads(_PREFS_PATH.read_text(encoding="utf-8"))

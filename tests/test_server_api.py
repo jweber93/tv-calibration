@@ -1978,6 +1978,51 @@ class TestSavePrefsLogging:
         import json
         data = json.loads(prefs_path.read_text())
         assert "dogegen" in data
+
+
+# ── Prefs path mistakenly created as a directory (Docker bind-mount gotcha) ──
+
+class TestPrefsPathIsDirectory:
+    def test_validate_startup_config_self_heals_empty_directory(self, tmp_path, monkeypatch):
+        """An empty directory at the prefs path is a Docker bind-mount artifact
+        (mounting a host file that didn't exist yet creates a directory) and
+        should be removed automatically so prefs can be written normally."""
+        prefs_dir = tmp_path / ".prefs.json"
+        prefs_dir.mkdir()
+        monkeypatch.setattr(server_module, "_PREFS_PATH", prefs_dir)
+
+        warnings = server_module._validate_startup_config()
+
+        assert any("is a directory" in w for w in warnings)
+        assert not prefs_dir.exists()
+
+    def test_load_prefs_does_not_crash_on_directory(self, tmp_path, monkeypatch):
+        """If self-heal can't run (e.g. a non-empty directory), _load_prefs must
+        not raise IsADirectoryError; it should fall back to defaults."""
+        prefs_dir = tmp_path / ".prefs.json"
+        prefs_dir.mkdir()
+        (prefs_dir / "stray-file").write_text("unexpected")
+        monkeypatch.setattr(server_module, "_PREFS_PATH", prefs_dir)
+
+        server_module._load_prefs()  # must not raise
+
+        assert prefs_dir.exists()  # non-empty, so it wasn't removed
+
+    def test_save_prefs_after_self_heal_writes_normal_file(self, tmp_path, monkeypatch):
+        """After self-heal removes the stray directory, saving prefs produces a
+        real .prefs.json file instead of failing forever."""
+        prefs_dir = tmp_path / ".prefs.json"
+        prefs_dir.mkdir()
+        monkeypatch.setattr(server_module, "_PREFS_PATH", prefs_dir)
+
+        server_module._validate_startup_config()
+        server_module._load_prefs()
+        server_module._save_prefs()
+
+        assert prefs_dir.is_file()
+        import json
+        data = json.loads(prefs_dir.read_text())
+        assert "dogegen" in data
         assert "bridge_url" in data
 # ── CORS tests ────────────────────────────────────────────────────────────────
 
