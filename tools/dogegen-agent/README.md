@@ -13,20 +13,18 @@ as direct `subprocess.Popen` calls.
 
 ### Option A: prebuilt executable (recommended, no Python required)
 
-1. Download `windows-companion-tools.zip` from the
-   [Releases page](https://github.com/jweber93/tv-calibration/releases) and
-   unzip it into a folder on the Windows PC that runs Dogegen. It contains
-   `dogegen-agent.exe`, `agent.example.json`, and (alongside it) the
-   [ZRO Bridge](../zro-bridge/)'s `zro-bridge.exe` — Python itself is
-   bundled into both `.exe`s, nothing else to install. You only need to run
-   `dogegen-agent.exe` if this PC isn't also handling meter measurements.
-2. Double-click `dogegen-agent.exe`. On first run it creates `agent.json`
-   from `agent.example.json` next to it.
-3. Confirm it's up:
+This agent ships as part of the combined
+**[Windows Companion](../windows-companion-tools/)** executable — one
+`companion.exe` that runs this agent alongside the [ZRO Bridge](../zro-bridge/)
+in a single process (pass `--skip-bridge` if this PC isn't also handling
+meter measurements). See [that README](../windows-companion-tools/README.md)
+for download/run instructions.
 
-   ```
-   curl http://localhost:7071/status
-   ```
+Once running, confirm this agent specifically is up:
+
+```
+curl http://localhost:7071/status
+```
 
 The agent listens on `0.0.0.0:7071` by default so a backend on another
 machine on your LAN can reach it. Point your backend's Dogegen agent URL
@@ -51,26 +49,25 @@ setting at `http://<this-pc-ip>:7071`.
 
 ### Running persistently (surviving reboot)
 
-Running the `.exe` or `start.bat` directly is meant for manual/on-demand
-use — it exits once you close its console window, and it doesn't come back
-after a reboot. To keep the agent running in the background across reboots,
-register it as a Windows service or scheduled task instead:
+If you're running this agent via the prebuilt `companion.exe`, see
+[Windows Companion: Running persistently](../windows-companion-tools/README.md#running-persistently-surviving-reboot)
+— it covers registering the combined executable as an NSSM service or
+Task Scheduler task.
+
+If you're running `agent.py` standalone from source (not via
+`companion.py`), the same idea applies to just this service:
 
 * **[NSSM](https://nssm.cc/)** (Non-Sucking Service Manager) — the simplest
-  option.
-  * Prebuilt exe: `nssm install DogegenAgent "C:\Path\To\dogegen-agent.exe" --config "C:\Path\To\agent.json"`
-  * From source: `nssm install DogegenAgent "C:\Path\To\python.exe" "C:\Path\To\tools\dogegen-agent\agent.py" --config "C:\Path\To\tools\dogegen-agent\agent.json"`
-
-  Then `nssm start DogegenAgent`. NSSM restarts it automatically if it
+  option. `nssm install DogegenAgent "C:\Path\To\python.exe" "C:\Path\To\tools\dogegen-agent\agent.py" --config "C:\Path\To\tools\dogegen-agent\agent.json"`,
+  then `nssm start DogegenAgent`. NSSM restarts it automatically if it
   crashes and it starts on boot like any other Windows service.
 * **Task Scheduler** — create a task triggered "At log on" (or "At startup"
-  for a service-like account), action = run `dogegen-agent.exe` (or
-  `python.exe` with the source-install arguments above), and "Run whether
-  user is logged on or not" if you want it up before anyone signs in.
+  for a service-like account), action = run `python.exe` with the same
+  arguments as above, and "Run whether user is logged on or not" if you
+  want it up before anyone signs in.
 
-Either way, point the action/task at `dogegen-agent.exe`/`agent.py` directly
-(not `start.bat`) so it doesn't sit waiting at the `pause` prompt at the end
-of the script.
+Either way, point the action/task at `agent.py` directly (not `start.bat`)
+so it doesn't sit waiting at the `pause` prompt at the end of the script.
 
 ## Configuration
 
@@ -139,14 +136,9 @@ true`) if nothing is running under agent management. Returns
 
 ## Releasing (maintainers)
 
-Pushing a tag matching `companion-tools-v*` (e.g. `companion-tools-v1.0.0`)
-triggers the [`windows-companion-tools-release`](../../.github/workflows/windows-companion-tools-release.yml)
-GitHub Actions workflow, which builds both `dogegen-agent.exe` and
-[ZRO Bridge](../zro-bridge/)'s `zro-bridge.exe` with PyInstaller on
-`windows-latest` and attaches them together in `windows-companion-tools.zip`
-to a draft GitHub Release for that tag. Review and publish the draft once
-it's built. The workflow can also be run manually (`workflow_dispatch`) to
-sanity-check the build without cutting a release.
+See [Windows Companion: Releasing](../windows-companion-tools/README.md#releasing-maintainers)
+— this agent is built into the combined `companion.exe` published to
+GitHub Releases, not as a standalone executable.
 
 ## Tests
 

@@ -19,24 +19,20 @@ Three backends, selected via `bridge.json`'s `"backend"` field:
 
 ### Option A: prebuilt executable (recommended, no Python required)
 
-1. Download `windows-companion-tools.zip` from the
-   [Releases page](https://github.com/jweber93/tv-calibration/releases) and
-   unzip it into a folder on the Windows PC that has the meter plugged in.
-   It contains `zro-bridge.exe`, `bridge.example.json`, and (alongside it)
-   `dogegen-agent.exe` — Python is bundled into both `.exe`s, nothing else
-   to install unless you're using the `argyll` backend (see below).
-2. Copy `bridge.example.json` to `bridge.json` in that same folder and set
-   `"backend"` to `"pyautogui"`, `"remote_control"`, or `"argyll"`.
-3. Double-click `zro-bridge.exe`, or run it from a terminal:
+This bridge ships as part of the combined
+**[Windows Companion](../windows-companion-tools/)** executable — one
+`companion.exe` that runs this bridge alongside the
+[Dogegen Companion Agent](../dogegen-agent/) in a single process (pass
+`--skip-agent` if this PC only needs meter measurements). See
+[that README](../windows-companion-tools/README.md) for download/run
+instructions, and set `"backend"` in `bridge.json` to `"pyautogui"`,
+`"remote_control"`, or `"argyll"` before starting it.
 
-   ```
-   zro-bridge.exe --config bridge.json
-   ```
-4. Confirm it's up:
+Once running, confirm this bridge specifically is up:
 
-   ```
-   curl http://localhost:7070/status
-   ```
+```
+curl http://localhost:7070/status
+```
 
 ### Option B: run from source
 
@@ -56,27 +52,27 @@ setting at `http://<this-pc-ip>:7070`.
 If you set `"backend": "argyll"`, install [ArgyllCMS](https://www.argyllcms.com/)
 separately (free, open source) and make sure `spotread` is on `PATH` or set
 `argyll_spotread_path` in `bridge.json` to its full path. ArgyllCMS is not
-bundled into `zro-bridge.exe` — it ships its own instrument drivers and USB
+bundled into `companion.exe` — it ships its own instrument drivers and USB
 udev rules that need to be installed the normal way for your meter.
 
 ### Running persistently (surviving reboot)
 
-Running the `.exe` or `start.bat` directly is meant for manual/on-demand
-use — it exits once you close its console window, and it doesn't come back
-after a reboot. To keep the bridge running in the background across
-reboots, register it as a Windows service or scheduled task instead:
+If you're running this bridge via the prebuilt `companion.exe`, see
+[Windows Companion: Running persistently](../windows-companion-tools/README.md#running-persistently-surviving-reboot)
+— it covers registering the combined executable as an NSSM service or
+Task Scheduler task.
+
+If you're running `bridge.py` standalone from source (not via
+`companion.py`), the same idea applies to just this service:
 
 * **[NSSM](https://nssm.cc/)** (Non-Sucking Service Manager) — the simplest
-  option.
-  * Prebuilt exe: `nssm install ZroBridge "C:\Path\To\zro-bridge.exe" --config "C:\Path\To\bridge.json"`
-  * From source: `nssm install ZroBridge "C:\Path\To\python.exe" "C:\Path\To\tools\zro-bridge\bridge.py" --config "C:\Path\To\tools\zro-bridge\bridge.json"`
-
-  Then `nssm start ZroBridge`. NSSM restarts it automatically if it crashes
+  option. `nssm install ZroBridge "C:\Path\To\python.exe" "C:\Path\To\tools\zro-bridge\bridge.py" --config "C:\Path\To\tools\zro-bridge\bridge.json"`,
+  then `nssm start ZroBridge`. NSSM restarts it automatically if it crashes
   and it starts on boot like any other Windows service.
 * **Task Scheduler** — create a task triggered "At log on" (or "At startup"
-  for a service-like account), action = run `zro-bridge.exe` (or
-  `python.exe` with the source-install arguments above), and "Run whether
-  user is logged on or not" if you want it up before anyone signs in.
+  for a service-like account), action = run `python.exe` with the same
+  arguments as above, and "Run whether user is logged on or not" if you
+  want it up before anyone signs in.
 
 ## Trust model
 
@@ -116,15 +112,9 @@ patch, sequentially. Returns `{"accepted": int, "results": [...]}`.
 
 ## Releasing (maintainers)
 
-Pushing a tag matching `companion-tools-v*` (e.g. `companion-tools-v1.0.0`)
-triggers the [`windows-companion-tools-release`](../../.github/workflows/windows-companion-tools-release.yml)
-GitHub Actions workflow, which builds both `zro-bridge.exe` and the
-[Dogegen Companion Agent](../dogegen-agent/)'s `dogegen-agent.exe` with
-PyInstaller on `windows-latest` and attaches them together in
-`windows-companion-tools.zip` to a draft GitHub Release for that tag.
-Review and publish the draft once it's built. The workflow can also be run
-manually (`workflow_dispatch`) to sanity-check the build without cutting a
-release.
+See [Windows Companion: Releasing](../windows-companion-tools/README.md#releasing-maintainers)
+— this bridge is built into the combined `companion.exe` published to
+GitHub Releases, not as a standalone executable.
 
 ## Tests
 
