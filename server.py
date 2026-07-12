@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import errno
 import json
 import logging
 import os
@@ -200,7 +201,19 @@ def _validate_startup_config() -> List[str]:
     if not os.access(SESSION_STORE_DIR, os.W_OK):
         warnings.append(f"Session store directory {SESSION_STORE_DIR} is not writable")
 
+    if not _PREFS_DIR.exists():
+        try:
+            _PREFS_DIR.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            warnings.append(f"Cannot create prefs directory {_PREFS_DIR}: {exc}")
+
+    if _PREFS_DIR.exists() and not os.access(_PREFS_DIR, os.W_OK):
+        warnings.append(f"Prefs directory {_PREFS_DIR} is not writable")
+
     if _PREFS_PATH.is_dir():
+        # Legacy defense: older deployments bind-mounted .prefs.json itself
+        # (rather than its parent directory), and mounting a host file that
+        # didn't exist yet made Docker create a directory in its place.
         warnings.append(
             f"Prefs path {_PREFS_PATH} is a directory, not a file — this usually "
             "happens when a container bind-mounts a host file that didn't exist "
@@ -434,9 +447,15 @@ store.load_sessions()
 _sessions = store.sessions
 
 # ---------------------------------------------------------------------------
-# Preferences — persisted to .prefs.json, loaded on startup
+# Preferences — persisted to .prefs/.prefs.json, loaded on startup
 # ---------------------------------------------------------------------------
-_PREFS_PATH = Path(__file__).parent / ".prefs.json"
+# The file lives inside its own directory (rather than being bind-mounted
+# directly) so Docker/Unraid bind-mount the *directory* — mounting the file
+# itself turns it into a mount point that can't be renamed or replaced over
+# (see _save_prefs' EBUSY handling and the self-heal below for the fallout
+# when a deployment still does that).
+_PREFS_DIR = Path(__file__).parent / ".prefs"
+_PREFS_PATH = _PREFS_DIR / ".prefs.json"
 _AUTOCAL_DEFAULTS: Dict[str, Any] = {
     "apply_mode": "manual",
     "damping": ControllerConfig().damping,
@@ -512,10 +531,22 @@ def _save_prefs() -> None:
     _prefs["dogegen"] = dict(_dogegen_config)
     _prefs["bridge_url"] = _zro_bridge.get()
     _prefs["dogegen_agent_url"] = _dogegen_agent.get()
+    payload = json.dumps(_prefs, indent=2)
+    tmp = _PREFS_PATH.with_suffix(".tmp")
     try:
-        tmp = _PREFS_PATH.with_suffix(".tmp")
-        tmp.write_text(json.dumps(_prefs, indent=2), encoding="utf-8")
-        tmp.replace(_PREFS_PATH)
+        tmp.write_text(payload, encoding="utf-8")
+        try:
+            tmp.replace(_PREFS_PATH)
+        except OSError as exc:
+            if exc.errno != errno.EBUSY:
+                raise
+            # .prefs.json is a bind-mounted single file (common when the host
+            # pre-creates it for Docker); the mount point itself can't be
+            # replaced via rename, so fall back to writing the contents
+            # in place instead of swapping the inode.
+            _PREFS_PATH.write_text(payload, encoding="utf-8")
+            with context_suppress(OSError):
+                tmp.unlink()
     except OSError as exc:
         logger.warning("Could not save preferences to %s: %s", _PREFS_PATH, exc)
     except Exception as exc:

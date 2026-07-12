@@ -32,7 +32,7 @@ frontend/test-results/
 .DS_Store
 
 # opencode
-.prefs.json
+.prefs/
 
 # Claude Code
 .claude/settings.local.json

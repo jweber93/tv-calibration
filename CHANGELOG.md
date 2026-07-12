@@ -17,6 +17,24 @@ changes.
   load/save normally again; a non-empty directory (or one that can't be
   removed) now logs a clear, actionable warning instead of a bare traceback.
 
+- **Prefs never persisted when `.prefs.json` was bind-mounted directly.**
+  Docker/Unraid single-file bind mounts turn `.prefs.json` into a mount
+  point, and mount points can't be replaced via `rename()` — so the atomic
+  `.prefs.tmp` → `.prefs.json` swap failed every single save with
+  `[Errno 16] Device or resource busy`, silently discarding every
+  preference change. `.prefs.json` now lives inside its own `.prefs/`
+  directory (`server.py:_PREFS_DIR`), and the Unraid template's "Prefs dir"
+  config maps that directory instead of the file, so the mount point sits
+  above the file Docker/Unraid never needs to swap. `_save_prefs()` also
+  falls back to a direct (non-atomic) write if it ever hits `EBUSY` again,
+  for deployments still bind-mounting the file itself.
+  **Migration:** existing Unraid installs should update the template (path
+  mapping changes from `/app/.prefs.json` to `/app/.prefs`) and move their
+  host-side `.prefs.json` into the new `.prefs/` folder, e.g.
+  `mkdir -p /mnt/user/appdata/tv-calibration/.prefs && mv /mnt/user/appdata/tv-calibration/.prefs.json /mnt/user/appdata/tv-calibration/.prefs/.prefs.json`.
+  Skipping this just means preferences reset to defaults once — nothing
+  else breaks.
+
 - **Unraid template icon not displaying.** The template's `<Icon>` pointed at
   `frontend/public/favicon.svg`; Unraid's Docker Manager doesn't render SVG
   icons, so the app showed no icon at all. Added `frontend/public/icon.png` —

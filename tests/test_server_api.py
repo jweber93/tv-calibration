@@ -1979,6 +1979,49 @@ class TestSavePrefsLogging:
         data = json.loads(prefs_path.read_text())
         assert "dogegen" in data
 
+    def test_save_prefs_falls_back_to_direct_write_on_ebusy(self, tmp_path, monkeypatch):
+        """A bind-mounted single .prefs.json file is a mount point, so replacing it
+        via rename fails with EBUSY. _save_prefs must fall back to writing the
+        contents directly into the file instead of losing the save entirely."""
+        import errno
+        import json
+        from pathlib import Path
+        from unittest.mock import patch
+
+        prefs_path = tmp_path / ".prefs.json"
+        prefs_path.write_text("{}")
+        real_replace = Path.replace
+
+        def fake_replace(self, target):
+            if self.suffix == ".tmp":
+                raise OSError(errno.EBUSY, "Device or resource busy")
+            return real_replace(self, target)
+
+        with patch("server._PREFS_PATH", prefs_path), \
+             patch.object(Path, "replace", fake_replace):
+            server_module._save_prefs()
+
+        data = json.loads(prefs_path.read_text())
+        assert "dogegen" in data
+        assert not (tmp_path / ".prefs.tmp").exists()
+
+
+# ── Prefs directory (mounted instead of the file, avoiding the bind-mount gotcha) ──
+
+class TestPrefsDir:
+    def test_validate_startup_config_creates_missing_prefs_dir(self, tmp_path, monkeypatch):
+        """_PREFS_DIR is the recommended bind-mount target (a directory rather
+        than the .prefs.json file itself); it should be created if missing,
+        same as SESSION_STORE_DIR."""
+        prefs_dir = tmp_path / ".prefs"
+        monkeypatch.setattr(server_module, "_PREFS_DIR", prefs_dir)
+        monkeypatch.setattr(server_module, "_PREFS_PATH", prefs_dir / ".prefs.json")
+
+        warnings = server_module._validate_startup_config()
+
+        assert prefs_dir.is_dir()
+        assert not any("prefs directory" in w.lower() and "not writable" in w.lower() for w in warnings)
+
 
 # ── Prefs path mistakenly created as a directory (Docker bind-mount gotcha) ──
 
