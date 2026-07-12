@@ -22,8 +22,8 @@
 - Samba on ports 139/445 exposing zro-drops/ share
 
 **Optional:**
-- Set OPENROUTER_API_KEY in the Extra Parameters field for cloud LLM routing
-- Set LITELLM_ENDPOINT to configure the AI Assistant endpoint
+- Set "OpenRouter API Key" in the template fields for cloud LLM routing
+- Configure the "LiteLLM Endpoint" and "LiteLLM Model" to point to your LLM proxy
 - For Dogegen HDR10 pattern generation, set "Dogegen Agent URL" to a Dogegen Companion Agent (tools/dogegen-agent) running on a separate Windows PC — Unraid is a Linux host and cannot run Dogegen.exe itself</Overview>
   <Category>MediaTools: Other</Category>
   <WebUI>http://[IP]:[PORT:8000]</WebUI>
@@ -31,31 +31,40 @@
   <Icon>https://raw.githubusercontent.com/jweber93/tv-calibration/main/frontend/public/logo.svg</Icon>
   <ExtraParams>
 --name tv-calibration \
---restart unless-stopped \
--e LITELLM_ENDPOINT=http://host.docker.internal:4000 \
--e LITELLM_MODEL=tvcal-analyst \
--v /mnt/user/appdata/tv-calibration/.sessions:/app/.sessions \
--v /mnt/user/appdata/tv-calibration/.calibration-history:/app/.calibration-history \
--v /mnt/user/appdata/tv-calibration/.prefs.json:/app/.prefs.json \
--v ZRO_DROPS:/data/zro-drops
+--restart unless-stopped
   </ExtraParams>
   <Config>
     <Config Name="App port" Target="8000" Default="8000" Mode="tcp" Display="always" Description="Port for the FastAPI web UI">
       <Value>8000</Value>
     </Config>
-    <Config Name="ZRO Drops Share" Target="/data/zro-drops" Default="" Mode="rw" Description="Host path for ZRO CSV auto-import. Map your ColourSpace export folder here. The Samba sidecar exposes this as \\\\&lt;UNRAID_IP&gt;\\zro-drops" Display="always" Required="true">
+    <Config Name="Samba NetBIOS port" Target="139" Default="139" Mode="tcp" Display="always" Description="Samba NetBIOS session port for ZRO CSV auto-import share">
+      <Value>139</Value>
+    </Config>
+    <Config Name="Samba CIFS port" Target="445" Default="445" Mode="tcp" Display="always" Description="Samba CIFS port for ZRO CSV auto-import share">
+      <Value>445</Value>
+    </Config>
+    <Config Name="ZRO Drops Share" Target="/data/zro-drops" Default="/mnt/user/downloads/zro-drops" Mode="rw" Description="Host path for ZRO CSV auto-import. Map your ColourSpace export folder here. The Samba sidecar exposes this as \\\\&lt;UNRAID_IP&gt;\\zro-drops" Display="always" Required="true">
       <Value>/mnt/user/downloads/zro-drops</Value>
     </Config>
-    <Config Name="Sessions dir" Target="/app/.sessions" Default="" Mode="rw" Description="Persisted session storage. Maps to /mnt/user/appdata/tv-calibration/.sessions" Display="always" Required="false">
+    <Config Name="Sessions dir" Target="/app/.sessions" Default="/mnt/user/appdata/tv-calibration/.sessions" Mode="rw" Description="Persisted session storage. Maps to /mnt/user/appdata/tv-calibration/.sessions" Display="always" Required="false">
       <Value>/mnt/user/appdata/tv-calibration/.sessions</Value>
     </Config>
-    <Config Name="History dir" Target="/app/.calibration-history" Default="" Mode="rw" Description="Persisted calibration history. Maps to /mnt/user/appdata/tv-calibration/.calibration-history" Display="always" Required="false">
+    <Config Name="History dir" Target="/app/.calibration-history" Default="/mnt/user/appdata/tv-calibration/.calibration-history" Mode="rw" Description="Persisted calibration history. Maps to /mnt/user/appdata/tv-calibration/.calibration-history" Display="always" Required="false">
       <Value>/mnt/user/appdata/tv-calibration/.calibration-history</Value>
     </Config>
-    <Config Name="Prefs file" Target="/app/.prefs.json" Default="" Mode="rw" Description="User preferences file. Maps to /mnt/user/appdata/tv-calibration/.prefs.json" Display="always" Required="false">
+    <Config Name="Prefs file" Target="/app/.prefs.json" Default="/mnt/user/appdata/tv-calibration/.prefs.json" Mode="rw" Description="User preferences file. Maps to /mnt/user/appdata/tv-calibration/.prefs.json" Display="always" Required="false">
       <Value>/mnt/user/appdata/tv-calibration/.prefs.json</Value>
     </Config>
     <Config Name="Dogegen Agent URL" Target="DOGEGEN_AGENT_URL" Default="" Mode="" Description="Optional: URL of a Dogegen Companion Agent (tools/dogegen-agent) running on a separate Windows PC, e.g. http://192.168.1.50:7071. Unraid is a Linux host, so Dogegen.exe cannot be bind-mounted or run in this container — it must run on a Windows PC and be controlled over the network. Leave empty if you aren't using Dogegen." Type="Variable" Display="always" Required="false">
+      <Value></Value>
+    </Config>
+    <Config Name="LiteLLM Endpoint" Target="LITELLM_ENDPOINT" Default="http://host.docker.internal:4000" Mode="" Description="LiteLLM proxy URL for AI-assisted analysis. Set this if you run a local LiteLLM proxy on Unraid or elsewhere." Type="Variable" Display="always" Required="false">
+      <Value>http://host.docker.internal:4000</Value>
+    </Config>
+    <Config Name="LiteLLM Model" Target="LITELLM_MODEL" Default="tvcal-analyst" Mode="" Description="Model name to use via the LiteLLM proxy (e.g. gpt-4o, claude-sonnet-4-20250514, or a local model alias)." Type="Variable" Display="always" Required="false">
+      <Value>tvcal-analyst</Value>
+    </Config>
+    <Config Name="OpenRouter API Key" Target="OPENROUTER_API_KEY" Default="" Mode="" Description="Optional: OpenRouter API key for cloud LLM routing. Overrides LiteLLM if set." Type="Variable" Display="always" Required="false">
       <Value></Value>
     </Config>
   </Config>
