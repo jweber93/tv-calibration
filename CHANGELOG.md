@@ -50,6 +50,11 @@ changes.
   split-host troubleshooting section and the Unraid template's field
   description.
 
+- **`ZRO_BRIDGE_URL` missing from the Unraid template.** It was already a
+  documented Compose env var for full split-host setups, but Unraid users
+  had no guided Config field for it — only `DOGEGEN_AGENT_URL` was exposed.
+  Added a matching "ZRO Bridge URL" field to `unraid-template.xml`.
+
 ### Added
 
 - **Split-host Dogegen support.** If you're moving the backend to Docker/Unraid
