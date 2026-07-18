@@ -57,6 +57,19 @@ changes.
 
 ### Added
 
+- **Direct-drive Dogegen — no ColourSpace required.** The
+  [Dogegen Companion Agent](tools/dogegen-agent/README.md) can now push an
+  arbitrary RGB patch straight to Dogegen over Light Illusion's public
+  "Resolve" pattern protocol (the same one ColourSpace uses), via a new
+  `POST /patch` endpoint — previously the agent could only start/stop
+  Dogegen and left patch sequencing to ColourSpace. Combined with the
+  ArgyllCMS direct-meter backend (#520), the app can own pattern → measure
+  → compute → tell-user end to end with no ColourSpace/ZRO license running
+  at all. Works out of the box with Dogegen's own built-in connection
+  default — no extra configuration needed for the common case. See
+  [Direct-drive Dogegen](tools/dogegen-agent/README.md#direct-drive-dogegen-no-colourspace).
+  (#630)
+
 - **Split-host Dogegen support.** If you're moving the backend to Docker/Unraid
   while keeping Dogegen on a Windows PC: install the
   [Dogegen Companion Agent](tools/dogegen-agent/README.md) on that PC and set

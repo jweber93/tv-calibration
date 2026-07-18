@@ -24,12 +24,17 @@ client = TestClient(agent.app)
 
 @pytest.fixture(autouse=True)
 def _reset_state():
-    """Each test starts with a clean DogegenState and default config."""
+    """Each test starts with a clean DogegenState, default config, and a
+    fresh (unstarted) ResolveServer so no test binds a real port or leaks
+    a background thread — tests that need one either mock send_patch/status
+    or construct their own real ResolveServer explicitly."""
     agent._dogegen_state = agent.DogegenState()
     agent._config = dict(agent.DEFAULT_CONFIG)
+    agent._resolve_server = agent.ResolveServer()
     yield
     agent._dogegen_state = agent.DogegenState()
     agent._config = dict(agent.DEFAULT_CONFIG)
+    agent._resolve_server = agent.ResolveServer()
 
 
 def _mock_proc(pid=1234, running=True):
@@ -274,3 +279,177 @@ class TestStop:
         r = client.post("/stop")
         assert r.status_code == 200
         proc.kill.assert_called_once()
+
+
+# ── _resolve_connect_target / dogegen_command_for_mode (#630) ─────────────────
+
+class TestResolveConnectTarget:
+    def test_empty_host_default_port_omits_target(self):
+        """Byte-for-byte today's behavior: no ColourSpace/agent listen-port
+        override configured -> Dogegen falls back to its own 127.0.0.1:20002
+        default, so no host:port token is needed on the command line."""
+        cfg = {"resolve_host": "", "resolve_listen_port": agent.DEFAULT_RESOLVE_PORT}
+        assert agent._resolve_connect_target(cfg) == ""
+
+    def test_empty_host_missing_port_key_omits_target(self):
+        assert agent._resolve_connect_target({"resolve_host": ""}) == ""
+
+    def test_empty_host_custom_port_targets_localhost(self):
+        cfg = {"resolve_host": "", "resolve_listen_port": 20005}
+        assert agent._resolve_connect_target(cfg) == "127.0.0.1:20005"
+
+    def test_explicit_host_wins_over_custom_listen_port(self):
+        cfg = {"resolve_host": "192.168.1.5", "resolve_listen_port": 20005}
+        assert agent._resolve_connect_target(cfg) == "192.168.1.5"
+
+    def test_explicit_host_wins_over_default_listen_port(self):
+        cfg = {"resolve_host": "192.168.1.5", "resolve_listen_port": agent.DEFAULT_RESOLVE_PORT}
+        assert agent._resolve_connect_target(cfg) == "192.168.1.5"
+
+
+class TestDogegenCommandForModeCustomListenPort:
+    def test_hdr10_with_custom_listen_port_and_no_resolve_host(self):
+        cfg = {"resolve_host": "", "resolve_listen_port": 20005, "window_pct": 10, "maxcll": 1000}
+        cmd = agent.dogegen_command_for_mode("HDR10", "C:/Dogegen.exe", cfg)
+        assert "resolve_hdr 127.0.0.1:20005 10" in cmd
+
+    def test_sdr_with_custom_listen_port_and_no_resolve_host(self):
+        cfg = {"resolve_host": "", "resolve_listen_port": 20005, "maxcll": 1000}
+        cmd = agent.dogegen_command_for_mode("SDR", "C:/Dogegen.exe", cfg)
+        assert "resolve_sdr 127.0.0.1:20005" in cmd
+
+    def test_hdr10_default_listen_port_unchanged_from_today(self):
+        cfg = {"resolve_host": "", "resolve_listen_port": agent.DEFAULT_RESOLVE_PORT,
+               "window_pct": 25, "maxcll": 1000}
+        cmd = agent.dogegen_command_for_mode("HDR10", "C:/Dogegen.exe", cfg)
+        assert "resolve_hdr 25" in cmd
+
+    def test_resolve_host_ignores_custom_listen_port(self):
+        cfg = {"resolve_host": "192.168.1.5", "resolve_listen_port": 20005,
+               "window_pct": 10, "maxcll": 1000}
+        cmd = agent.dogegen_command_for_mode("HDR10", "C:/Dogegen.exe", cfg)
+        assert "resolve_hdr 192.168.1.5 10" in cmd
+        assert not any("20005" in part for part in cmd)
+
+
+# ── GET /status includes Resolve server fields (#630) ──────────────────────────
+
+class TestStatusIncludesResolveFields:
+    def test_status_merges_resolve_server_status(self):
+        agent._resolve_server = MagicMock()
+        agent._resolve_server.status.return_value = {
+            "resolve_listening": True,
+            "resolve_connected": True,
+            "resolve_peer": "192.168.1.9:54321",
+            "resolve_listen_port": 20002,
+            "resolve_last_error": None,
+        }
+        with patch.object(agent, "find_dogegen_executable", return_value=None), \
+             patch.object(agent, "external_dogegen_pid", return_value=None):
+            r = client.get("/status")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["resolve_listening"] is True
+        assert d["resolve_connected"] is True
+        assert d["resolve_peer"] == "192.168.1.9:54321"
+        assert d["resolve_listen_port"] == 20002
+
+    def test_real_unstarted_resolve_server_reports_not_listening(self):
+        """The fixture's fresh ResolveServer() is never start()ed, so /status
+        must not hang or error -- it just reports the honest default state."""
+        with patch.object(agent, "find_dogegen_executable", return_value=None), \
+             patch.object(agent, "external_dogegen_pid", return_value=None):
+            r = client.get("/status")
+        d = r.json()
+        assert d["resolve_listening"] is False
+        assert d["resolve_connected"] is False
+        assert d["resolve_peer"] is None
+
+
+# ── POST /patch (#630) ──────────────────────────────────────────────────────────
+
+class TestPatch:
+    def test_patch_success_returns_ok(self):
+        agent._resolve_server = MagicMock()
+        agent._resolve_server.send_patch.return_value = {"ok": True}
+        r = client.post("/patch", json={"r": 512, "g": 512, "b": 512, "bits": 10})
+        assert r.status_code == 200
+        assert r.json() == {"ok": True}
+
+    def test_patch_passes_expected_kwargs_with_defaults(self):
+        agent._resolve_server = MagicMock()
+        agent._resolve_server.send_patch.return_value = {"ok": True}
+        client.post("/patch", json={"r": 100, "g": 150, "b": 200})
+        _, kwargs = agent._resolve_server.send_patch.call_args
+        assert kwargs["r"] == 100
+        assert kwargs["g"] == 150
+        assert kwargs["b"] == 200
+        assert kwargs["bits"] == 8
+        assert kwargs["size_pct"] is None
+        assert (kwargs["x"], kwargs["y"], kwargs["cx"], kwargs["cy"]) == (0.0, 0.0, 1.0, 1.0)
+        assert kwargs["bg"] == (0, 0, 0)
+        assert kwargs["bg_bits"] is None
+
+    def test_patch_passes_through_size_pct_and_background(self):
+        agent._resolve_server = MagicMock()
+        agent._resolve_server.send_patch.return_value = {"ok": True}
+        client.post("/patch", json={
+            "r": 1023, "g": 0, "b": 0, "bits": 10, "size_pct": 18,
+            "bg_r": 10, "bg_g": 20, "bg_b": 30, "bg_bits": 8,
+        })
+        _, kwargs = agent._resolve_server.send_patch.call_args
+        assert kwargs["size_pct"] == 18
+        assert kwargs["bg"] == (10, 20, 30)
+        assert kwargs["bg_bits"] == 8
+
+    def test_patch_not_connected_returns_409(self):
+        agent._resolve_server = MagicMock()
+        agent._resolve_server.send_patch.return_value = {
+            "ok": False, "error_type": "not_connected", "error": "Dogegen is not connected.",
+        }
+        r = client.post("/patch", json={"r": 0, "g": 0, "b": 0})
+        assert r.status_code == 409
+        assert "not connected" in r.json()["detail"].lower()
+
+    def test_patch_invalid_patch_returns_400(self):
+        agent._resolve_server = MagicMock()
+        agent._resolve_server.send_patch.return_value = {
+            "ok": False, "error_type": "invalid_patch", "error": "bits must be 8 or 10, got 12",
+        }
+        r = client.post("/patch", json={"r": 0, "g": 0, "b": 0, "bits": 12})
+        assert r.status_code == 400
+
+    def test_patch_timeout_returns_504(self):
+        agent._resolve_server = MagicMock()
+        agent._resolve_server.send_patch.return_value = {
+            "ok": False, "error_type": "timeout", "error": "Timed out sending patch after 2.0s.",
+        }
+        r = client.post("/patch", json={"r": 0, "g": 0, "b": 0})
+        assert r.status_code == 504
+
+    def test_patch_send_failed_returns_502(self):
+        agent._resolve_server = MagicMock()
+        agent._resolve_server.send_patch.return_value = {
+            "ok": False, "error_type": "send_failed", "error": "Failed to send patch: broken pipe",
+        }
+        r = client.post("/patch", json={"r": 0, "g": 0, "b": 0})
+        assert r.status_code == 502
+
+    def test_patch_unknown_error_type_falls_back_to_502(self):
+        agent._resolve_server = MagicMock()
+        agent._resolve_server.send_patch.return_value = {
+            "ok": False, "error_type": "something_new", "error": "mystery failure",
+        }
+        r = client.post("/patch", json={"r": 0, "g": 0, "b": 0})
+        assert r.status_code == 502
+
+    def test_patch_missing_required_field_returns_422(self):
+        r = client.post("/patch", json={"r": 0, "g": 0})
+        assert r.status_code == 422
+
+    def test_patch_against_real_resolve_server_without_dogegen_is_409(self):
+        """End-to-end through the real (fixture-provided, unstarted)
+        ResolveServer rather than a mock -- confirms the /patch wiring
+        itself, not just the mocked contract."""
+        r = client.post("/patch", json={"r": 0, "g": 0, "b": 0})
+        assert r.status_code == 409

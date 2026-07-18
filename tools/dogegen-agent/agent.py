@@ -17,9 +17,12 @@ Usage:
     python agent.py --help
 
 Endpoints:
-    GET  /status  — health check; reports Dogegen running/ready/pid/etc.
+    GET  /status  — health check; reports Dogegen running/ready/pid/etc.,
+                    plus the direct-drive Resolve connection state
     POST /start   — launch Dogegen for a session mode ({"mode": "HDR10"|"SDR"})
     POST /stop    — terminate a Dogegen instance this agent started
+    POST /patch   — push one RGB patch straight to Dogegen over the Resolve
+                    protocol (#630) — no ColourSpace required
 
 Configure agent.json (see agent.example.json) before starting.
 
@@ -46,6 +49,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from resolve_protocol import DEFAULT_RESOLVE_PORT, ResolveServer
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -63,7 +68,16 @@ DEFAULT_CONFIG = {
     # Path to Dogegen.exe. Leave empty to auto-detect (see find_dogegen_executable).
     "path": "",
     # Resolve hostname/IP passed to Dogegen's resolve_hdr/resolve_sdr args.
+    # Leave empty for direct-drive (#630): Dogegen then falls back to its
+    # own built-in 127.0.0.1:20002 default, which is exactly where this
+    # agent's own Resolve server (see resolve_listen_port) listens by
+    # default — no ColourSpace needed. Set this only to point Dogegen at a
+    # remote ColourSpace/other Resolve-protocol host instead.
     "resolve_host": "",
+    # Port this agent's own direct-drive Resolve server listens on, for
+    # Dogegen to connect to when resolve_host is empty (see above). Not
+    # used at all when resolve_host is set to a remote target.
+    "resolve_listen_port": DEFAULT_RESOLVE_PORT,
     # HDR window size, percent of screen, passed to resolve_hdr.
     "window_pct": 10,
     # MaxCLL value passed to Dogegen for HDR10 patterns.
@@ -168,6 +182,12 @@ class DogegenState:
 
 
 _dogegen_state = DogegenState()
+
+# Direct-drive Resolve server (#630) — started in main() once config is
+# loaded, so it's up before /start ever launches Dogegen (Dogegen dials out
+# exactly once, synchronously, when it processes resolve_hdr/resolve_sdr; if
+# nothing is listening yet it just logs a failure and never retries).
+_resolve_server = ResolveServer()
 
 
 # ── Dogegen process control ─────────────────────────────────────────────────
@@ -277,24 +297,46 @@ def dogegen_status_payload(config: dict) -> Dict[str, Any]:
         "maxcll": int(config.get("maxcll") or DEFAULT_CONFIG["maxcll"]),
         "last_error": _dogegen_state.get_last_error(),
         "launch_cmd": _dogegen_state.get_launch_cmd(),
+        **_resolve_server.status(),
     }
+
+
+def _resolve_connect_target(config: dict) -> str:
+    """
+    The host[:port] token to pass as resolve_hdr/resolve_sdr's IP argument.
+
+    Empty resolve_host (no ColourSpace/other remote target configured)
+    lets Dogegen fall back to its own built-in 127.0.0.1:20002 default —
+    exactly where this agent's own Resolve server listens by default (see
+    resolve_listen_port), so the zero-config direct-drive case (#630) needs
+    no host/port on the command line at all. An explicit host:port is only
+    added when resolve_host is set (a remote target) or when this agent's
+    own listen port has been changed away from Dogegen's built-in default.
+    """
+    resolve_host = (config.get("resolve_host") or "").strip()
+    if resolve_host:
+        return resolve_host
+    listen_port = int(config.get("resolve_listen_port") or DEFAULT_RESOLVE_PORT)
+    if listen_port != DEFAULT_RESOLVE_PORT:
+        return f"127.0.0.1:{listen_port}"
+    return ""
 
 
 def dogegen_command_for_mode(mode: Optional[str], exe_path: str, config: dict) -> List[str]:
     window_pct = int(config.get("window_pct") or DEFAULT_CONFIG["window_pct"])
     maxcll = int(config.get("maxcll") or DEFAULT_CONFIG["maxcll"])
-    resolve_host = (config.get("resolve_host") or "").strip()
+    resolve_target = _resolve_connect_target(config)
     if mode == "HDR10":
         cmd = [exe_path, "mode 10_hdr", f"maxcll {maxcll}"]
         resolve_arg = (
-            f"resolve_hdr {resolve_host} {window_pct}"
-            if resolve_host
+            f"resolve_hdr {resolve_target} {window_pct}"
+            if resolve_target
             else f"resolve_hdr {window_pct}"
         )
         cmd.append(resolve_arg)
         return cmd
     if mode == "SDR":
-        host = resolve_host or "127.0.0.1"
+        host = resolve_target or "127.0.0.1"
         return [exe_path, f"maxcll {maxcll}", f"resolve_sdr {host}"]
     return [exe_path]
 
@@ -346,6 +388,65 @@ class StartBody(BaseModel):
     mode: Optional[Literal["HDR10", "SDR"]] = None
 
 
+class PatchBody(BaseModel):
+    r: int
+    g: int
+    b: int
+    bits: int = 8
+    # Centered window of size_pct% of screen for this patch specifically
+    # (e.g. a smaller window on near-black patches for flare control),
+    # overriding x/y/cx/cy below. Leave unset to use x/y/cx/cy as given —
+    # (0, 0, 1, 1), their default, is full-field and lets Dogegen's own
+    # launch-time window_pct decide the on-screen box, same as today.
+    size_pct: Optional[float] = None
+    x: float = 0.0
+    y: float = 0.0
+    cx: float = 1.0
+    cy: float = 1.0
+    bg_r: int = 0
+    bg_g: int = 0
+    bg_b: int = 0
+    bg_bits: Optional[int] = None
+
+
+# send_patch()'s error_type -> HTTP status. not_connected is 409 (nothing's
+# wrong with the request, there's just no Dogegen on the other end yet);
+# invalid_patch is a 400 (bad bit depth / out-of-range channel); timeout and
+# send_failed are 502/504 the same way the agent-proxy paths in server.py
+# map an unreachable agent (see _dogegen_agent_request_error there).
+_PATCH_ERROR_STATUS = {
+    "invalid_patch": 400,
+    "not_connected": 409,
+    "timeout": 504,
+    "send_failed": 502,
+}
+
+
+@app.post("/patch")
+def patch(body: PatchBody):
+    """Push one RGB patch to Dogegen over the direct-drive Resolve
+    connection (#630) — no ColourSpace involved. Requires Dogegen to have
+    already been started (POST /start) and connected back to this agent's
+    Resolve server; see GET /status's resolve_connected field."""
+    result = _resolve_server.send_patch(
+        r=body.r,
+        g=body.g,
+        b=body.b,
+        bits=body.bits,
+        size_pct=body.size_pct,
+        x=body.x,
+        y=body.y,
+        cx=body.cx,
+        cy=body.cy,
+        bg=(body.bg_r, body.bg_g, body.bg_b),
+        bg_bits=body.bg_bits,
+    )
+    if not result["ok"]:
+        status_code = _PATCH_ERROR_STATUS.get(result.get("error_type"), 502)
+        raise HTTPException(status_code, result["error"])
+    return result
+
+
 @app.get("/status")
 def status():
     """Health payload, shape-compatible with server.py's _dogegen_status_payload()."""
@@ -380,6 +481,12 @@ def main():
 
     logger.info("Starting Dogegen Companion Agent on %s:%s", _config["host"], _config["port"])
     logger.info("Dogegen path override: %r", _config.get("path") or "(auto-detect)")
+
+    # Started eagerly (rather than on first /start) so it's already
+    # listening before Dogegen ever attempts its one synchronous connect —
+    # see _resolve_server's docstring comment above.
+    _resolve_server.port = int(_config.get("resolve_listen_port") or DEFAULT_RESOLVE_PORT)
+    _resolve_server.start()
 
     uvicorn.run(app, host=_config["host"], port=_config["port"], log_level="warning")
 

@@ -299,7 +299,7 @@ This is the topology for running the container on a server/NAS with no hardware 
 | Windows PC (has the meter + GPU/HDMI) | Container (has neither) |
 |---|---|
 | **[ZRO Bridge](tools/zro-bridge/)** (`bridge.py`) — reads the meter, either by triggering ColourSpace ZRO or directly via ArgyllCMS `spotread` (see [ArgyllCMS Direct-Meter Backend](#argyllcms-direct-meter-backend-no-paid-products) if you don't have a ColourSpace license) | `calcore-server` — session state, ΔE/gamma/PQ math, report generation, the web UI |
-| **[Dogegen Companion Agent](tools/dogegen-agent/README.md)** (`agent.py`) — starts/stops Dogegen, reports status | Calls both services over HTTP; never spawns a local process or opens a serial/USB port |
+| **[Dogegen Companion Agent](tools/dogegen-agent/README.md)** (`agent.py`) — starts/stops Dogegen, reports status, and (see [Dogegen Integration](#dogegen-integration)) can push patches to it directly over the Resolve protocol with no ColourSpace involved | Calls both services over HTTP; never spawns a local process or opens a serial/USB port |
 
 **Where ArgyllCMS sits:** `spotread` is a command-line tool, not a service — it must run on the same physical machine as the USB-connected meter, because that's an OS/USB-driver constraint, not something you can configure around. It never runs in the container. When the Bridge's `bridge.json` has `"backend": "argyll"`, the Bridge itself (running on the Windows PC) shells out to `spotread` as a local subprocess, parses the XYZ reading, and returns it over the same `GET /status` / `POST /measure` HTTP endpoints it always exposes. The container only ever receives JSON over HTTP — it never sees the meter, the serial/USB port, or the `spotread` process itself.
 
@@ -505,6 +505,8 @@ When Dogegen is selected as the pattern generator, the app manages the Dogegen p
 - Shows a status indicator in the header bar (green when running and ready)
 
 Configure the Dogegen executable path and signal settings in the **Dogegen Companion** card on the Prepare page. If Dogegen runs on a separate machine from the backend (e.g. backend in Docker on Unraid, Dogegen on a Windows PC), set the card's **Agent URL** to a [Dogegen Companion Agent](tools/dogegen-agent/README.md) instead — see [Dogegen: same-host vs. split-host](#dogegen-same-host-vs-split-host).
+
+**Direct-drive Dogegen (No ColourSpace)** — the Dogegen Companion Agent can also push an arbitrary RGB patch straight to Dogegen over Light Illusion's public "Resolve" pattern protocol (the same one ColourSpace uses), via its `POST /patch` endpoint. Combined with the [ArgyllCMS Direct-Meter Backend](#argyllcms-direct-meter-backend-no-paid-products), this means the app can own pattern → measure → compute → tell-user end to end with **no ColourSpace/ZRO license running at all**. This works out of the box with no extra configuration — see [Direct-drive Dogegen](tools/dogegen-agent/README.md#direct-drive-dogegen-no-colourspace) in the agent's README for how it works and the full `/patch` API.
 
 ### LightSpace Connect
 

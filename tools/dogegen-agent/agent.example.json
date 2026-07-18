@@ -10,6 +10,8 @@
 
   "resolve_host": "",
 
+  "resolve_listen_port": 20002,
+
   "window_pct": 10,
 
   "maxcll": 1000,
