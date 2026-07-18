@@ -1,4 +1,5 @@
 """Tests for server.py API endpoints — ZRO helper workflow."""
+import asyncio
 import io
 import os
 import shutil
@@ -1542,12 +1543,47 @@ class TestWatchConfig:
 
     def test_watch_events_sets_sse_headers(self, client):
         from server import watch_events
-        import asyncio
 
         resp = asyncio.run(watch_events())
         assert resp.media_type == "text/event-stream"
         assert resp.headers["cache-control"] == "no-cache"
         assert resp.headers["x-accel-buffering"] == "no"
+
+    def test_watch_events_delivers_payload(self, client):
+        """Push a broadcast event and verify it emerges through the async SSE generator."""
+        from server import watch_events
+        from calibrator.file_watcher import _broadcast_event
+
+        async def _run():
+            resp = await watch_events()
+            _broadcast_event({"event": "import", "session_id": "test-123"})
+            async for chunk in resp.body_iterator:
+                return chunk
+            return None
+
+        chunk = asyncio.run(_run())
+        assert chunk is not None
+        assert "import" in chunk
+        assert "test-123" in chunk
+
+    def test_session_events_delivers_payload(self, client, session_id):
+        """Push a broadcast event and verify session_events SSE emits it."""
+        from server import session_events
+        from calibrator.file_watcher import _broadcast_event
+
+        async def _run():
+            resp = await session_events(session_id)
+            _broadcast_event({"event": "import", "session_id": session_id})
+            async for chunk in resp.body_iterator:
+                # Skip initial session/watch_status events, grab the first
+                # event that came from the broadcast.
+                if "import" in chunk:
+                    return chunk
+            return None
+
+        chunk = asyncio.run(_run())
+        assert chunk is not None
+        assert session_id in chunk
 
     def test_watch_rejects_path_outside_home(self, client, session_id, monkeypatch):
         monkeypatch.setattr(server_module, "_WATCH_ROOT", Path("/tmp").resolve())
@@ -1582,6 +1618,35 @@ class TestWatchConfig:
             assert resp.status_code == 400
         finally:
             shutil.rmtree(evil_path, ignore_errors=True)
+
+
+# ── SSE autocal-stream endpoint ──────────────────────────────────────────────
+
+class TestAutocalStream:
+    def test_autocal_stream_sets_sse_headers(self, client, session_id):
+        from server import autocal_stream
+
+        resp = asyncio.run(autocal_stream(session_id))
+        assert resp.media_type == "text/event-stream"
+        assert resp.headers["cache-control"] == "no-cache"
+        assert resp.headers["x-accel-buffering"] == "no"
+
+    def test_autocal_stream_delivers_payload(self, client, session_id):
+        """Broadcast an autocal event and verify it emerges through the async SSE generator."""
+        from server import autocal_stream
+
+        async def _run():
+            resp = await autocal_stream(session_id)
+            server_module._autocal_broadcast(session_id, {"event": "autocal_iteration", "data": {"iteration": 1}})
+            async for chunk in resp.body_iterator:
+                if "autocal_iteration" in chunk:
+                    return chunk
+            return None
+
+        chunk = asyncio.run(_run())
+        assert chunk is not None
+        assert "iteration" in chunk
+        assert "1" in chunk
 
 
 class TestLLMIntegration:
@@ -1736,7 +1801,6 @@ class TestLLMIntegration:
 
     def test_llm_stream_sets_sse_headers(self, client, session_id):
         from server import llm_stream
-        import asyncio
 
         resp = asyncio.run(llm_stream(session_id))
         assert resp.media_type == "text/event-stream"
@@ -1746,6 +1810,22 @@ class TestLLMIntegration:
     def test_llm_stream_invalid_session_returns_404(self, client):
         resp = client.get("/api/session/nosuchsid/llm/stream")
         assert resp.status_code == 404
+
+    def test_llm_stream_delivers_payload(self, client, session_id):
+        """Broadcast an LLM insight and verify it emerges through the async SSE generator."""
+        from server import llm_stream
+
+        async def _run():
+            resp = await llm_stream(session_id)
+            server_module._llm_broadcast(session_id, {"event": "llm_insight", "data": {"text": "test-insight"}})
+            async for chunk in resp.body_iterator:
+                if "llm_insight" in chunk:
+                    return chunk
+            return None
+
+        chunk = asyncio.run(_run())
+        assert chunk is not None
+        assert "test-insight" in chunk
 
     def _advance_to_pre_grayscale(self, client, sid):
         """Advance session to pre_grayscale step so ZRO imports populate measurements."""
@@ -1934,6 +2014,36 @@ class TestSessionTTLCleanup:
         import inspect
         assert hasattr(server_module, "_session_cleanup_loop")
         assert inspect.iscoroutinefunction(server_module._session_cleanup_loop)
+
+
+# ── SSE logs-stream endpoint ──────────────────────────────────────────────────
+
+class TestLogsStream:
+    def test_logs_stream_sets_sse_headers(self, client):
+        from server import logs_stream
+
+        resp = asyncio.run(logs_stream())
+        assert resp.media_type == "text/event-stream"
+        assert resp.headers["cache-control"] == "no-cache"
+        assert resp.headers["x-accel-buffering"] == "no"
+
+    def test_logs_stream_delivers_log_line(self, client):
+        """Emit a log line and verify it emerges through the async SSE generator."""
+        from server import logs_stream
+
+        async def _run():
+            resp = await logs_stream()
+            # _log_buffer is a logging.Handler — emit a record to push through
+            import logging
+            logging.getLogger().info("sse-test-marker")
+            async for chunk in resp.body_iterator:
+                if "sse-test-marker" in chunk:
+                    return chunk
+            return None
+
+        chunk = asyncio.run(_run())
+        assert chunk is not None
+        assert "sse-test-marker" in chunk
 
 
 # ── Issue #187: _save_prefs logs on failure ───────────────────────────────────
