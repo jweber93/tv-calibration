@@ -100,6 +100,32 @@ Anyone who can reach the agent's port can start/stop Dogegen on this PC, or
 want to disable remote access entirely, set `"host": "127.0.0.1"` in
 `agent.json`.
 
+### Security implications
+
+`POST /patch` (#630) is the highest-impact endpoint here to expose
+carelessly: unlike `/start`/`/stop`, which only toggle a known process,
+`/patch` lets any caller who can reach this port display **arbitrary
+content** on whatever screen Dogegen is driving, on demand, for as long as
+Dogegen stays connected — for review purposes, this is functionally
+"remote framebuffer write," not just remote control of a known app.
+
+- **Single-machine / trusted-LAN deployments** (the common case): set
+  `"host": "127.0.0.1"` in `agent.json` so the agent only accepts
+  connections from the same PC, and keep it off any network that isn't
+  fully trusted.
+- **Multi-host deployments** (backend in Docker/Unraid, agent on a separate
+  Windows PC — see [Full split-host](../../README.md#full-split-host-math--ui-in-docker-spectrometer--dogegen-on-a-windows-pc)):
+  run the agent behind a reverse proxy or VPN/tunnel (e.g. Tailscale, as
+  already suggested for `DOGEGEN_AGENT_URL` elsewhere in this repo's docs)
+  that enforces authentication, rather than exposing `0.0.0.0:7071`
+  directly to any network wider than your own LAN.
+- **Follow-up (not implemented here):** a minimal opt-in bearer-token or
+  HMAC-signed-request check, configurable in `agent.json` and disabled by
+  default, would let multi-host setups authenticate without a separate
+  reverse proxy. Tracking this as a possible enhancement rather than adding
+  it speculatively in this PR — the reverse-proxy/VPN options above already
+  cover the exposed-beyond-LAN case safely today.
+
 ## Direct-drive Dogegen (no ColourSpace)
 
 Dogegen speaks Light Illusion's public "Resolve" pattern protocol — the
@@ -218,15 +244,24 @@ case. Set `size_pct` instead (0-100) for a centered box of that size for
 flare control — computed with the same formula Dogegen's own `window_pct`
 uses; `size_pct` overrides `x`/`y`/`cx`/`cy` when both are given.
 
-Returns `{"ok": true}` on success. On failure, returns a non-2xx status with
-a `detail` message and no partial state change:
+Returns `{"ok": true}` on success. On failure, returns a non-2xx status
+with a **structured JSON body** (not FastAPI's default `{"detail": "..."}`
+string envelope) and no partial state change:
 
-| HTTP status | Cause |
-|---|---|
-| `400` | Invalid patch — bad `bits` (not 8 or 10) or an `r`/`g`/`b`/`bg_*` value out of range for it. Dogegen's wire protocol has no ack/nack, so this is the only place such a mistake can be caught — an out-of-range value sent anyway would be silently ignored by Dogegen (it keeps showing the previous pattern). |
-| `409` | Dogegen isn't connected to this agent's Resolve server yet (`resolve_connected: false` — start Dogegen first, or check `resolve_host` isn't pointed at a remote ColourSpace instead). |
-| `502` | The connection dropped while sending (Dogegen exited/crashed mid-send). |
-| `504` | Sending the patch timed out (2s). |
+```json
+{"ok": false, "error_type": "not_connected", "error": "Dogegen is not connected to the Resolve server. ..."}
+```
+
+`error_type` is a stable field to branch on programmatically; `error` is
+the human-readable message. No partial state change happens on any
+failure.
+
+| HTTP status | `error_type` | Cause |
+|---|---|---|
+| `400` | `invalid_patch` | Bad `bits` (not 8 or 10) or an `r`/`g`/`b`/`bg_*` value out of range for it. Dogegen's wire protocol has no ack/nack, so this is the only place such a mistake can be caught — an out-of-range value sent anyway would be silently ignored by Dogegen (it keeps showing the previous pattern). |
+| `409` | `not_connected` | Dogegen isn't connected to this agent's Resolve server yet (`resolve_connected: false` — start Dogegen first, or check `resolve_host` isn't pointed at a remote ColourSpace instead). |
+| `502` | `send_failed` | The connection dropped while sending (Dogegen exited/crashed mid-send). |
+| `504` | `timeout` | Sending the patch timed out (2s). |
 
 ## Releasing (maintainers)
 

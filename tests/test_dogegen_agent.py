@@ -7,7 +7,10 @@ running" (external PID) and "exe not found" paths — see issue #591.
 """
 
 import os
+import socket
+import struct
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -18,6 +21,7 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools" / "dogegen-agent"))
 
 import agent  # noqa: E402
+import resolve_protocol  # noqa: E402
 
 client = TestClient(agent.app)
 
@@ -409,7 +413,12 @@ class TestPatch:
         }
         r = client.post("/patch", json={"r": 0, "g": 0, "b": 0})
         assert r.status_code == 409
-        assert "not connected" in r.json()["detail"].lower()
+        # Structured JSON body, not FastAPI's default {"detail": "..."}
+        # envelope (#631 review) -- error_type is a stable field callers can
+        # branch on instead of pattern-matching the human-readable message.
+        assert r.json() == {
+            "ok": False, "error_type": "not_connected", "error": "Dogegen is not connected.",
+        }
 
     def test_patch_invalid_patch_returns_400(self):
         agent._resolve_server = MagicMock()
@@ -418,6 +427,8 @@ class TestPatch:
         }
         r = client.post("/patch", json={"r": 0, "g": 0, "b": 0, "bits": 12})
         assert r.status_code == 400
+        assert r.json()["ok"] is False
+        assert r.json()["error_type"] == "invalid_patch"
 
     def test_patch_timeout_returns_504(self):
         agent._resolve_server = MagicMock()
@@ -426,6 +437,7 @@ class TestPatch:
         }
         r = client.post("/patch", json={"r": 0, "g": 0, "b": 0})
         assert r.status_code == 504
+        assert r.json()["error_type"] == "timeout"
 
     def test_patch_send_failed_returns_502(self):
         agent._resolve_server = MagicMock()
@@ -434,6 +446,7 @@ class TestPatch:
         }
         r = client.post("/patch", json={"r": 0, "g": 0, "b": 0})
         assert r.status_code == 502
+        assert r.json()["error_type"] == "send_failed"
 
     def test_patch_unknown_error_type_falls_back_to_502(self):
         agent._resolve_server = MagicMock()
@@ -442,6 +455,7 @@ class TestPatch:
         }
         r = client.post("/patch", json={"r": 0, "g": 0, "b": 0})
         assert r.status_code == 502
+        assert r.json() == {"ok": False, "error_type": "something_new", "error": "mystery failure"}
 
     def test_patch_missing_required_field_returns_422(self):
         r = client.post("/patch", json={"r": 0, "g": 0})
@@ -453,3 +467,48 @@ class TestPatch:
         itself, not just the mocked contract."""
         r = client.post("/patch", json={"r": 0, "g": 0, "b": 0})
         assert r.status_code == 409
+        assert r.json()["error_type"] == "not_connected"
+
+
+# ── POST /patch full-stack integration (#631 review) ────────────────────────
+#
+# The tests above mock _resolve_server.send_patch, which verifies the HTTP
+# layer's contract but not that a byte actually reaches a real connected
+# Dogegen. This drives the real stack: HTTP POST /patch -> the real
+# ResolveServer.send_patch -> a real loopback socket -> a fake "Dogegen"
+# client that reads the frame back and decodes it.
+
+class TestPatchFullStack:
+    def test_http_patch_delivers_correct_bytes_to_real_connection(self):
+        real_server = agent.ResolveServer(host="127.0.0.1", port=0)
+        real_server.start()
+        agent._resolve_server = real_server
+        fake_dogegen = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            fake_dogegen.connect(("127.0.0.1", real_server.port))
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline and not real_server.status()["resolve_connected"]:
+                time.sleep(0.01)
+            assert real_server.status()["resolve_connected"] is True
+
+            r = client.post("/patch", json={
+                "r": 700, "g": 200, "b": 900, "bits": 10, "bg_r": 1, "bg_g": 2, "bg_b": 3,
+            })
+            assert r.status_code == 200
+            assert r.json() == {"ok": True}
+
+            fake_dogegen.settimeout(2.0)
+            header = fake_dogegen.recv(4)
+            (length,) = struct.unpack("!i", header)
+            payload = b""
+            while len(payload) < length:
+                payload += fake_dogegen.recv(length - len(payload))
+            decoded = resolve_protocol.decode_patch_frame(header + payload)
+            assert decoded["r"] == 700
+            assert decoded["g"] == 200
+            assert decoded["b"] == 900
+            assert decoded["bits"] == 10
+            assert decoded["bg"] == (1, 2, 3)
+        finally:
+            fake_dogegen.close()
+            real_server.stop()

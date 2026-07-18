@@ -277,6 +277,16 @@ class TestResolveServerLifecycle:
         finally:
             other.stop()
 
+    def test_bind_failure_raises_when_requested(self, server):
+        other = rp.ResolveServer(host="127.0.0.1", port=server.port)
+        with pytest.raises(OSError):
+            other.start(raise_on_bind_fail=True)
+        # still recorded, same as the non-raising path, for callers that
+        # catch the exception and want the message afterwards too
+        assert other.status()["resolve_last_error"] is not None
+        assert other.status()["resolve_listening"] is False
+        other.stop()
+
     def test_reconnect_replaces_old_connection(self, server):
         client_a = _connect_fake_dogegen(server)
         peer_a = server.status()["resolve_peer"]

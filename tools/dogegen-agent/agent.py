@@ -47,6 +47,7 @@ from typing import Any, Dict, List, Literal, Optional
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from resolve_protocol import DEFAULT_RESOLVE_PORT, ResolveServer
@@ -427,7 +428,13 @@ def patch(body: PatchBody):
     """Push one RGB patch to Dogegen over the direct-drive Resolve
     connection (#630) — no ColourSpace involved. Requires Dogegen to have
     already been started (POST /start) and connected back to this agent's
-    Resolve server; see GET /status's resolve_connected field."""
+    Resolve server; see GET /status's resolve_connected field.
+
+    Returns send_patch()'s own {"ok": ..., "error_type": ..., "error": ...}
+    dict as the JSON body on both success and failure (status code set from
+    _PATCH_ERROR_STATUS on failure) rather than FastAPI's default
+    {"detail": "..."} envelope, so callers get error_type as a stable,
+    parseable field instead of having to pattern-match a message string."""
     result = _resolve_server.send_patch(
         r=body.r,
         g=body.g,
@@ -443,7 +450,7 @@ def patch(body: PatchBody):
     )
     if not result["ok"]:
         status_code = _PATCH_ERROR_STATUS.get(result.get("error_type"), 502)
-        raise HTTPException(status_code, result["error"])
+        return JSONResponse(status_code=status_code, content=result)
     return result
 
 

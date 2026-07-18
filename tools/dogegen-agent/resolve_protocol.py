@@ -239,11 +239,14 @@ class ResolveServer:
         self._running = False
         self._last_error: Optional[str] = None
 
-    def start(self) -> None:
-        """Start listening in the background. Best-effort: a bind failure
-        (e.g. the port is already in use) is logged and recorded in
+    def start(self, *, raise_on_bind_fail: bool = False) -> None:
+        """Start listening in the background. Best-effort by default: a bind
+        failure (e.g. the port is already in use) is logged and recorded in
         status()['resolve_last_error'] rather than raised, so a bad
-        resolve_listen_port doesn't take down the rest of the agent."""
+        resolve_listen_port doesn't take down the rest of the agent — that's
+        what agent.py's main() relies on. Pass raise_on_bind_fail=True to get
+        the OSError instead (e.g. in a test or a one-off script that wants to
+        fail loudly on a bad port rather than silently not-listen)."""
         with self._state_lock:
             if self._running:
                 return
@@ -256,6 +259,8 @@ class ResolveServer:
                 sock.close()
                 self._last_error = f"Cannot listen on {self.host}:{self.port}: {exc}"
                 logger.warning(self._last_error)
+                if raise_on_bind_fail:
+                    raise
                 return
             self.port = sock.getsockname()[1]  # resolves port=0 to the actual ephemeral port
             sock.settimeout(1.0)  # periodic wake-up so stop() is noticed even if close() alone isn't
