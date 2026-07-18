@@ -1642,15 +1642,15 @@ def llm_run(sid: str):
 
 
 @app.get("/api/session/{sid}/llm/stream")
-def llm_stream(sid: str):
+async def llm_stream(sid: str):
     store.get(sid)  # raises 404 if session doesn't exist
     ev_queue = _llm_subscribe(sid)
 
-    def _generator():
+    async def _generator():
         try:
             while True:
                 try:
-                    payload = ev_queue.get(timeout=20.0)
+                    payload = await asyncio.to_thread(ev_queue.get, timeout=20.0)
                     event_type = payload.get("event", "llm_insight")
                     data = json.dumps(payload.get("data", ""))
                     yield f"event: {event_type}\ndata: {data}\n\n"
@@ -3055,15 +3055,15 @@ def autocal_history(sid: str):
 
 
 @app.get("/api/session/{sid}/autocal/stream")
-def autocal_stream(sid: str):
+async def autocal_stream(sid: str):
     store.get(sid)  # raises 404 if session doesn't exist
     ev_queue = _autocal_subscribe(sid)
 
-    def _generator():
+    async def _generator():
         try:
             while True:
                 try:
-                    payload = ev_queue.get(timeout=20.0)
+                    payload = await asyncio.to_thread(ev_queue.get, timeout=20.0)
                     event_type = payload.get("event", "autocal_iteration")
                     data = json.dumps(payload.get("data", {}))
                     yield f"event: {event_type}\ndata: {data}\n\n"
@@ -3141,14 +3141,14 @@ def watch_status():
 
 
 @app.get("/api/watch/events")
-def watch_events():
+async def watch_events():
     ev_queue = _fw_subscribe()
 
-    def _generator():
+    async def _generator():
         try:
             while True:
                 try:
-                    payload = ev_queue.get(timeout=20.0)
+                    payload = await asyncio.to_thread(ev_queue.get, timeout=20.0)
                     yield f"data: {json.dumps(payload)}\n\n"
                 except queue.Empty:
                     yield ": keep-alive\n\n"
@@ -3167,11 +3167,11 @@ def watch_events():
 
 
 @app.get("/events/{sid}")
-def session_events(sid: str):
+async def session_events(sid: str):
     store.get(sid)
     ev_queue = _fw_subscribe()
 
-    def _generator():
+    async def _generator():
         try:
             session = _sessions.get(sid)
             if session:
@@ -3179,7 +3179,7 @@ def session_events(sid: str):
             yield f"event: watch_status\ndata: {json.dumps(_watch_status_payload())}\n\n"
             while True:
                 try:
-                    ev_queue.get(timeout=20.0)
+                    await asyncio.to_thread(ev_queue.get, timeout=20.0)
                     session = _sessions.get(sid)
                     if session:
                         yield f"event: session\ndata: {json.dumps(_session_view(session))}\n\n"
@@ -3201,17 +3201,17 @@ def session_events(sid: str):
 
 
 @app.get("/api/logs/stream")
-def logs_stream():
+async def logs_stream():
     q = _log_buffer.subscribe()
 
-    def _generator():
+    async def _generator():
         try:
             # Send the recent buffer first so the panel populates immediately
             for line in _log_buffer.snapshot():
                 yield f"data: {json.dumps(line)}\n\n"
             while True:
                 try:
-                    line = q.get(timeout=20.0)
+                    line = await asyncio.to_thread(q.get, timeout=20.0)
                     yield f"data: {json.dumps(line)}\n\n"
                 except queue.Empty:
                     yield ": keep-alive\n\n"

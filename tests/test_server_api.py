@@ -1542,8 +1542,9 @@ class TestWatchConfig:
 
     def test_watch_events_sets_sse_headers(self, client):
         from server import watch_events
+        import asyncio
 
-        resp = watch_events()
+        resp = asyncio.run(watch_events())
         assert resp.media_type == "text/event-stream"
         assert resp.headers["cache-control"] == "no-cache"
         assert resp.headers["x-accel-buffering"] == "no"
@@ -1735,8 +1736,9 @@ class TestLLMIntegration:
 
     def test_llm_stream_sets_sse_headers(self, client, session_id):
         from server import llm_stream
+        import asyncio
 
-        resp = llm_stream(session_id)
+        resp = asyncio.run(llm_stream(session_id))
         assert resp.media_type == "text/event-stream"
         assert resp.headers["cache-control"] == "no-cache"
         assert resp.headers["x-accel-buffering"] == "no"
