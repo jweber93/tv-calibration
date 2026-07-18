@@ -151,6 +151,25 @@ End with a **"Top 5 fixes for a fast, error-free run"** shortlist. If any
 candidate defects were downgraded to **Needs Evidence**, list them separately
 below the tables with the specific evidence that would confirm or refute them.
 
+## Filing findings
+
+This is a **bug-hunting pass, not an implementation pass** — do not fix
+anything and do not open a PR. Instead, file each confirmed (non–Needs
+Evidence) finding as its own GitHub issue:
+
+- **Search first.** Run `search_issues` (or `list_issues`) for an existing
+  open issue covering the same defect before filing a new one — do not
+  create duplicates.
+- **Title**: concise defect summary, e.g. `Grayscale target uses hardcoded
+  D65 instead of session white point`.
+- **Body**: reuse the row's Failure Scenario, Evidence, Root Cause, Fix, and
+  Test columns as sections; include File:Line.
+- **Labels**: `bug`, plus severity (`critical`/`high`/`medium`/`low`) and
+  track (`backend`/`frontend`) as available in the repo's label set.
+- One issue per finding — do not batch multiple defects into one issue.
+- If a candidate was downgraded to **Needs Evidence**, do not file an issue
+  for it; leave it in the report only.
+
 ---
 
 > **Related protocols.** `AGENTS.md` defines an `audit QE` protocol focused on
