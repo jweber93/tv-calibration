@@ -31,7 +31,7 @@ this section; opencode agents must execute every step.
 **Memory entries should be concise and specific** — not "worked on calibration"
 but "code_max drives sat_bucket thresholds; do not hardcode 1023 (see PR #564)".
 
-## Session Summary
+## Session Summary (opencode only)
 
 At the END of your final response for every session, output all significant
 decisions, config values, file paths, commands, and findings as a numbered list
