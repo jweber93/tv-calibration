@@ -7,6 +7,37 @@
 - Two package roots: `calcore/` = pure color-science/analysis (no hardware, no FastAPI); `calibrator/` = session state, hardware I/O, reports. Keep that boundary — `calcore` must not import hardware or web modules.
 - Purpose: automated TV display calibration.
 
+## Memory Protocol (opencode only — MANDATORY)
+
+**These rules apply only when you are running as opencode** (they require the
+`opencode-mem*` MCP tools). Other agents (Claude Code, Codex, Gemini CLI) skip
+this section; opencode agents must execute every step.
+
+**At the start of every session — before any tool call or response:**
+- Call `opencode_mem_search_memory` with the current task description
+- If the tool is unavailable, log a note and proceed — **do not silently skip**
+- Review results and use them to inform your approach
+
+**During the session, save to memory when you:**
+- Make an architectural or design decision
+- Discover a non-obvious bug or root cause
+- Establish a pattern or convention for this codebase
+- Complete a significant piece of work
+
+**At the end of every session:**
+- Save a summary of what was done and any decisions made
+- Save any context the next session will need
+
+**Memory entries should be concise and specific** — not "worked on calibration"
+but "code_max drives sat_bucket thresholds; do not hardcode 1023 (see PR #564)".
+
+## Session Summary (opencode only)
+
+At the END of your final response for every session, output all significant
+decisions, config values, file paths, commands, and findings as a numbered list
+under the heading `## Session Summary`. Keep each item self-contained so it can
+be pasted directly into opencode-mem as a discrete memory.
+
 ## Build, Test & CI
 
 Run these before claiming work is done; CI (`.github/workflows/ci.yml`) enforces all of them.
@@ -228,33 +259,10 @@ All runtime state is file-based, auto-created, and **gitignored — never commit
 
 # opencode-local workflow
 
-> **Scope:** these two protocols drive the maintainer's local **opencode** setup
-> (persistent memory MCP + a separate planning model). Agents without these tools
-> (Claude Code, Codex, Gemini CLI) should **skip this section silently** — nothing
-> here is required to produce correct code. Everything above applies to all agents.
-
-## Memory Protocol
-
-**At the start of every session:**
-- Call `opencode_mem_search_memory` with the current task description (skip silently if unavailable)
-- Review results and use them to inform your approach
-
-**During the session, save to memory when you:**
-- Make an architectural or design decision
-- Discover a non-obvious bug or root cause
-- Establish a pattern or convention for this codebase
-- Complete a significant piece of work
-
-**At the end of every session:**
-- Save a summary of what was done and any decisions made
-- Save any context the next session will need
-
-**Memory entries should be concise and specific** — not "worked on calibration"
-but "code_max drives sat_bucket thresholds; do not hardcode 1023 (see PR #564)".
-
-## Session Summary
-
-At the END of your final response for every session, output all significant decisions, config values, file paths, commands, and findings as a numbered list under the heading `## Session Summary`. Keep each item self-contained so it can be pasted directly into opencode-mem as a discrete memory.
+> **Scope:** the protocol below drives the maintainer's local **opencode** setup
+> (separate planning model). Agents without these tools (Claude Code, Codex, Gemini
+> CLI) should skip this section — nothing here is required to produce correct code.
+> Everything above applies to all agents.
 
 ## Planning Agent Protocol — Architect / Design Lead
 
