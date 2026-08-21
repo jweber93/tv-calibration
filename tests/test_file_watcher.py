@@ -36,6 +36,16 @@ def _reset_watcher():
     fw._watcher_error = None
 
 
+def _wait_for_first_scan(timeout: float = 5.0):
+    """Wait for the polling observer to complete its first scan."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if fw.get_status()["diagnostics"]["first_scan_done"]:
+            return
+        time.sleep(0.05)
+    pytest.fail(f"First scan did not complete within {timeout} seconds")
+
+
 @pytest.fixture(autouse=True)
 def clean_watcher():
     """Reset watcher before and after every test."""
@@ -140,6 +150,60 @@ class TestLifecycle:
         assert "/tmp/missing-watch-dir" in fw._watcher_error
 
     @pytest.mark.skipif(fw._WATCHDOG_AVAILABLE, reason="polling fallback not used when watchdog is installed")
+    def test_polling_observer_ignores_preexisting_csvs_on_first_scan(self, tmp_path):
+        """Pre-existing CSVs should not trigger on_created on the first scan."""
+        # Create CSV file BEFORE starting the watcher
+        existing_csv = tmp_path / "existing.csv"
+        existing_csv.write_text(MINIMAL_ZRO_CSV)
+
+        session = _make_session()
+        fw.start_watching(tmp_path, lambda: session, lambda: None)
+
+        # Wait for the watcher to complete its first scan
+        _wait_for_first_scan()
+
+        # The pre-existing CSV should NOT have been imported
+        assert len(session["pre_measurements"]) == 0, (
+            f"Pre-existing CSV should not be auto-imported on watch start, "
+            f"but got {len(session['pre_measurements'])} measurements"
+        )
+        assert fw.get_status()["last_import"] is None, (
+            "No import should have occurred for pre-existing files"
+        )
+
+    @pytest.mark.skipif(fw._WATCHDOG_AVAILABLE, reason="polling fallback not used when watchdog is installed")
+    def test_polling_observer_imports_new_csvs_after_first_scan(self, tmp_path):
+        """New CSVs added after the first scan should be imported."""
+        # Create CSV file BEFORE starting the watcher (should be ignored)
+        existing_csv = tmp_path / "existing.csv"
+        existing_csv.write_text(MINIMAL_ZRO_CSV)
+
+        session = _make_session()
+        fw.start_watching(tmp_path, lambda: session, lambda: None)
+
+        # Wait for the watcher to complete its first scan
+        _wait_for_first_scan()
+
+        # Now create a NEW CSV file
+        new_csv = tmp_path / "new.csv"
+        new_csv.write_text(MINIMAL_ZRO_CSV)
+
+        # Wait for the new CSV to be imported
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if session.get("pre_measurements"):
+                break
+            time.sleep(0.1)
+
+        # The new CSV SHOULD have been imported
+        assert len(session["pre_measurements"]) > 0, (
+            "New CSV created after first scan should be imported"
+        )
+        assert fw.get_status()["last_import"] is not None, (
+            "Import should have occurred for new files"
+        )
+
+    @pytest.mark.skipif(fw._WATCHDOG_AVAILABLE, reason="polling fallback not used when watchdog is installed")
     def test_polling_survives_transient_missing_dir(self):
         """Watcher survives directory removal, recreation, and resumes importing."""
         import shutil
@@ -151,6 +215,9 @@ class TestLifecycle:
             fw.start_watching(tmp_dir, lambda: session, lambda: None)
             handler = fw._handler
             assert handler is not None
+
+            # Wait for the watcher's first scan to complete (baseline)
+            time.sleep(0.5)
 
             # Write a CSV so the watcher picks it up first.
             csv_file = os.path.join(tmp_dir, "pre.csv")

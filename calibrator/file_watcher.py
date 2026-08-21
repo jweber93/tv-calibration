@@ -71,6 +71,7 @@ except ModuleNotFoundError:
             self._thread: Optional[threading.Thread] = None
             self._stop_event = threading.Event()
             self._known_mtimes: Dict[str, float] = {}
+            self._first_scan_done = threading.Event()
 
         def schedule(
             self, handler: FileSystemEventHandler, path: str, recursive: bool = False
@@ -102,6 +103,10 @@ except ModuleNotFoundError:
             assert self._handler is not None
             assert self._path is not None
 
+            # First scan: record baseline mtimes, don't fire events
+            # (matches watchdog behavior — only report changes after observation starts)
+            is_first_scan = True
+
             while not self._stop_event.wait(self.POLL_INTERVAL_SECONDS):
                 try:
                     current: Dict[str, float] = {}
@@ -112,12 +117,18 @@ except ModuleNotFoundError:
                             continue
                         mtime = entry.stat().st_mtime
                         current[entry.path] = mtime
-                        previous_mtime = self._known_mtimes.get(entry.path)
-                        event = FileSystemEvent(entry.path, is_directory=False)
-                        if previous_mtime is None:
-                            self._handler.on_created(event)
-                        elif previous_mtime != mtime:
-                            self._handler.on_modified(event)
+
+                        # Only fire events after the first scan
+                        if not is_first_scan:
+                            previous_mtime = self._known_mtimes.get(entry.path)
+                            event = FileSystemEvent(entry.path, is_directory=False)
+                            if previous_mtime is None:
+                                self._handler.on_created(event)
+                            elif previous_mtime != mtime:
+                                self._handler.on_modified(event)
+                    if is_first_scan:
+                        is_first_scan = False
+                        self._first_scan_done.set()
                     self._known_mtimes = current
                 except FileNotFoundError:
                     msg = f"Watched directory temporarily unavailable: {self._path}"
@@ -799,9 +810,14 @@ def get_status() -> Dict:
         "pending_files": 0,
         "last_event": None,
         "last_attempt": None,
+        "first_scan_done": False,
     }
 
     handler = _handler
+    observer = _observer
+    if observer is not None and hasattr(observer, "_first_scan_done"):
+        diagnostics["first_scan_done"] = observer._first_scan_done.is_set()
+
     if handler is not None:
         diagnostics["pending_files"] = len(handler._timers)
         if handler._watched_file:
