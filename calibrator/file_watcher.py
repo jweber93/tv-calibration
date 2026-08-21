@@ -102,6 +102,10 @@ except ModuleNotFoundError:
             assert self._handler is not None
             assert self._path is not None
 
+            # First scan: record baseline mtimes, don't fire events
+            # (matches watchdog behavior — only report changes after observation starts)
+            first_scan = True
+
             while not self._stop_event.wait(self.POLL_INTERVAL_SECONDS):
                 try:
                     current: Dict[str, float] = {}
@@ -112,12 +116,17 @@ except ModuleNotFoundError:
                             continue
                         mtime = entry.stat().st_mtime
                         current[entry.path] = mtime
-                        previous_mtime = self._known_mtimes.get(entry.path)
-                        event = FileSystemEvent(entry.path, is_directory=False)
-                        if previous_mtime is None:
-                            self._handler.on_created(event)
-                        elif previous_mtime != mtime:
-                            self._handler.on_modified(event)
+
+                        # Only fire events after the first scan
+                        if not first_scan:
+                            previous_mtime = self._known_mtimes.get(entry.path)
+                            event = FileSystemEvent(entry.path, is_directory=False)
+                            if previous_mtime is None:
+                                self._handler.on_created(event)
+                            elif previous_mtime != mtime:
+                                self._handler.on_modified(event)
+                    if first_scan:
+                        first_scan = False
                     self._known_mtimes = current
                 except FileNotFoundError:
                     msg = f"Watched directory temporarily unavailable: {self._path}"
