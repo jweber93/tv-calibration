@@ -36,6 +36,16 @@ def _reset_watcher():
     fw._watcher_error = None
 
 
+def _wait_for_first_scan(timeout: float = 5.0):
+    """Wait for the polling observer to complete its first scan."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if fw.get_status()["diagnostics"]["first_scan_done"]:
+            return
+        time.sleep(0.05)
+    pytest.fail(f"First scan did not complete within {timeout} seconds")
+
+
 @pytest.fixture(autouse=True)
 def clean_watcher():
     """Reset watcher before and after every test."""
@@ -149,8 +159,8 @@ class TestLifecycle:
         session = _make_session()
         fw.start_watching(tmp_path, lambda: session, lambda: None)
 
-        # Wait a bit for the watcher to do its first scan
-        time.sleep(0.5)
+        # Wait for the watcher to complete its first scan
+        _wait_for_first_scan()
 
         # The pre-existing CSV should NOT have been imported
         assert len(session["pre_measurements"]) == 0, (
@@ -172,7 +182,7 @@ class TestLifecycle:
         fw.start_watching(tmp_path, lambda: session, lambda: None)
 
         # Wait for the watcher to complete its first scan
-        time.sleep(0.5)
+        _wait_for_first_scan()
 
         # Now create a NEW CSV file
         new_csv = tmp_path / "new.csv"
