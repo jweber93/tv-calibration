@@ -1358,8 +1358,8 @@ class ConvergenceAssessment:
     metric_key: str  # which threshold group applied
     avg_de: Optional[float]
     max_de: Optional[float]
-    gamma_deviation: Optional[float]
-    pq_error: Optional[float]
+    gamma_deviation: Optional[float]  # power-law exponent units, e.g. |2.2 - target|
+    pq_error: Optional[float]  # PQ midtone tracking error, in percent (not a fraction)
     detail: str
 
     def to_dict(self) -> Dict[str, Any]:
@@ -1419,6 +1419,10 @@ def assess_convergence(
     pq_error: Optional[float] = None
     is_pq_session = summary.pq_err_midtones is not None
     if is_pq_session:
+        # summary.pq_err_midtones (and therefore pq_error) is a percent value —
+        # 100.0 * (measured - target) / target, per calcore/analysis.py — not a
+        # fraction. gamma_thr ("max_deviation") is in gamma-exponent units;
+        # pq_thr ("max_pq_error_pct") is in the same percent units as pq_error.
         pq_error = abs(summary.pq_err_midtones)
     elif target_gamma is not None and summary.gamma_midtones is not None:
         gamma_deviation = abs(summary.gamma_midtones - target_gamma)
@@ -1426,7 +1430,7 @@ def assess_convergence(
     avg_thr = thr.get("avg_de")
     max_thr = thr.get("max_de")
     gamma_thr = thr.get("max_deviation")
-    pq_thr = thr.get("max_pq_error_pct")
+    pq_thr = thr.get("max_pq_error_pct")  # percent, e.g. 5.0 == 5%
 
     has_data = any(v is not None for v in (avg_de, max_de, gamma_deviation, pq_error))
     within = True

@@ -931,6 +931,27 @@ class TestAssessConvergence:
         assert "PQ" in a.detail
         assert "gamma deviation" not in a.detail
 
+    def test_hdr_pq_error_threshold_boundary(self):
+        # max_pq_error_pct defaults to 5.0 (percent, not a fraction) — exercise
+        # both sides of that boundary explicitly. pq_error is rounded to 2dp
+        # in the returned assessment, so use values that don't round onto the
+        # boundary itself.
+        just_within = assess_convergence(
+            _summary(avg_de=0.1, max_de=0.2, pq_err=4.94),
+            "gamma",
+            target_gamma=HDR10_TARGET.gamma,
+        )
+        assert just_within.converged is True
+        assert just_within.pq_error == pytest.approx(4.94)
+
+        just_outside = assess_convergence(
+            _summary(avg_de=0.1, max_de=0.2, pq_err=5.06),
+            "gamma",
+            target_gamma=HDR10_TARGET.gamma,
+        )
+        assert just_outside.converged is False
+        assert just_outside.pq_error == pytest.approx(5.06)
+
     def test_gamma_gate_metric_unavailable_reports_no_data(self):
         # Neither gamma_midtones nor pq_err_midtones populated (e.g. all-endpoint
         # or all-black patches) — must read as "no data", not "out of tolerance".
