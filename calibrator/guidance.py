@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from calcore.colour import target_xy_for_colour as _calcore_target_xy_for_colour
 from calcore.models import (
     CalibrationTarget,
     Measurement,
@@ -686,29 +687,10 @@ def luminance_control_plan(
 
 
 def target_xy_for_colour(target: CalibrationTarget, colour_name: str) -> Tuple[float, float]:
-    primaries = target.primaries
-    xr, yr = primaries["red"]
-    xg, yg = primaries["green"]
-    xb, yb = primaries["blue"]
-    xw, yw = target.white_point_xy
-    Xr, Yr, Zr = xr / yr, 1.0, (1 - xr - yr) / yr
-    Xg, Yg, Zg = xg / yg, 1.0, (1 - xg - yg) / yg
-    Xb, Yb, Zb = xb / yb, 1.0, (1 - xb - yb) / yb
-    M = np.array([[Xr, Xg, Xb], [Yr, Yg, Yb], [Zr, Zg, Zb]], dtype=float)
-    Xw, Yw, Zw = xw / yw, 1.0, (1 - xw - yw) / yw
-    S = np.linalg.solve(M, np.array([Xw, Yw, Zw], dtype=float))
-    rgb_to_xyz = M @ np.diag(S)
-    colour_rgb = {
-        "Red": np.array([1.0, 0.0, 0.0]),
-        "Green": np.array([0.0, 1.0, 0.0]),
-        "Blue": np.array([0.0, 0.0, 1.0]),
-        "Cyan": np.array([0.0, 1.0, 1.0]),
-        "Magenta": np.array([1.0, 0.0, 1.0]),
-        "Yellow": np.array([1.0, 1.0, 0.0]),
-    }.get(colour_name, np.array([1.0, 1.0, 1.0]))
-    X, Y, Z = rgb_to_xyz @ colour_rgb
-    total = X + Y + Z
-    return (round(X / total, 4), round(Y / total, 4)) if total > 0 else target.white_point_xy
+    # Delegates to calcore's shared additive-mix derivation so this and
+    # calcore.gamut's feasibility check can never drift apart on the same
+    # panel — see calcore.colour.target_xy_for_colour for the math.
+    return _calcore_target_xy_for_colour(target.primaries, target.white_point_xy, colour_name)
 
 
 def target_nits_for_colour(target: CalibrationTarget, colour_name: str) -> float:
