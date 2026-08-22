@@ -1,11 +1,93 @@
 from __future__ import annotations
 
 import math
-from typing import Tuple
+from typing import Dict, Mapping, Tuple
 
 D65_XYZ = (95.047, 100.0, 108.883)
 D65_xy = (0.3127, 0.3290)
 D65_XY = D65_xy
+
+_COLOUR_RGB_MIX: Dict[str, Tuple[float, float, float]] = {
+    "Red": (1.0, 0.0, 0.0),
+    "Green": (0.0, 1.0, 0.0),
+    "Blue": (0.0, 0.0, 1.0),
+    "Cyan": (0.0, 1.0, 1.0),
+    "Magenta": (1.0, 0.0, 1.0),
+    "Yellow": (1.0, 1.0, 0.0),
+}
+
+
+def _solve_linear_3x3(
+    m: Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]],
+    b: Tuple[float, float, float],
+) -> Tuple[float, float, float]:
+    """Solve the 3x3 linear system m @ x = b via Cramer's rule (no numpy dependency)."""
+
+    def det3(mat: Tuple[Tuple[float, float, float], ...]) -> float:
+        return (
+            mat[0][0] * (mat[1][1] * mat[2][2] - mat[1][2] * mat[2][1])
+            - mat[0][1] * (mat[1][0] * mat[2][2] - mat[1][2] * mat[2][0])
+            + mat[0][2] * (mat[1][0] * mat[2][1] - mat[1][1] * mat[2][0])
+        )
+
+    d = det3(m)
+    if d == 0:
+        raise ValueError("Singular primaries/white-point matrix — degenerate colour space")
+
+    def replace_col(col: int, vec: Tuple[float, float, float]):
+        return tuple(
+            tuple(vec[i] if j == col else m[i][j] for j in range(3))
+            for i in range(3)
+        )
+
+    return (
+        det3(replace_col(0, b)) / d,
+        det3(replace_col(1, b)) / d,
+        det3(replace_col(2, b)) / d,
+    )
+
+
+def target_xy_for_colour(
+    primaries: Mapping[str, Tuple[float, float]],
+    white_xy: Tuple[float, float],
+    colour_name: str,
+) -> Tuple[float, float]:
+    """Return the additive-mix chromaticity of a primary or secondary colour.
+
+    Builds the RGB→XYZ matrix implied by ``primaries`` + ``white_xy`` (so the
+    white point renormalises to unit luminance), then sums the channel(s)
+    that make up ``colour_name`` — one channel for a primary (Red/Green/
+    Blue), two for a secondary (Cyan/Magenta/Yellow) — and renormalises the
+    result to xy.
+
+    A secondary's chromaticity is the luminance-weighted additive mix of two
+    primaries, *not* the arithmetic midpoint of their xy coordinates — the
+    two differ by up to ~0.08 in xy for real primary sets. This is the single
+    source of truth for target chromaticities; both the gamut feasibility
+    check (``calcore.gamut``) and the CMS ΔE targets used elsewhere
+    (``calibrator.guidance``) must derive secondaries the same way, or the
+    two subsystems can disagree on whether a given panel is reachable.
+    """
+    xr, yr = primaries["red"]
+    xg, yg = primaries["green"]
+    xb, yb = primaries["blue"]
+    xw, yw = white_xy
+
+    Xr, Yr, Zr = xr / yr, 1.0, (1 - xr - yr) / yr
+    Xg, Yg, Zg = xg / yg, 1.0, (1 - xg - yg) / yg
+    Xb, Yb, Zb = xb / yb, 1.0, (1 - xb - yb) / yb
+    m = ((Xr, Xg, Xb), (Yr, Yg, Yb), (Zr, Zg, Zb))
+    Xw, Yw, Zw = xw / yw, 1.0, (1 - xw - yw) / yw
+
+    s = _solve_linear_3x3(m, (Xw, Yw, Zw))
+    rgb_to_xyz = tuple(tuple(m[i][j] * s[j] for j in range(3)) for i in range(3))
+
+    colour_rgb = _COLOUR_RGB_MIX.get(colour_name, (1.0, 1.0, 1.0))
+    X = sum(rgb_to_xyz[0][j] * colour_rgb[j] for j in range(3))
+    Y = sum(rgb_to_xyz[1][j] * colour_rgb[j] for j in range(3))
+    Z = sum(rgb_to_xyz[2][j] * colour_rgb[j] for j in range(3))
+    total = X + Y + Z
+    return (round(X / total, 4), round(Y / total, 4)) if total > 0 else white_xy
 
 
 def f_lab(t: float) -> float:

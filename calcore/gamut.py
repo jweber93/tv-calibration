@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from .spaces import BT709_PRIMARIES, BT2020_PRIMARIES, P3D65_PRIMARIES
-from .colour import D65_xy
+from .colour import D65_xy, target_xy_for_colour
 
 
 # Conservative ADB CMS range estimates derived from empirical Hisense U8G data.
@@ -57,16 +57,12 @@ def _target_primaries(target_space: str) -> Dict[str, Tuple[float, float]]:
     else:
         base = dict(BT709_PRIMARIES)
 
-    r, g, b = base["red"], base["green"], base["blue"]
+    # Derived via the same additive-mix matrix math as
+    # calibrator.guidance.target_xy_for_colour(), so the feasibility gate and
+    # the real CMS ΔE targets can never drift apart on the same panel.
     return {
-        "Red": r,
-        "Green": g,
-        "Blue": b,
-        # Secondaries approximated as chromaticity midpoints — close enough for
-        # feasibility checking; real CMS targets are computed by guidance.py.
-        "Cyan": ((g[0] + b[0]) / 2, (g[1] + b[1]) / 2),
-        "Magenta": ((r[0] + b[0]) / 2, (r[1] + b[1]) / 2),
-        "Yellow": ((r[0] + g[0]) / 2, (r[1] + g[1]) / 2),
+        name: target_xy_for_colour(base, D65_xy, name)
+        for name in _PRIMARY_NAMES
     }
 
 
