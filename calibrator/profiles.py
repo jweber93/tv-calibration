@@ -186,7 +186,7 @@ def _build_u8g_profile() -> TVProfile:
             "grayscale": {"avg_de": 2.0, "max_de": 3.0},
             "white_balance": {"avg_de": 1.5, "max_de": 2.5},
             "color_tuner": {"avg_de": 3.0, "max_de": 4.0},
-            "gamma": {"max_deviation": 0.05},
+            "gamma": {"max_deviation": 0.05, "max_pq_error_pct": 5.0},
         },
         llm_schema={
             "model": "Hisense U8G",

@@ -2498,6 +2498,7 @@ def post_next_settings(sid: str):
                 "avg_de": prediction.convergence.get("avg_de"),
                 "max_de": prediction.convergence.get("max_de"),
                 "gamma": prediction.convergence.get("gamma_deviation"),
+                "pq_error": prediction.convergence.get("pq_error"),
             },
             suggested=prediction.adjustments,
         )

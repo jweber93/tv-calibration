@@ -7,7 +7,10 @@ from fastapi.testclient import TestClient
 
 import server as server_module
 from server import app as server_app
+from calcore.eotf import pq_target_nits
+from calcore.colour import xyY_to_xyz
 from calcore.llm import NextSettingsPrediction
+from calcore.models import Measurement
 
 
 def _reset_server_globals():
@@ -232,6 +235,70 @@ class TestNextSettingsAPI(unittest.TestCase):
             server_module.store.sessions[sid].get("llm_adjustment_rounds", []), []
         )
 
+
+class TestNextSettingsHDR10Gamma(unittest.TestCase):
+    """HDR10/PQ gamma-phase convergence via the real endpoint (#656)."""
+
+    def setUp(self):
+        _reset_server_globals()
+        self.client = TestClient(server_app)
+
+    def tearDown(self):
+        _reset_server_globals()
+
+    def _hdr10_session_at_gamma(self):
+        """Create an HDR10 session parked at the gamma step, ready for measurements."""
+        resp = self.client.post("/api/session", json={"tv_key": "u8g"})
+        self.assertEqual(resp.status_code, 200)
+        sid = resp.json()["id"]
+        self.client.post(f"/api/session/{sid}/mode", json={"mode": "HDR10"})
+        self.client.post(f"/api/session/{sid}/prepared")
+        self.client.post(
+            f"/api/session/{sid}/llm/configure",
+            json={"endpoint": "http://localhost:4000", "model": "test-model"},
+        )
+        session = server_module.store.get(sid)
+        self.assertEqual(session.get("code_scale"), "10bit")
+        session["step"] = "gamma"
+        return sid
+
+    def _pq_measurements(self, pq_error_pct=0.0):
+        """Grayscale sweep tracking ST.2084 within ``pq_error_pct`` at every step."""
+        wx, wy = 0.3127, 0.3290
+        measurements = []
+        for pct in range(0, 101, 10):
+            n = pct / 100.0
+            code = round(n * 1023)
+            target_y = pq_target_nits(n, 1000.0)
+            meas_y = target_y * (1.0 + pq_error_pct / 100.0)
+            X, Y, Z = xyY_to_xyz(wx, wy, meas_y)
+            measurements.append(
+                Measurement(
+                    x=wx,
+                    y=wy,
+                    Y=Y,
+                    X=X,
+                    Z=Z,
+                    label=f"{pct}% Gray",
+                    stimulus_rgb=(code, code, code),
+                )
+            )
+        return measurements
+
+    def test_next_settings_hdr_gamma_short_circuits_to_verify(self):
+        sid = self._hdr10_session_at_gamma()
+        session = server_module.store.get(sid)
+        session["gamma_measurements"] = self._pq_measurements(pq_error_pct=0.0)
+
+        resp = self.client.post(f"/api/session/{sid}/next-settings")
+        self.assertEqual(resp.status_code, 200)
+        pred = resp.json()["next_settings"]
+        self.assertEqual(pred["next_step"], "verify")
+        self.assertEqual(pred["source"], "converged")
+        self.assertTrue(pred["converged"])
+        self.assertEqual(
+            server_module.store.sessions[sid].get("llm_adjustment_rounds", []), []
+        )
 
 if __name__ == "__main__":
     unittest.main()
