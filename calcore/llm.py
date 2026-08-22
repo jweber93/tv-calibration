@@ -1321,7 +1321,12 @@ _DEFAULT_CONVERGENCE_THRESHOLDS: Dict[str, Dict[str, float]] = {
     "grayscale": {"avg_de": 2.0, "max_de": 3.0},
     "white_balance": {"avg_de": 1.5, "max_de": 2.5},
     "color_tuner": {"avg_de": 3.0, "max_de": 4.0},
-    "gamma": {"max_deviation": 0.05},
+    # "max_deviation" gates power-law/BT.1886 sessions (Summary.gamma_midtones).
+    # "max_pq_error_pct" gates PQ/ST.2084 sessions (Summary.pq_err_midtones) —
+    # a PQ signal has no gamma exponent to compare against target_gamma, so it
+    # needs its own tolerance. 5.0% mirrors the PQ midtone tolerance already
+    # used for CMS-unlock gating in calcore/phase.py and cli.py.
+    "gamma": {"max_deviation": 0.05, "max_pq_error_pct": 5.0},
 }
 
 
@@ -1353,7 +1358,8 @@ class ConvergenceAssessment:
     metric_key: str  # which threshold group applied
     avg_de: Optional[float]
     max_de: Optional[float]
-    gamma_deviation: Optional[float]
+    gamma_deviation: Optional[float]  # power-law exponent units, e.g. |2.2 - target|
+    pq_error: Optional[float]  # PQ midtone tracking error, in percent (not a fraction)
     detail: str
 
     def to_dict(self) -> Dict[str, Any]:
@@ -1366,6 +1372,7 @@ class ConvergenceAssessment:
             "avg_de": self.avg_de,
             "max_de": self.max_de,
             "gamma_deviation": self.gamma_deviation,
+            "pq_error": self.pq_error,
             "detail": self.detail,
         }
 
@@ -1404,23 +1411,54 @@ def assess_convergence(
         avg_de = summary.grayscale_avg_de
         max_de = summary.grayscale_max_de
 
+    # analyze() populates exactly one of these two, never both: gamma_midtones
+    # for power-law/BT.1886 sessions, pq_err_midtones for PQ/ST.2084 sessions
+    # (see calcore/analysis.py). A PQ signal has no gamma exponent to compare
+    # against target_gamma, so it's gated on its own PQ-error metric instead.
     gamma_deviation: Optional[float] = None
-    if target_gamma is not None and summary.gamma_midtones is not None:
+    pq_error: Optional[float] = None
+    is_pq_session = summary.pq_err_midtones is not None
+    if is_pq_session:
+        # summary.pq_err_midtones (and therefore pq_error) is a percent value —
+        # 100.0 * (measured - target) / target, per calcore/analysis.py — not a
+        # fraction. gamma_thr ("max_deviation") is in gamma-exponent units;
+        # pq_thr ("max_pq_error_pct") is in the same percent units as pq_error.
+        pq_error = abs(summary.pq_err_midtones)
+    elif target_gamma is not None and summary.gamma_midtones is not None:
         gamma_deviation = abs(summary.gamma_midtones - target_gamma)
 
     avg_thr = thr.get("avg_de")
     max_thr = thr.get("max_de")
     gamma_thr = thr.get("max_deviation")
+    pq_thr = thr.get("max_pq_error_pct")  # percent, e.g. 5.0 == 5%
 
-    has_data = any(v is not None for v in (avg_de, max_de, gamma_deviation))
+    has_data = any(v is not None for v in (avg_de, max_de, gamma_deviation, pq_error))
     within = True
     if avg_thr is not None:
         within = within and (avg_de is not None and avg_de <= avg_thr)
     if max_thr is not None:
         within = within and (max_de is not None and max_de <= max_thr)
-    # Gamma is only a convergence gate during the gamma phase.
-    if key == "gamma" and gamma_thr is not None:
-        within = within and (gamma_deviation is not None and gamma_deviation <= gamma_thr)
+
+    # Gamma is only a convergence gate during the gamma phase, and which
+    # metric gates it depends on the session's EOTF (see above). If the phase
+    # configures a gate threshold but this session never produces the metric
+    # it applies to, that's "no data to assess" — not "out of tolerance".
+    gate_metric_missing = False
+    if key == "gamma":
+        if is_pq_session:
+            if pq_thr is not None:
+                if pq_error is None:
+                    gate_metric_missing = True
+                else:
+                    within = within and (pq_error <= pq_thr)
+        elif gamma_thr is not None:
+            if gamma_deviation is None:
+                gate_metric_missing = True
+            else:
+                within = within and (gamma_deviation <= gamma_thr)
+
+    if gate_metric_missing:
+        has_data = False
 
     converged = bool(within and has_data)
 
@@ -1437,15 +1475,36 @@ def assess_convergence(
         stalled = True
 
     if converged:
-        detail = (
-            f"{key} within tolerance (avg ΔE={avg_de}, max ΔE={max_de}); proceed."
-        )
+        if key == "gamma" and pq_error is not None:
+            detail = (
+                f"gamma within tolerance (PQ midtone error={round(pq_error, 2)}%); "
+                "proceed."
+            )
+        elif key == "gamma" and gamma_deviation is not None:
+            detail = (
+                f"gamma within tolerance (gamma deviation={round(gamma_deviation, 3)}); "
+                "proceed."
+            )
+        else:
+            detail = (
+                f"{key} within tolerance (avg ΔE={avg_de}, max ΔE={max_de}); proceed."
+            )
     elif not has_data:
         detail = f"No {key} residual data available to assess convergence."
     elif stalled:
         detail = (
             f"{key} stalled at avg ΔE={avg_de} (prev {prev_avg_de}); "
             f"improvement < {_CONVERGENCE_STALL_EPSILON} ΔE — diminishing returns."
+        )
+    elif key == "gamma" and pq_error is not None:
+        detail = (
+            f"gamma out of tolerance (PQ midtone error={round(pq_error, 2)}%, "
+            f"threshold ±{pq_thr}%); {rounds_remaining} round(s) remaining."
+        )
+    elif key == "gamma" and gamma_deviation is not None:
+        detail = (
+            f"gamma out of tolerance (gamma deviation={round(gamma_deviation, 3)}, "
+            f"max deviation {gamma_thr}); {rounds_remaining} round(s) remaining."
         )
     else:
         detail = (
@@ -1464,6 +1523,7 @@ def assess_convergence(
         gamma_deviation=round(gamma_deviation, 3)
         if isinstance(gamma_deviation, (int, float))
         else gamma_deviation,
+        pq_error=round(pq_error, 2) if isinstance(pq_error, (int, float)) else pq_error,
         detail=detail,
     )
 
@@ -1681,6 +1741,7 @@ def predict_next_settings(
             "avg_de": assessment.avg_de,
             "max_de": assessment.max_de,
             "gamma_deviation": assessment.gamma_deviation,
+            "pq_error": assessment.pq_error,
         },
         "summary": summary_dict,
     }

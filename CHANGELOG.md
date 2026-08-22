@@ -9,6 +9,21 @@ changes.
 
 ### Fixed
 
+- **HDR10/PQ gamma phase could never converge (#656).** `assess_convergence()`
+  gated the `gamma` phase solely on `gamma_deviation`, which `analyze()` only
+  populates for power-law/BT.1886 (SDR) sessions — PQ/ST.2084 sessions
+  populate `pq_err_midtones` instead, so the gate was permanently
+  unsatisfiable for HDR content, even with perfect ST.2084 tracking. The
+  reactive settings loop (`POST /api/session/{sid}/next-settings`) would burn
+  every adjustment round and report a false "hardware ceiling" instead of
+  short-circuiting to `next_step="verify"`. The gamma gate now checks
+  whichever tracking metric the session's EOTF actually produces —
+  `gamma_deviation` for power-law sessions, or the new `pq_error` (percent)
+  for PQ sessions, gated by a new `max_pq_error_pct` threshold (default
+  5.0%). `ConvergenceAssessment.to_dict()` (and therefore the `next-settings`
+  response's `convergence` block) gains a new `pq_error` key alongside
+  `gamma_deviation`; SDR/power-law behavior is unchanged.
+
 - **`.prefs.json` mistakenly created as a directory.** Docker/Unraid bind
   mounts of a single host file that doesn't exist yet get created as a
   directory instead, which previously made every preferences load and save

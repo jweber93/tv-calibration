@@ -20,7 +20,7 @@ from calcore.llm import (
     predict_next_settings,
     query_pass_decision,
 )
-from calcore.models import Summary
+from calcore.models import HDR10_TARGET, Summary
 from calibrator.profiles import TV_PROFILES
 from calibrator.session import (
     REPATCH_MAX_PASSES,
@@ -783,6 +783,7 @@ def _summary(
     avg_de=None,
     max_de=None,
     gamma=None,
+    pq_err=None,
     color_avg=None,
     color_max=None,
 ) -> Summary:
@@ -792,7 +793,7 @@ def _summary(
         grayscale_max_de=max_de,
         grayscale_over_3=0,
         gamma_midtones=gamma,
-        pq_err_midtones=None,
+        pq_err_midtones=pq_err,
         color_75_avg_de=None,
         color_75_max_de=None,
         color_75_chroma_avg=None,
@@ -904,6 +905,63 @@ class TestAssessConvergence:
         )
         assert a.metric_key == "gamma"
         assert a.converged is False
+
+    def test_hdr_pq_perfect_tracking_converges(self):
+        # PQ session: gamma_midtones is never populated (see calcore/analysis.py),
+        # only pq_err_midtones. Perfect PQ tracking must converge on its own gate
+        # rather than being stuck on the power-law gamma_deviation gate, which is
+        # permanently None for PQ sessions (#656).
+        a = assess_convergence(
+            _summary(avg_de=0.027, max_de=0.108, pq_err=-0.16),
+            "gamma",
+            target_gamma=HDR10_TARGET.gamma,
+        )
+        assert a.metric_key == "gamma"
+        assert a.converged is True
+        assert a.gamma_deviation is None
+        assert a.pq_error == pytest.approx(0.16)
+
+    def test_hdr_pq_off_reference_does_not_converge(self):
+        a = assess_convergence(
+            _summary(avg_de=0.5, max_de=1.0, pq_err=25.0),
+            "gamma",
+            target_gamma=HDR10_TARGET.gamma,
+        )
+        assert a.converged is False
+        assert "PQ" in a.detail
+        assert "gamma deviation" not in a.detail
+
+    def test_hdr_pq_error_threshold_boundary(self):
+        # max_pq_error_pct defaults to 5.0 (percent, not a fraction) — exercise
+        # both sides of that boundary explicitly. pq_error is rounded to 2dp
+        # in the returned assessment, so use values that don't round onto the
+        # boundary itself.
+        just_within = assess_convergence(
+            _summary(avg_de=0.1, max_de=0.2, pq_err=4.94),
+            "gamma",
+            target_gamma=HDR10_TARGET.gamma,
+        )
+        assert just_within.converged is True
+        assert just_within.pq_error == pytest.approx(4.94)
+
+        just_outside = assess_convergence(
+            _summary(avg_de=0.1, max_de=0.2, pq_err=5.06),
+            "gamma",
+            target_gamma=HDR10_TARGET.gamma,
+        )
+        assert just_outside.converged is False
+        assert just_outside.pq_error == pytest.approx(5.06)
+
+    def test_gamma_gate_metric_unavailable_reports_no_data(self):
+        # Neither gamma_midtones nor pq_err_midtones populated (e.g. all-endpoint
+        # or all-black patches) — must read as "no data", not "out of tolerance".
+        a = assess_convergence(
+            _summary(avg_de=1.0, max_de=2.0),
+            "gamma",
+            target_gamma=2.2,
+        )
+        assert a.converged is False
+        assert "No gamma" in a.detail
 
     def test_profile_thresholds_override_defaults(self):
         thresholds = {"grayscale": {"avg_de": 0.5, "max_de": 1.0}}
