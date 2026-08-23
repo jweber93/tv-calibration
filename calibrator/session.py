@@ -137,6 +137,10 @@ STEPS_ORDER = [
 # Repatch is a transient meta-state that can occur during any measurement step
 REPATCH_MAX_PASSES = 3
 
+# Pass-decision actions that repass() understands (#659). Any other value is
+# rejected rather than silently mutating the session step.
+REPASS_ACTIONS = ("accept", "repatch", "ceiling")
+
 # Cap on stored convergence-loop rounds per session to bound growth (#337)
 _MAX_ADJUSTMENT_ROUNDS = 20
 
@@ -2070,8 +2074,10 @@ class SessionStore:
     ) -> Dict[str, Any]:
         """Handle an LLM pass-decision repass action.
 
-        Increments repass_count, checks against REPATCH_MAX_PASSES, and
-        jumps the session back to the relevant measurement step.
+        "ceiling" records the decision and stops. "repatch" increments
+        repass_count, checks against REPATCH_MAX_PASSES, and jumps the
+        session back to the relevant measurement step. "accept" records
+        the decision and leaves the session step untouched (#659).
 
         Atomic: held under ``SessionStore._lock`` to prevent TOCTOU races
         with concurrent delete/eviction (#503).
@@ -2085,6 +2091,15 @@ class SessionStore:
                 session["repass_decision"]["action"] = "ceiling"
                 session["repass_decision"]["reason"] = reason
                 session["repass_decision"]["ceiling_reason"] = ceiling_reason
+                session["repass_decision"]["timestamp"] = now().isoformat()
+                self.save_session(sid)
+                return session
+
+            if action == "accept":
+                session.setdefault("repass_decision", {})
+                session["repass_decision"]["action"] = "accept"
+                session["repass_decision"]["reason"] = reason
+                session["repass_decision"]["patches"] = patches or []
                 session["repass_decision"]["timestamp"] = now().isoformat()
                 self.save_session(sid)
                 return session
@@ -2103,16 +2118,20 @@ class SessionStore:
                     self.save_session(sid)
                     return session
 
-            session.setdefault("repass_decision", {})
-            session["repass_decision"]["action"] = action
-            session["repass_decision"]["reason"] = reason
-            session["repass_decision"]["patches"] = patches or []
-            session["repass_decision"]["timestamp"] = now().isoformat()
+                session.setdefault("repass_decision", {})
+                session["repass_decision"]["action"] = "repatch"
+                session["repass_decision"]["reason"] = reason
+                session["repass_decision"]["patches"] = patches or []
+                session["repass_decision"]["timestamp"] = now().isoformat()
 
-            step_to_remeasure = _repass_target_step(current_step)
-            session["step"] = step_to_remeasure
-            self.save_session(sid)
-            return session
+                session["step"] = _repass_target_step(current_step)
+                self.save_session(sid)
+                return session
+
+            raise ValueError(
+                f"unknown repass action {action!r}; expected one of: "
+                f"{', '.join(REPASS_ACTIONS)}"
+            )
 
     def record_adjustment_round(
         self,
