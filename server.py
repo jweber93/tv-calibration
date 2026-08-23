@@ -2269,12 +2269,26 @@ def run_suggested_patches(sid: str, body: RunPatchesReq):
 
 # ── Adaptive repass endpoint (#166) ────────────────────────────────────────────
 
+REPASS_ACTIONS = ("accept", "repatch", "ceiling")
+
+
 class RepassReq(BaseModel):
     """LLM pass-decision result to drive the repass state transition."""
-    action: str
+    action: Literal["accept", "repatch", "ceiling"]
     patches: List[str] = []
     reason: str = ""
     ceiling_reason: Optional[str] = None
+
+    @field_validator("action")
+    @classmethod
+    def _validate_repass_action(cls, v: str) -> str:
+        """Reject unknown actions with a typed 4xx, not a silent state change (#659)."""
+        if v not in REPASS_ACTIONS:
+            raise ValueError(
+                f"unknown repass action {v!r}; expected one of: "
+                f"{', '.join(REPASS_ACTIONS)}"
+            )
+        return v
 
 
 def _label_to_rgb(label: str, signal_range: str, code_scale: str = "8bit") -> List[int]:

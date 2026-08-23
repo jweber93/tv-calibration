@@ -726,10 +726,79 @@ class TestSessionStoreRepash:
         session = store.repass("test1234", "accept", reason="within tolerance")
         assert session["repass_count"] == 0
 
-    def test_repass_from_report_jumps_to_post_grayscale(self):
+    def test_repatch_from_report_jumps_to_post_grayscale(self):
         store = self._make_store(self._base_session("report"))
         session = store.repass("test1234", "repatch", reason="final check")
         assert session["step"] == "post_grayscale"
+
+    def test_accept_does_not_change_step(self):
+        store = self._make_store(self._base_session("report"))
+        session = store.repass("test1234", "accept", reason="within tolerance")
+        assert session["step"] == "report"
+        assert session["repass_decision"]["action"] == "accept"
+        assert session["repass_decision"]["reason"] == "within tolerance"
+        assert session["repass_decision"]["patches"] == []
+        assert "timestamp" in session["repass_decision"]
+
+    def test_accept_at_measurement_step_preserves_step(self):
+        store = self._make_store(self._base_session("white_balance"))
+        session = store.repass("test1234", "accept")
+        assert session["step"] == "white_balance"
+
+    def test_unknown_action_raises_and_preserves_state(self):
+        store = self._make_store(self._base_session("select_mode"))
+        with pytest.raises(ValueError):
+            store.repass("test1234", "bogus")
+        assert store.sessions["test1234"]["step"] == "select_mode"
+        assert "repass_decision" not in store.sessions["test1234"]
+
+
+class TestRepassEndpointValidation:
+    """POST /api/session/{sid}/repass input validation (#659)."""
+
+    @staticmethod
+    def _client():
+        import server as srv
+        from fastapi.testclient import TestClient
+
+        srv._sessions.clear()
+        srv._watched_session.set(None)
+        srv._zro_bridge.set("")
+        return TestClient(srv.app)
+
+    def _create_session_at_report(self, client):
+        import server as srv
+
+        sid = client.post("/api/session", json={"tv_key": "u8g"}).json()["id"]
+        client.post(f"/api/session/{sid}/mode", json={"mode": "SDR", "sdr_peak_nits": 120})
+        # Fast-forward the session to report (store is in-process).
+        srv._sessions[sid]["step"] = "report"
+        return sid
+
+    def test_accept_keeps_step_at_report(self):
+        import server as srv
+
+        client = self._client()
+        sid = self._create_session_at_report(client)
+        r = client.post(
+            f"/api/session/{sid}/repass",
+            json={"action": "accept", "reason": "within tolerance"},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert srv._sessions[sid]["step"] == "report"
+        assert body["decision"]["action"] == "accept"
+        assert srv._sessions[sid]["repass_decision"]["action"] == "accept"
+
+    def test_unknown_action_is_rejected_without_state_change(self):
+        import server as srv
+
+        client = self._client()
+        sid = self._create_session_at_report(client)
+        r = client.post(f"/api/session/{sid}/repass", json={"action": "bogus"})
+        assert r.status_code in (400, 422)
+        assert srv._sessions[sid]["step"] == "report"
+        assert "repass_decision" not in srv._sessions[sid]
 
 
 class TestLabelToRgb:
