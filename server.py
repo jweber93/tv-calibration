@@ -1081,7 +1081,7 @@ class _SessionCmsMeasurementSource(MeasurementSource):
         colour = patch.label
         session = store.get(self.sid)
         seen_before = len(session.get("cms_measurements", []))
-        zro_trigger()
+        _trigger_bridge_measure()
         deadline = _time.monotonic() + self.timeout
         while _time.monotonic() < deadline:
             session = store.get(self.sid)
@@ -2686,7 +2686,19 @@ def zro_bridge_status(url: Optional[str] = Query(None)):
 @app.post("/api/zro/bridge/config")
 @app.post("/api/bridge/url")
 def zro_bridge_config(body: ZroBridgeConfigBody):
-    _zro_bridge.set(body.url.rstrip("/"))
+    raw = body.url
+    stripped = raw.strip()
+    if not stripped:
+        if raw == "":
+            _zro_bridge.set("")
+            _save_prefs()
+            return {"ok": True, "url": ""}
+        raise HTTPException(400, "bridge_url must be a valid http(s) URL, e.g. http://192.168.1.50:7070")
+    url = stripped.rstrip("/")
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise HTTPException(400, "bridge_url must be a valid http(s) URL, e.g. http://192.168.1.50:7070")
+    _zro_bridge.set(url)
     _save_prefs()
     return {"ok": True, "url": _zro_bridge.get()}
 
@@ -2802,14 +2814,8 @@ def save_prefs_endpoint(req: PrefsReq):
     return {"ok": True, **_prefs}
 
 
-@app.post("/api/zro/trigger")
-@app.post("/api/bridge/measure")
-def zro_trigger(body: ZroBridgeMeasureBody = Body(default_factory=dict)):
-    if isinstance(body, dict):
-        url_val = body.get("url")
-        target_url = url_val if (url_val is not None and str(url_val).strip()) else _zro_bridge.get()
-    else:
-        target_url = body.url if (body.url is not None and str(body.url).strip()) else _zro_bridge.get()
+def _trigger_bridge_measure(url: Optional[str] = None) -> Dict[str, Any]:
+    target_url = url if (url is not None and url.strip()) else _zro_bridge.get()
     if not target_url:
         raise HTTPException(
             400,
@@ -2828,6 +2834,13 @@ def zro_trigger(body: ZroBridgeMeasureBody = Body(default_factory=dict)):
         raise HTTPException(502, f"ZRO Bridge error: {exc.response.text}")
     except Exception as exc:
         raise HTTPException(500, f"ZRO Bridge proxy error: {exc}")
+
+
+@app.post("/api/zro/trigger")
+@app.post("/api/bridge/measure")
+def zro_trigger(body: ZroBridgeMeasureBody = Body(default_factory=dict)):
+    url_val = body.get("url") if isinstance(body, dict) else getattr(body, "url", None)
+    return _trigger_bridge_measure(url_val)
 
 
 # ── Autocal: guided closed-loop measure → correct → apply → re-measure ───────
