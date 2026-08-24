@@ -372,3 +372,114 @@ class TestAutocalPrefs:
             assert resp.json()["max_iterations"] == 3
             block.set()
             _wait_until(lambda: session_id not in server_module._autocal_loops)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Issue #641: autocal/run check-then-register race
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestAutocalRunRace:
+    """Tests for issue #641: two concurrent autocal/run calls must not both start."""
+
+    def test_concurrent_autocal_run_single_winner(self, client, session_id):
+        """Simultaneous POST /autocal/run — exactly one 200, others 409.
+
+        The winner's worker is gated on an Event so it holds the reserved
+        slot for the whole test; this makes the other POSTs deterministically
+        hit the 409 path instead of depending on sleep timing.
+        """
+        start_count = 0
+        start_lock = threading.Lock()
+        gate = threading.Event()
+        original_bg = server_module._run_autocal_background
+
+        def gated_bg(sid, starting, loop, colours, patch_for_colour):
+            nonlocal start_count
+            with start_lock:
+                start_count += 1
+            # Hold the reserved slot until the test releases us, so other
+            # concurrent POSTs reliably observe "already running".
+            gate.wait(timeout=10)
+
+        server_module._run_autocal_background = gated_bg
+        try:
+            results = []
+            rlock = threading.Lock()
+            barrier = threading.Barrier(3)
+
+            def poster():
+                try:
+                    barrier.wait()
+                    resp = client.post(
+                        f"/api/session/{session_id}/autocal/run",
+                        json={"colours": ["Red"], "max_iterations": 1},
+                    )
+                    with rlock:
+                        results.append(resp.status_code)
+                except Exception as e:
+                    with rlock:
+                        results.append(f"error: {e}")
+
+            threads = [threading.Thread(target=poster) for _ in range(3)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=10)
+            gate.set()  # release the gated worker(s)
+
+            assert not any(str(r).startswith("error") for r in results), (
+                f"Thread errors: {results}"
+            )
+            # Exactly one 200; the rest are 409.
+            twos = [r for r in results if r == 200]
+            assert len(twos) == 1, f"Expected 1x 200, got {results}"
+            # Only one worker thread should have started.
+            assert start_count == 1, (
+                f"Expected exactly 1 worker started, got {start_count}"
+            )
+        finally:
+            server_module._run_autocal_background = original_bg
+            gate.set()
+            with server_module._autocal_loops_lock:
+                server_module._autocal_loops.clear()
+            with server_module._autocal_history_lock:
+                server_module._autocal_last_run.clear()
+
+    def test_autocal_run_placeholder_visible_during_startup(self, client, session_id):
+        """While autocal is starting (worker holds the reserved slot), a
+        second POST should see the placeholder and return 409.
+        """
+        release = threading.Event()
+        original_bg = server_module._run_autocal_background
+
+        def blocking_bg(sid, starting, loop, colours, patch_for_colour):
+            # Block until released, keeping the starting placeholder in place.
+            release.wait(timeout=5)
+            with server_module._autocal_loops_lock:
+                server_module._autocal_loops.pop(sid, None)
+
+        server_module._run_autocal_background = blocking_bg
+        try:
+            # Start the run — should return 200 and register placeholder.
+            resp = client.post(
+                f"/api/session/{session_id}/autocal/run",
+                json={"colours": ["Red"], "max_iterations": 1},
+            )
+            assert resp.status_code == 200
+
+            # Second request sees the placeholder and gets 409.
+            resp2 = client.post(
+                f"/api/session/{session_id}/autocal/run",
+                json={"colours": ["Blue"], "max_iterations": 1},
+            )
+            assert resp2.status_code == 409
+
+            release.set()  # unblock the worker thread
+        finally:
+            server_module._run_autocal_background = original_bg
+            release.set()  # ensure no thread is stuck
+            with server_module._autocal_loops_lock:
+                server_module._autocal_loops.clear()
+            with server_module._autocal_history_lock:
+                server_module._autocal_last_run.clear()
