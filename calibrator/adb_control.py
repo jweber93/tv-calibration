@@ -93,10 +93,14 @@ def _adb(*args: str, device: Optional[str] = None) -> subprocess.CompletedProces
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=ADB_TIMEOUT)
     except subprocess.TimeoutExpired as exc:
-        if isinstance(exc.stdout, str):
-            partial_stdout = exc.stdout
-        elif exc.stdout:
-            partial_stdout = exc.stdout.decode()
+        # .stdout is a property alias for .output on TimeoutExpired, but fall
+        # back to .output explicitly in case that ever isn't true for some
+        # subprocess code path — cheap insurance against a future regression.
+        partial = exc.stdout if exc.stdout is not None else exc.output
+        if isinstance(partial, str):
+            partial_stdout = partial
+        elif partial:
+            partial_stdout = partial.decode(errors="replace")
         else:
             partial_stdout = ""
         return subprocess.CompletedProcess(

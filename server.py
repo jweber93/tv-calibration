@@ -1944,10 +1944,13 @@ def _load_session_by_id(sid: str) -> Dict[str, Any]:
         from calibrator.session import deserialize_session
         data = json.loads(path.read_text(encoding="utf-8"))
         return deserialize_session(data)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
         # A corrupt/truncated session file (e.g. a crash mid-write, prior to
         # the atomic-write fix) is indistinguishable from a gone session —
-        # treat it as not found rather than 500ing the caller.
+        # treat it as not found rather than 500ing the caller. Still log it:
+        # a corrupt file on disk is a signal worth someone noticing, even
+        # though the client just sees a clean 404.
+        logger.warning("Corrupt session file at %s: %s", path, exc)
         raise HTTPException(404, f"Session not found: {sid}")
     except Exception as exc:
         raise HTTPException(500, f"Could not load session {sid}: {exc}") from exc

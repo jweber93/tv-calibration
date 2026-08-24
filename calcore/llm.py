@@ -132,7 +132,8 @@ def parse_adjustment_plan(text: str) -> Optional[AdjustmentPlan]:
 
     Strips markdown code fences if present (defensive, same pattern as
     query_next_patch_strategy).  Returns None if the text cannot be parsed or
-    required fields are missing.
+    required fields are missing — including when it parses to valid JSON
+    that isn't a top-level object (e.g. an array or scalar).
     """
     content = _extract_json(text)
     try:

@@ -45,7 +45,8 @@ class TestAdbTimeoutHandling:
     """
 
     def test_str_partial_stdout_no_raise(self):
-        exc = subprocess.TimeoutExpired(cmd=["adb"], timeout=15, output="partial\n")
+        exc = subprocess.TimeoutExpired(cmd=["adb"], timeout=15)
+        exc.stdout = "partial\n"  # set via the .stdout property, as _adb reads it
         assert isinstance(exc.stdout, str)
         with patch("subprocess.run", side_effect=exc):
             result = adb_mod._adb("shell", "echo hi")
@@ -53,18 +54,37 @@ class TestAdbTimeoutHandling:
         assert result.stdout == "partial\n"
 
     def test_bytes_partial_stdout_no_raise(self):
-        exc = subprocess.TimeoutExpired(cmd=["adb"], timeout=15, output=b"partial\n")
+        exc = subprocess.TimeoutExpired(cmd=["adb"], timeout=15)
+        exc.stdout = b"partial\n"
         with patch("subprocess.run", side_effect=exc):
             result = adb_mod._adb("shell", "echo hi")
         assert result.returncode == 124
         assert result.stdout == "partial\n"
 
     def test_none_stdout_no_raise(self):
-        exc = subprocess.TimeoutExpired(cmd=["adb"], timeout=15, output=None)
+        exc = subprocess.TimeoutExpired(cmd=["adb"], timeout=15)
+        exc.stdout = None
         with patch("subprocess.run", side_effect=exc):
             result = adb_mod._adb("shell", "echo hi")
         assert result.returncode == 124
         assert result.stdout == ""
+
+    def test_falls_back_to_output_when_stdout_unset(self):
+        """Defensive fallback: read .output if .stdout is somehow unset."""
+        exc = subprocess.TimeoutExpired(cmd=["adb"], timeout=15, output="partial\n")
+        with patch("subprocess.run", side_effect=exc):
+            result = adb_mod._adb("shell", "echo hi")
+        assert result.returncode == 124
+        assert result.stdout == "partial\n"
+
+    def test_non_utf8_partial_stdout_does_not_raise(self):
+        """A decode error on partial bytes must not turn a timeout into a crash."""
+        exc = subprocess.TimeoutExpired(cmd=["adb"], timeout=15)
+        exc.stdout = b"\xff\xfepartial"
+        with patch("subprocess.run", side_effect=exc):
+            result = adb_mod._adb("shell", "echo hi")
+        assert result.returncode == 124
+        assert isinstance(result.stdout, str)
 
 
 class TestGetConnectedDevices:
