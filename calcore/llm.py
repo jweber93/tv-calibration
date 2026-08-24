@@ -42,19 +42,17 @@ def _extract_json(text: str) -> str:
     m = _FENCE_RE.search(text)
     if m:
         return m.group(1).strip()
-    # Fallback: find the first '{' and attempt to balance to the matching '}'
+    # Fallback: find the first '{' and attempt to balance to the matching '}'.
+    # Use the stdlib decoder so braces inside JSON string literals (and
+    # escaped quotes within them) don't perturb a naive depth counter.
     start = text.find("{")
     if start == -1:
         return text
-    depth = 0
-    for i in range(start, len(text)):
-        if text[i] == "{":
-            depth += 1
-        elif text[i] == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start : i + 1]
-    return text[start:]
+    try:
+        _, end = json.JSONDecoder().raw_decode(text, start)
+        return text[start:end]
+    except (json.JSONDecodeError, ValueError):
+        return text[start:]
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -134,12 +132,16 @@ def parse_adjustment_plan(text: str) -> Optional[AdjustmentPlan]:
 
     Strips markdown code fences if present (defensive, same pattern as
     query_next_patch_strategy).  Returns None if the text cannot be parsed or
-    required fields are missing.
+    required fields are missing — including when it parses to valid JSON
+    that isn't a top-level object (e.g. an array or scalar).
     """
     content = _extract_json(text)
     try:
         obj = json.loads(content)
     except (json.JSONDecodeError, ValueError):
+        return None
+
+    if not isinstance(obj, dict):
         return None
 
     adjustments = obj.get("adjustments")

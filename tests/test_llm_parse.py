@@ -97,6 +97,30 @@ class ExtractJsonTests(unittest.TestCase):
         raw = "  \n  {\"key\": \"value\"}  "
         self.assertEqual(_extract_json(raw), '{"key": "value"}')
 
+    def test_unbalanced_brace_inside_string_value(self):
+        """#644: an unbalanced '}' inside a string value must not truncate
+        the object early — a naive depth counter returns depth to 0 mid-object."""
+        raw = (
+            '{"adjustments": [{"menu": "CMS", "setting": "Sat", "from": 5, '
+            '"to": 3, "scope": "local", "reason": "hold the } edge of the curve"}], '
+            '"next_step": "verify", "confidence": 0.9}'
+        )
+        result = _extract_json(raw)
+        parsed = json.loads(result)
+        self.assertEqual(parsed["next_step"], "verify")
+        self.assertIn("}", parsed["adjustments"][0]["reason"])
+
+    def test_unbalanced_open_brace_inside_string_value(self):
+        """#644: an unbalanced '{' inside a string value must not run the
+        naive depth counter past the object's real closing brace."""
+        raw = (
+            '{"adjustments": [], "next_step": "verify", '
+            '"confidence": 0.9, "note": "unopened { brace"} trailing garbage'
+        )
+        result = _extract_json(raw)
+        parsed = json.loads(result)
+        self.assertEqual(parsed["next_step"], "verify")
+
 
 class ParseAdjustmentPlanFenceTests(unittest.TestCase):
     """Tests for parse_adjustment_plan with various fence formats (#148)."""
@@ -194,6 +218,18 @@ class ParseAdjustmentPlanFenceTests(unittest.TestCase):
         result = parse_adjustment_plan(empty)
         self.assertIsNotNone(result)
         self.assertEqual(result.adjustments, [])
+
+    def test_top_level_array_returns_none(self):
+        """#643: a top-level JSON array must return None, not raise AttributeError."""
+        top_level_array = json.dumps(
+            [{"menu": "CMS", "setting": "Sat", "from": 5, "to": 3, "scope": "local"}]
+        )
+        self.assertIsNone(parse_adjustment_plan(top_level_array))
+
+    def test_top_level_scalar_returns_none(self):
+        """#643: a top-level JSON scalar must return None, not raise AttributeError."""
+        self.assertIsNone(parse_adjustment_plan(json.dumps("just a string")))
+        self.assertIsNone(parse_adjustment_plan(json.dumps(42)))
 
     # ── per-adjustment field validation (#315) ─────────────────────────────
 

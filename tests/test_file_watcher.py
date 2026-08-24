@@ -695,6 +695,35 @@ class TestErrorHandling:
             f"Expected session-related error, got: {fw._watcher_error!r}"
         )
 
+    def test_file_imports_once_session_exists_after_no_session_event(self, tmp_path):
+        """#648: the no-session branch must release its optimistic mtime claim
+        so a CSV written before any session existed still imports once a
+        session is created — it must not be permanently suppressed by the
+        mtime dedup that treats it as already-imported."""
+        session_holder: Dict[str, Optional[Dict]] = {"session": None}
+        fw.start_watching(tmp_path, lambda: session_holder["session"], lambda: None)
+        handler = fw._handler
+        assert handler is not None
+
+        csv_file = tmp_path / "early.csv"
+        csv_file.write_text(MINIMAL_ZRO_CSV)
+
+        # First pass: no session yet -> import is skipped, and the mtime
+        # claim taken at the top of _do_import_file must not stick around.
+        handler._do_import_file(str(csv_file))
+        assert str(csv_file) not in handler._imported, (
+            "no-session branch must release its optimistic mtime claim"
+        )
+
+        # Now a session exists; re-driving the same file (as a fresh watcher
+        # event would) must import it rather than being suppressed as a
+        # duplicate of an mtime that was never actually processed.
+        session_holder["session"] = _make_session()
+        handler._do_import_file(str(csv_file))
+        assert len(session_holder["session"]["pre_measurements"]) > 0, (
+            "File should import once a session exists"
+        )
+
 
 # ════════════════════════════════════════════════════════════════════════════
 # Integration tests — HTTP endpoints via TestClient

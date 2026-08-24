@@ -1706,7 +1706,10 @@ class SessionStore:
                 self.session_dir.mkdir(exist_ok=True)
                 self.touch_session(self.sessions[sid])
                 path = self.session_dir / f"{sid}.json"
-                path.write_text(json.dumps(serialize_session(self.sessions[sid]), indent=2))
+                payload = json.dumps(serialize_session(self.sessions[sid]), indent=2)
+                tmp = path.with_name(path.name + ".tmp")
+                tmp.write_text(payload)
+                tmp.replace(path)
             except Exception:
                 logger.exception("Failed to save session %s to disk", sid)
 
