@@ -36,6 +36,37 @@ def _completed(returncode=0, stdout="", stderr=""):
 
 # ── Unit tests: adb_control module ────────────────────────────────────────────
 
+class TestAdbTimeoutHandling:
+    """#646: _adb's TimeoutExpired handler must not assume exc.stdout is bytes.
+
+    subprocess.run(..., text=True) yields a str exc.stdout on Windows (and can
+    on POSIX too); only an untouched pipe with no text-mode decoding applied
+    yields bytes/None. Both must degrade to the rc=124 sentinel, never raise.
+    """
+
+    def test_str_partial_stdout_no_raise(self):
+        exc = subprocess.TimeoutExpired(cmd=["adb"], timeout=15, output="partial\n")
+        assert isinstance(exc.stdout, str)
+        with patch("subprocess.run", side_effect=exc):
+            result = adb_mod._adb("shell", "echo hi")
+        assert result.returncode == 124
+        assert result.stdout == "partial\n"
+
+    def test_bytes_partial_stdout_no_raise(self):
+        exc = subprocess.TimeoutExpired(cmd=["adb"], timeout=15, output=b"partial\n")
+        with patch("subprocess.run", side_effect=exc):
+            result = adb_mod._adb("shell", "echo hi")
+        assert result.returncode == 124
+        assert result.stdout == "partial\n"
+
+    def test_none_stdout_no_raise(self):
+        exc = subprocess.TimeoutExpired(cmd=["adb"], timeout=15, output=None)
+        with patch("subprocess.run", side_effect=exc):
+            result = adb_mod._adb("shell", "echo hi")
+        assert result.returncode == 124
+        assert result.stdout == ""
+
+
 class TestGetConnectedDevices:
     def test_parses_device_list(self):
         output = "List of devices attached\n192.168.1.100:5555\tdevice\n"
@@ -206,6 +237,24 @@ class TestResetCms:
         with patch("subprocess.run", side_effect=responses):
             result = adb_mod.reset_cms()
         assert result["ok"] is False
+
+    def test_non_timeout_failure_excluded_from_completed_on_later_timeout(self):
+        """#647: a non-timeout failed slot must never land in `completed` —
+        callers compute the retry set as all-slots minus completed, so a
+        failed slot that sneaks into `completed` is silently skipped on retry.
+        Slot 0 succeeds, slot 1 fails (non-timeout), slot 2 times out — the
+        partial-progress `completed` list must contain only slot 0."""
+        responses = [
+            _completed(stdout="OK set_hue ch=1 val=0 ret=0"),  # Red/set_hue: ok
+            _completed(returncode=1, stderr="bad state"),       # Red/set_saturation: fails
+            _completed(returncode=124, stderr="timed out"),     # Red/set_brightness: timeout
+        ]
+        with patch("subprocess.run", side_effect=responses):
+            result = adb_mod.reset_cms()
+        assert result["partial"] is True
+        assert result["completed"] == ["Red/set_hue"]
+        assert "Red/set_saturation" not in result["completed"]
+        assert result["failed_at"] == "Red/set_brightness"
 
 
 class TestGetAdbStatus:

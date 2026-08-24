@@ -302,6 +302,53 @@ class TestSessionStoreThreadSafety:
         assert session is not None
 
 
+class TestSaveSessionAtomicWrite:
+    """#642: save_session must write atomically (tmp + replace), never in place."""
+
+    @pytest.fixture
+    def store(self, tmp_path):
+        return SessionStore(
+            session_dir_getter=lambda: tmp_path,
+            ttl_getter=lambda: timedelta(days=7),
+            watched_session_id_getter=lambda: None,
+        )
+
+    def test_no_tmp_file_left_behind_on_success(self, store, tmp_path):
+        result = store.create_session("u8g")
+        sid = result["id"]
+        store.save_session(sid)
+
+        path = tmp_path / f"{sid}.json"
+        tmp = tmp_path / f"{sid}.json.tmp"
+        assert path.exists()
+        assert not tmp.exists()
+
+    def test_failed_write_leaves_prior_version_intact(self, store, tmp_path, monkeypatch):
+        """A failure while writing the .tmp file must not touch the real file —
+        os.replace only swaps in a fully-written temp file, so a save_session
+        that dies mid-write leaves the previously-persisted version readable
+        rather than a truncated/corrupt file."""
+        result = store.create_session("u8g")
+        sid = result["id"]
+        store.save_session(sid)
+        path = tmp_path / f"{sid}.json"
+        original_contents = path.read_text()
+
+        real_write_text = Path.write_text
+
+        def _boom(self, *args, **kwargs):
+            if self.name.endswith(".tmp"):
+                raise OSError("disk full")
+            return real_write_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "write_text", _boom)
+        store.sessions[sid]["step"] = "white_balance"
+        store.save_session(sid)  # logs and swallows the OSError internally
+
+        # The real file must be untouched by the aborted write.
+        assert path.read_text() == original_contents
+
+
 class TestRepassCeilingBehavior:
     """Test that repass ceiling advances session to report step."""
 

@@ -503,6 +503,11 @@ class _ZROHandler(FileSystemEventHandler):
                         "status": "no_session",
                         "detail": "No active calibration session was available for import.",
                     }
+                # Release the optimistic claim: nothing was actually imported,
+                # so a session created later must be able to re-trigger this
+                # file rather than have it suppressed by the mtime dedup.
+                with self._timer_lock:
+                    self._imported.pop(src_path, None)
                 return
 
             # ── merge ─────────────────────────────────────────────────────

@@ -512,6 +512,15 @@ class TestCompareEndpoint:
         resp = client.get(f"/api/report/compare?a={sid_a}&b=doesnotexist")
         assert resp.status_code == 404
 
+    def test_compare_404_not_500_for_corrupt_session_file(self, client, monkeypatch, tmp_path):
+        """#642: a truncated/corrupt on-disk session file (e.g. a crash mid-save)
+        must read as a clean 404 (session not found), never a 500."""
+        monkeypatch.setattr(server_module, "SESSION_STORE_DIR", tmp_path)
+        sid_b = _make_session_with_measurements(client)
+        (tmp_path / "corrupt1234.json").write_text('{"id": "corrupt1234", "tv_')
+        resp = client.get(f"/api/report/compare?a=corrupt1234&b={sid_b}")
+        assert resp.status_code == 404
+
     def test_compare_html_includes_delta_section(self, client):
         sid_a = _make_session_with_measurements(client)
         sid_b = _make_session_with_measurements(client)

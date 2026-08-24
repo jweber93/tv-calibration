@@ -93,10 +93,16 @@ def _adb(*args: str, device: Optional[str] = None) -> subprocess.CompletedProces
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=ADB_TIMEOUT)
     except subprocess.TimeoutExpired as exc:
+        if isinstance(exc.stdout, str):
+            partial_stdout = exc.stdout
+        elif exc.stdout:
+            partial_stdout = exc.stdout.decode()
+        else:
+            partial_stdout = ""
         return subprocess.CompletedProcess(
             args=cmd,
             returncode=124,
-            stdout=exc.stdout.decode() if exc.stdout else "",
+            stdout=partial_stdout,
             stderr=f"adb timed out after {ADB_TIMEOUT}s: {' '.join(cmd)}",
         )
 
@@ -336,9 +342,10 @@ def reset_cms(device: Optional[str] = None) -> dict:
                     "stdout": "",
                     "stderr": result.stderr,
                 }
-            if not (result.returncode == 0 and result.stdout.startswith("OK")):
+            if result.returncode == 0 and result.stdout.startswith("OK"):
+                completed.append(f"{channel}/{action}")
+            else:
                 errors.append(f"{channel}/{action}: {result.stderr or result.stdout}")
-            completed.append(f"{channel}/{action}")
     ok = len(errors) == 0
     return {"ok": ok, "stdout": "" if ok else "\n".join(errors), "stderr": ""}
 
