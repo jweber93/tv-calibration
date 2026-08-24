@@ -323,6 +323,23 @@ class TestGenericImportPeakLuminance:
         session_data = resp.json()["session"]
         assert "peak_luminance" in session_data
 
+    def test_generic_import_at_white_balance_preserves_peak_luminance(self, client, session_id):
+        """#655: importing a mid-workflow 30%/80% gray pair at white_balance
+        must not overwrite a peak_luminance already recorded at the
+        luminance step."""
+        client.post(f"/api/session/{session_id}/mode", json={"mode": "SDR", "sdr_peak_nits": 120})
+        client.post(f"/api/session/{session_id}/prepared")
+        session = _sessions[session_id]
+        session["step"] = "white_balance"
+        session["peak_luminance"] = 120.0  # correct, recorded at the luminance step
+
+        csv = "1,77,77,77,20.0,0.3127,0.3290\n2,204,204,204,80.0,0.3127,0.3290"
+        resp = _upload_generic(client, session_id, csv.encode(), fmt="xyY")
+        assert resp.status_code == 200
+
+        assert _sessions[session_id]["peak_luminance"] == 120.0
+        assert _sessions[session_id]["lum_measurements"] == []
+
 
 class TestGenericImportHeaderlessFormat:
     def test_headerless_xyz_csv_requires_format_param(self, client, session_id):

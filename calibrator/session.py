@@ -1110,7 +1110,12 @@ def bucket_map_for_session_step(
         "gamma_measurements": [],
     }
     latest_grayscale = result.grayscale_passes[-1] if result.grayscale_passes else []
-    if session_step == "pre_grayscale":
+    # Mirrors csv_adapter._PRE_STEPS / _POST_STEPS: select_mode/prepare and
+    # suggested_patches/report are legitimate steps for a ZRO import to land
+    # in (an early ramp export, or a post-report re-verification ramp), not
+    # just pre_grayscale/post_grayscale — routing only those two left every
+    # other step's import silently discarded (#636).
+    if session_step in ("pre_grayscale", "prepare", "select_mode"):
         bucket_map["pre_measurements"] = latest_grayscale or result.pre_measurements
     elif session_step == "luminance":
         bucket_map["lum_measurements"] = result.lum_measurements
@@ -1120,7 +1125,7 @@ def bucket_map_for_session_step(
         bucket_map["gamma_measurements"] = result.gamma_measurements
     elif session_step == "color_tuner":
         bucket_map["cms_measurements"] = result.cms_measurements
-    elif session_step == "post_grayscale":
+    elif session_step in ("post_grayscale", "suggested_patches", "report"):
         bucket_map["post_measurements"] = (
             latest_grayscale or result.post_measurements or result.pre_measurements
         )
@@ -2225,7 +2230,13 @@ class SessionStore:
                         session[key].append(deserialize_measurement(item))
                     if meas_dicts:
                         counts[key] = len(meas_dicts)
-            if session.get("lum_measurements"):
+            # Only re-derive peak_luminance from a measurement *this* import
+            # actually placed in lum_measurements — matching
+            # file_watcher._do_import_file's existing counts.get(...) gate —
+            # never from whatever happened to land there last, or an import
+            # that never touched lum_measurements silently overwrites a
+            # correct peak reading (#655).
+            if counts.get("lum_measurements") and session.get("lum_measurements"):
                 last_lum = session["lum_measurements"][-1]
                 y_val = getattr(last_lum, "Y", last_lum.get("Y") if isinstance(last_lum, dict) else None)
                 if y_val is not None:

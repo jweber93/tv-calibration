@@ -48,8 +48,15 @@ def _bucket_for_grayscale(stim_pct: float, session_step: Optional[str]) -> List[
         buckets.append("pre_measurements")
     elif session_step in _POST_STEPS:
         buckets.append("post_measurements")
-    else:
-        # No session step or mid-workflow: fall back to lum_measurements
+    elif stim_pct >= 99.0:
+        # No session step, or mid-workflow (luminance/white_balance/gamma/
+        # color_tuner): lum_measurements is not an "unclassified neutral
+        # patch" bin — _locked_import, quality gates, and next_step all read
+        # it as "measurements of 100% white". Only a near-peak-white reading
+        # may land there; anything lower snaps into its own wb/gamma bucket
+        # below (or no primary bucket at all), matching how
+        # zro_import._process_grayscale_group classifies rows. Routing every
+        # mid-ramp gray patch here silently overwrote peak_luminance (#655).
         buckets.append("lum_measurements")
 
     # Luminance reference: 100% white
