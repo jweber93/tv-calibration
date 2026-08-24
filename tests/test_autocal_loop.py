@@ -243,3 +243,51 @@ class TestManualConfirmationGate:
 
         assert result.colours["Red"].converged is True
         assert calls == []
+
+
+class TestLuminanceControlAlias:
+    """lg_oled55b7a (and any profile) may declare 'Luminance' instead of
+    'Brightness' for the same CMS control (issue #658)."""
+
+    def test_luminance_control_alias_runs_to_completion(self):
+        controls = ["Saturation", "Hue", "Luminance"]
+        state = {"Red": {"Saturation": 0, "Hue": 0, "Luminance": 0}}
+        # SyntheticCmsSource keys its brightness response on "Brightness"; keep
+        # it present (and unmoved) so the loop can't crash reading it, while the
+        # actual autocal control under test is "Luminance".
+        true_optimal = {"Red": {"Hue": 4, "Saturation": -3, "Brightness": 0}}
+        source = SyntheticCmsSource(state, true_optimal)
+        apply_target = RecordingApplyTarget()
+        loop = AutocalLoop(source, apply_target, TARGET, controls, max_iterations=6)
+
+        result = loop.run(["Red"], _patch_for_colour, initial_values=state)
+
+        assert not result.cancelled
+        colour_result = result.colours["Red"]
+        luminance_events = [e for e in colour_result.history if e.control == "Luminance"]
+        assert luminance_events
+        assert all(e.correction is not None for e in luminance_events)
+        # The controller/apply-target only know the canonical name, not the
+        # profile's display label.
+        assert all(e.apply_result.control == "Brightness" for e in luminance_events)
+
+    def test_every_profile_cms_controls_are_sizeable(self):
+        from calibrator.autocal import DEFAULT_CONFIG
+        from calibrator.autocal_loop import CONTROL_CANONICAL_NAME, CONTROL_ERROR_KEY
+        from calibrator.profiles import TV_PROFILES
+
+        for tv_key, profile in TV_PROFILES.items():
+            loop = AutocalLoop(
+                SyntheticCmsSource({}, {}),
+                RecordingApplyTarget(),
+                TARGET,
+                list(profile.CMS_CONTROLS),
+            )
+            # Every control the profile declares survives the loop's admission
+            # filter (mapped to a hints key) or is legitimately unsupported.
+            expected = {c for c in profile.CMS_CONTROLS if c in CONTROL_ERROR_KEY}
+            assert set(loop.cms_controls) == expected, tv_key
+            for control in loop.cms_controls:
+                canonical = CONTROL_CANONICAL_NAME.get(control, control)
+                assert canonical in DEFAULT_CONFIG.error_per_step, (tv_key, control)
+                assert canonical in DEFAULT_CONFIG.deadband, (tv_key, control)

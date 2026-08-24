@@ -101,9 +101,12 @@ class TestStimulusPctFromPatch:
 # ---------------------------------------------------------------------------
 class TestBucketForGrayscale:
     def test_black_no_session_step(self):
-        # 0% gray, no session step → lum_measurements only
+        # 0% gray, no session step: lum_measurements is reserved for
+        # near-peak-white readings (#655) — black snaps to the nearest
+        # gamma target (5%) instead, and never lands in lum_measurements.
         buckets = _bucket_for_grayscale(0.0, None)
-        assert "lum_measurements" in buckets
+        assert "lum_measurements" not in buckets
+        assert "gamma_measurements" in buckets
 
     def test_white_no_session_step(self):
         # 100% gray → lum_measurements
@@ -181,11 +184,12 @@ class TestColorPatches:
 # ---------------------------------------------------------------------------
 class TestGrayscaleNoStep:
     def test_50_percent_gray(self):
-        """Grayscale without session step should land in lum_measurements."""
+        """Mid-ramp grayscale without a session step must NOT land in
+        lum_measurements (#655) — only a near-peak-white reading may."""
         patches = [_gray_patch("50% Gray", 128)]
         result = patches_to_session_buckets(patches, SDR_TARGET)
-        assert len(result["lum_measurements"]) == 1
-        # Also should populate gamma since 50% is a gamma target
+        assert len(result["lum_measurements"]) == 0
+        # Should populate gamma since 50% is a gamma target
         assert len(result["gamma_measurements"]) == 1
 
     def test_80_percent_gray_gains_wb(self):
@@ -209,10 +213,12 @@ class TestGrayscaleNoStep:
         assert len(result["lum_measurements"]) == 1
 
     def test_0_percent_gray(self):
-        """Black should land in lum_measurements."""
+        """Black is not a peak-white reading — it must not land in
+        lum_measurements (#655); it snaps to the nearest gamma target."""
         patches = [_gray_patch("Black", 16)]
         result = patches_to_session_buckets(patches, SDR_TARGET)
-        assert len(result["lum_measurements"]) == 1
+        assert len(result["lum_measurements"]) == 0
+        assert len(result["gamma_measurements"]) == 1
 
     def test_gamma_steps_populate_gamma_bucket(self):
         """5%, 10%, ..., 95% should all land in gamma_measurements."""
@@ -321,8 +327,10 @@ class TestEdgeCases:
             meas_yxy=None,
             kind="grayscale",
         )
+        # 50% gray, no session step: routed to gamma_measurements, not
+        # lum_measurements (#655) — see TestGrayscaleNoStep.test_50_percent_gray.
         result = patches_to_session_buckets([p], SDR_TARGET)
-        meas = result["lum_measurements"][0]
+        meas = result["gamma_measurements"][0]
         # x, y should be computed from X, Y, Z
         assert meas["x"] == pytest.approx(10.0 / 30.0)
         assert meas["y"] == pytest.approx(12.0 / 30.0)
@@ -337,8 +345,10 @@ class TestEdgeCases:
             meas_yxy=(15.0, 0.32, 0.33),
             kind="grayscale",
         )
+        # 50% gray, no session step: routed to gamma_measurements, not
+        # lum_measurements (#655) — see TestGrayscaleNoStep.test_50_percent_gray.
         result = patches_to_session_buckets([p], SDR_TARGET)
-        meas = result["lum_measurements"][0]
+        meas = result["gamma_measurements"][0]
         assert meas["Y"] == 15.0
         assert meas["x"] == pytest.approx(0.32)
         assert meas["y"] == pytest.approx(0.33)
@@ -387,3 +397,23 @@ class TestEdgeCases:
         # Both should be in wb_measurements because they snap to 80% and 30% targets
         assert len(result["wb_measurements"]) >= 2, "10-bit full-range should route 80%/30% to wb_measurements"
         assert len(result["gamma_measurements"]) >= 2, "80% should also be in gamma (5-95% snapping)"
+
+
+# ---------------------------------------------------------------------------
+# #655 — mid-workflow grayscale must not corrupt peak_luminance
+# ---------------------------------------------------------------------------
+class TestMidWorkflowGrayscaleNotRoutedToLum:
+    def test_mid_workflow_grayscale_not_routed_to_lum(self):
+        """A 30%/80% gray pair imported at white_balance must not be treated
+        as luminance (peak-white) readings — only wb/gamma."""
+        patches = [_gray_patch("WB Offset", 77), _gray_patch("WB Gain", 204)]
+        result = patches_to_session_buckets(patches, SDR_TARGET, "white_balance")
+        assert result["lum_measurements"] == []
+        assert len(result["wb_measurements"]) == 2
+
+    def test_mid_workflow_near_white_still_routes_to_lum(self):
+        """A genuine ~100% white reading at a mid-workflow step is still a
+        luminance measurement."""
+        patches = [_gray_patch("White", 235)]
+        result = patches_to_session_buckets(patches, SDR_TARGET, "white_balance")
+        assert len(result["lum_measurements"]) == 1

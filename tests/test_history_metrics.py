@@ -278,6 +278,64 @@ class TestRecordSessionIdempotent:
         assert entries[0]["session_id"] == "sid-3"
 
 
+class TestHistoryWriteBackDoesNotClobberStoredMetrics:
+    """#635: a history entry whose session file no longer exists must not have
+    its stored metrics (or the baseline) overwritten with None."""
+
+    @pytest.fixture(autouse=True)
+    def _history_dir(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("TVCAL_HISTORY_DIR", str(tmp_path))
+
+    def _report(self, wb_avg_de=0.8) -> dict:
+        report = {
+            "pre_cal": {"avg_de": 5.0},
+            "post_cal": {"avg_de": 1.2},
+            "gamma": {"avg_gamma": 2.2},
+            "peak_luminance": 500.0,
+            "improvement_pct": 76.0,
+            "color_tuner": {"avg_de": 1.5},
+        }
+        if wb_avg_de is not None:
+            report["white_balance"] = {"avg_de": wb_avg_de}
+        return report
+
+    def test_get_history_preserves_stored_metrics_when_session_file_is_gone(self, client):
+        # Record a completed session with one missing computed metric
+        # (wb_avg_de: None — a session with no WB rows, per the issue's
+        # trigger) so the endpoint's recompute-missing-keys path fires, then
+        # simulate the session file having been deleted (7-day TTL eviction,
+        # or DELETE /api/session) — "missing-session-id" never existed in the
+        # store or on disk, so _compute_metrics_from_session falls into its
+        # all-None exception path.
+        record_session(
+            tv_key="u8g",
+            session_id="missing-session-id",
+            mode="SDR",
+            report=self._report(wb_avg_de=None),
+        )
+
+        resp = client.get("/api/report/history/u8g")
+        assert resp.status_code == 200
+        entry = resp.json()["sessions"][0]
+        assert entry["avg_de"] == 1.2
+        assert entry["gamma_avg"] == 2.2
+        assert entry["wb_avg_de"] is None  # genuinely never measured — stays None
+        assert entry["cms_avg_de"] == 1.5
+        assert entry["peak_luminance"] == 500.0
+
+        # The write-back must not have clobbered the stored file either — a
+        # second GET (fresh read from disk) must still see the real values,
+        # not None across the board.
+        resp2 = client.get("/api/report/history/u8g")
+        assert resp2.status_code == 200
+        entry2 = resp2.json()["sessions"][0]
+        assert entry2["avg_de"] == 1.2
+        assert entry2["gamma_avg"] == 2.2
+        assert entry2["wb_avg_de"] is None
+        assert entry2["cms_avg_de"] == 1.5
+        assert entry2["peak_luminance"] == 500.0
+
+
 class TestHistorySummarySessionCount:
     """#578: history_summary()["session_count"] must not saturate at the display cap."""
 

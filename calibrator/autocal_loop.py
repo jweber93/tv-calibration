@@ -23,6 +23,17 @@ CONTROL_ERROR_KEY: Dict[str, str] = {
     "Luminance": "brightness",
 }
 
+# Canonical control name for everything downstream of this loop: the damped
+# controller's gain/deadband tables (calibrator/autocal.ControllerConfig) and
+# ADB's CMS channel names only know "Brightness", not "Luminance" — a
+# profile-label alias resolved here, once, rather than in each consumer.
+CONTROL_CANONICAL_NAME: Dict[str, str] = {
+    "Hue": "Hue",
+    "Saturation": "Saturation",
+    "Brightness": "Brightness",
+    "Luminance": "Brightness",
+}
+
 
 @dataclass
 class IterationEvent:
@@ -79,7 +90,18 @@ class AutocalLoop:
         self.measurement_source = measurement_source
         self.apply_target = apply_target
         self.target = target
-        self.cms_controls = [c for c in cms_controls if c in CONTROL_ERROR_KEY]
+        # A control must both have a cms_hints() error key *and* be sizeable by
+        # the controller (canonical name present in its gain/deadband tables) to
+        # be admitted — mapping to an error key alone doesn't guarantee the
+        # controller can compute a step for it, and raising mid-run on an
+        # unsizeable control leaves the panel half-adjusted.
+        self.cms_controls = [
+            c
+            for c in cms_controls
+            if c in CONTROL_ERROR_KEY
+            and CONTROL_CANONICAL_NAME.get(c, c) in config.error_per_step
+            and CONTROL_CANONICAL_NAME.get(c, c) in config.deadband
+        ]
         self.signal_range = signal_range
         self.code_scale = code_scale
         self.config = config
@@ -153,7 +175,8 @@ class AutocalLoop:
                     continue
                 error = float(hints[key]["value"])
                 current_value = values[control]
-                result = controller.step(control, current_value, error)
+                canonical_control = CONTROL_CANONICAL_NAME.get(control, control)
+                result = controller.step(canonical_control, current_value, error)
                 apply_result = self.apply_target.apply(result, colour=colour)
                 if apply_result.ok:
                     values[control] = result.new_value

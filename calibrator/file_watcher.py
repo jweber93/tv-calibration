@@ -197,7 +197,13 @@ def _bucket_map_for_session_step(
         result.grayscale_passes[-1] if result.grayscale_passes else []
     )
 
-    if session_step == "pre_grayscale":
+    # Mirrors calibrator.session.bucket_map_for_session_step (the manual-upload
+    # path) and csv_adapter._PRE_STEPS / _POST_STEPS: select_mode/prepare and
+    # suggested_patches/report are legitimate steps for a ZRO import to land in
+    # (an early ramp export, or a post-report re-verification ramp), not just
+    # pre_grayscale/post_grayscale — routing only those two left every other
+    # step's watch-folder import silently discarded (#636).
+    if session_step in ("pre_grayscale", "prepare", "select_mode"):
         bucket_map["pre_measurements"] = (
             latest_grayscale_pass or result.pre_measurements
         )
@@ -209,7 +215,7 @@ def _bucket_map_for_session_step(
         bucket_map["gamma_measurements"] = result.gamma_measurements
     elif session_step == "color_tuner":
         bucket_map["cms_measurements"] = result.cms_measurements
-    elif session_step == "post_grayscale":
+    elif session_step in ("post_grayscale", "suggested_patches", "report"):
         bucket_map["post_measurements"] = (
             latest_grayscale_pass or result.post_measurements or result.pre_measurements
         )

@@ -1708,9 +1708,11 @@ def gamut_advise(sid: str):
     session = store.get(sid)
     llm_cfg_dict = session.get("llm_config", {})
     if not (llm_cfg_dict.get("endpoint") and llm_cfg_dict.get("model")):
-        raise HTTPException(
-            400, "LLM not configured; POST /api/session/{sid}/llm/configure first."
-        )
+        # Typed-null contract shared by every other LLM-gated endpoint
+        # (get_suggested_patches, post_delta_summary, next-settings): return
+        # 200 + null + reason, never a 500/400 the first real consumer would
+        # have to special-case.
+        return {"advice": None, "reason": "LLM not configured"}
 
     cms_meas = session.get("cms_measurements", [])
     if not cms_meas:
@@ -2043,20 +2045,28 @@ def _history_entry_metrics(
             return metrics
 
         computed = _compute_metrics_from_session(session_id)
+        newly_filled: Dict[str, Optional[float]] = {}
         for key, value in computed.items():
-            if metrics.get(key) is None:
+            if metrics.get(key) is None and value is not None:
                 metrics[key] = value
+                newly_filled[key] = value
 
-        # Write-back computed values to history store (best effort)
-        try:
-            if is_baseline:
-                _update_baseline(tv_key, computed)
-            else:
-                _update_history_entry(tv_key, session_id, computed)
-        except Exception:
-            logger.warning(
-                "Failed to write-back metrics for session %s", session_id, exc_info=True
-            )
+        # Write-back computed values to history store (best effort). Only write
+        # back keys we actually filled in — entry.update()/baseline.update()
+        # overwrite unconditionally, so passing the full `computed` dict here
+        # would clobber stored non-None values with None whenever computation
+        # partially or fully fails (e.g. the session file is gone). Skip the
+        # write-back entirely when there's nothing new to persist.
+        if newly_filled:
+            try:
+                if is_baseline:
+                    _update_baseline(tv_key, newly_filled)
+                else:
+                    _update_history_entry(tv_key, session_id, newly_filled)
+            except Exception:
+                logger.warning(
+                    "Failed to write-back metrics for session %s", session_id, exc_info=True
+                )
 
     return metrics
 
