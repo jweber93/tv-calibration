@@ -23,7 +23,7 @@ import threading
 from contextlib import asynccontextmanager, suppress as context_suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 from urllib.parse import urlparse
 
 import httpx
@@ -428,8 +428,11 @@ _dogegen_config: Dict[str, Any] = {
 _llm_queues: Dict[str, List[queue.Queue]] = {}
 _llm_queues_lock = threading.Lock()
 
-# Per-session autocal run state + SSE subscriber queues
-_autocal_loops: Dict[str, AutocalLoop] = {}
+# Per-session autocal run state + SSE subscriber queues.
+# Value is normally an AutocalLoop, or a StartingAutocalLoop placeholder while
+# a run is starting up (registered atomically in autocal_run before validation
+# to close the check-then-register race — #641).
+_autocal_loops: Dict[str, Union["AutocalLoop", "StartingAutocalLoop"]] = {}
 _autocal_loops_lock = threading.Lock()
 _autocal_queues: Dict[str, List[queue.Queue]] = {}
 _autocal_queues_lock = threading.Lock()
@@ -2897,10 +2900,20 @@ def _autocal_get_confirm_event(sid: str) -> threading.Event:
 
 def _run_autocal_background(
     sid: str,
+    starting: StartingAutocalLoop,
     loop: AutocalLoop,
     colours: List[str],
     patch_for_colour: Any,
 ) -> None:
+    # #641: swap the StartingAutocalLoop placeholder for the real loop and
+    # inherit a cancel() that arrived during the startup window.
+    with _autocal_loops_lock:
+        if _autocal_loops.get(sid) is starting:
+            _autocal_loops[sid] = loop
+            logger.debug("Autocal worker for %s swapped placeholder for real loop", sid)
+    if starting.cancelled:
+        loop.cancel()
+
     def on_iteration(event: Any) -> None:
         _autocal_broadcast(sid, {"event": "autocal_iteration", "data": _iteration_event_to_dict(event)})
 
@@ -2960,6 +2973,26 @@ def _run_autocal_background(
             _autocal_confirm_events.pop(sid, None)
 
 
+class StartingAutocalLoop:
+    """Placeholder registered while autocal is starting up (#641).
+
+    Implements the tiny ``cancel()``/``cancelled`` surface of
+    ``AutocalLoop`` so the stop endpoint can already cancel a run during the
+    startup window (before the real loop object is swapped in). The real loop
+    inherits the cancel signal when the background worker starts.
+    """
+
+    def __init__(self) -> None:
+        self._cancel = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancel.set()
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancel.is_set()
+
+
 @app.post("/api/session/{sid}/autocal/run")
 def autocal_run(sid: str, req: AutocalRunReq):
     session = store.get(sid)
@@ -2971,102 +3004,135 @@ def autocal_run(sid: str, req: AutocalRunReq):
     if not tv:
         raise HTTPException(400, "No TV profile selected for this session.")
 
+    # --- #641: atomic check-and-reserve ------------------------------------
+    # Two concurrent POST .../autocal/run previously both passed the check,
+    # then the second overwrote the first's dict entry and orphaned its
+    # first-running loop (whose `finally` would also pop the second run's
+    # entry). Fix: reserve the slot by registering a `StartingAutocalLoop`
+    # placeholder under the SAME lock acquisition as the check, then validate
+    # / construct the loop. The worker thread swaps in the real loop on
+    # startup (inheriting a cancel that arrived in that window via
+    # starting.cancelled); if validation or construction raises before the
+    # thread starts, the placeholder is popped.
+    thread_started = False
     with _autocal_loops_lock:
         if sid in _autocal_loops:
             raise HTTPException(409, "Autocal is already running for this session.")
+        starting = StartingAutocalLoop()
+        _autocal_loops[sid] = starting
+        logger.debug("Reserved autocal slot for session %s", sid)
 
-    colours = req.colours or list(tv.CMS_COLOURS)
-    unknown = [c for c in colours if c not in tv.CMS_COLOURS]
-    if unknown:
-        raise HTTPException(400, f"Unknown CMS colours for {tv_key}: {unknown}")
+    try:
+        colours = req.colours or list(tv.CMS_COLOURS)
+        unknown = [c for c in colours if c not in tv.CMS_COLOURS]
+        if unknown:
+            raise HTTPException(400, f"Unknown CMS colours for {tv_key}: {unknown}")
 
-    autocal_prefs = _prefs.get("autocal", _AUTOCAL_DEFAULTS)
-    apply_mode = req.apply_mode or autocal_prefs.get("apply_mode", "manual")
-    if apply_mode not in ("manual", "adb"):
-        raise HTTPException(400, "apply_mode must be 'manual' or 'adb'.")
-    damping = req.damping if req.damping is not None else autocal_prefs.get("damping", ControllerConfig().damping)
-    if not (0.0 < damping <= 1.0):
-        raise HTTPException(400, "damping must be in (0, 1].")
-    max_iterations = (
-        req.max_iterations
-        if req.max_iterations is not None
-        else autocal_prefs.get("max_iterations", 8)
-    )
-    if not (1 <= max_iterations <= 50):
-        raise HTTPException(400, "max_iterations must be between 1 and 50.")
-    skip_stalled_controls = (
-        req.skip_stalled_controls
-        if req.skip_stalled_controls is not None
-        else autocal_prefs.get("skip_stalled_controls", False)
-    )
-    bridge_timeout = (
-        req.bridge_timeout
-        if req.bridge_timeout is not None
-        else autocal_prefs.get("bridge_timeout", _AUTOCAL_BRIDGE_TIMEOUT)
-    )
-    if not (1.0 <= bridge_timeout <= 120.0):
-        raise HTTPException(400, "bridge_timeout must be between 1 and 120 seconds.")
-    bridge_poll_interval = (
-        req.bridge_poll_interval
-        if req.bridge_poll_interval is not None
-        else autocal_prefs.get("bridge_poll_interval", _AUTOCAL_POLL_INTERVAL)
-    )
-    if not (0.05 <= bridge_poll_interval <= 5.0):
-        raise HTTPException(400, "bridge_poll_interval must be between 0.05 and 5 seconds.")
+        autocal_prefs = _prefs.get("autocal", _AUTOCAL_DEFAULTS)
+        apply_mode = req.apply_mode or autocal_prefs.get("apply_mode", "manual")
+        if apply_mode not in ("manual", "adb"):
+            raise HTTPException(400, "apply_mode must be 'manual' or 'adb'.")
+        damping = req.damping if req.damping is not None else autocal_prefs.get("damping", ControllerConfig().damping)
+        if not (0.0 < damping <= 1.0):
+            raise HTTPException(400, "damping must be in (0, 1].")
+        max_iterations = (
+            req.max_iterations
+            if req.max_iterations is not None
+            else autocal_prefs.get("max_iterations", 8)
+        )
+        if not (1 <= max_iterations <= 50):
+            raise HTTPException(400, "max_iterations must be between 1 and 50.")
+        skip_stalled_controls = (
+            req.skip_stalled_controls
+            if req.skip_stalled_controls is not None
+            else autocal_prefs.get("skip_stalled_controls", False)
+        )
+        bridge_timeout = (
+            req.bridge_timeout
+            if req.bridge_timeout is not None
+            else autocal_prefs.get("bridge_timeout", _AUTOCAL_BRIDGE_TIMEOUT)
+        )
+        if not (1.0 <= bridge_timeout <= 120.0):
+            raise HTTPException(400, "bridge_timeout must be between 1 and 120 seconds.")
+        bridge_poll_interval = (
+            req.bridge_poll_interval
+            if req.bridge_poll_interval is not None
+            else autocal_prefs.get("bridge_poll_interval", _AUTOCAL_POLL_INTERVAL)
+        )
+        if not (0.05 <= bridge_poll_interval <= 5.0):
+            raise HTTPException(400, "bridge_poll_interval must be between 0.05 and 5 seconds.")
 
-    apply_target: ApplyTarget = (
-        ManualApplyTarget()
-        if apply_mode == "manual"
-        # ADB auto-apply falls back to a manual instruction (and the loop
-        # pauses for user confirmation) on any ADB failure — roadmap Item 1f.
-        else FallbackApplyTarget(AdbApplyTarget(device=req.device), ManualApplyTarget())
-    )
-    config = ControllerConfig(damping=damping)
-    measurement_source = _SessionCmsMeasurementSource(
-        sid, timeout=bridge_timeout, poll_interval=bridge_poll_interval
-    )
-    loop = AutocalLoop(
-        measurement_source,
-        apply_target,
-        target,
-        list(tv.CMS_CONTROLS),
-        signal_range=session.get("signal_range", "auto"),
-        code_scale=session.get("code_scale", "8bit"),
-        config=config,
-        max_iterations=max_iterations,
-        skip_stalled_controls=skip_stalled_controls,
-    )
-    with _autocal_loops_lock:
-        _autocal_loops[sid] = loop
-    with _autocal_history_lock:
-        _autocal_last_run.pop(sid, None)
-
-    signal_range = session.get("signal_range", "auto")
-    code_scale = session.get("code_scale", "8bit")
-    patch_rgb = _cms_patches(signal_range, code_scale)
-
-    def patch_for_colour(colour: str) -> Patch:
-        rgb = patch_rgb.get(colour, (235, 235, 235))
-        return Patch(
-            label=colour, r_target=rgb[0], g_target=rgb[1], b_target=rgb[2], meas_xyz=(0, 0, 0), kind="color"
+        apply_target: ApplyTarget = (
+            ManualApplyTarget()
+            if apply_mode == "manual"
+            # ADB auto-apply falls back to a manual instruction (and the loop
+            # pauses for user confirmation) on any ADB failure — roadmap Item 1f.
+            else FallbackApplyTarget(AdbApplyTarget(device=req.device), ManualApplyTarget())
+        )
+        config = ControllerConfig(damping=damping)
+        measurement_source = _SessionCmsMeasurementSource(
+            sid, timeout=bridge_timeout, poll_interval=bridge_poll_interval
+        )
+        loop = AutocalLoop(
+            measurement_source,
+            apply_target,
+            target,
+            list(tv.CMS_CONTROLS),
+            signal_range=session.get("signal_range", "auto"),
+            code_scale=session.get("code_scale", "8bit"),
+            config=config,
+            max_iterations=max_iterations,
+            skip_stalled_controls=skip_stalled_controls,
         )
 
-    t = threading.Thread(
-        target=_run_autocal_background,
-        args=(sid, loop, colours, patch_for_colour),
-        daemon=True,
-    )
-    t.start()
-    return {
-        "status": "running",
-        "colours": colours,
-        "apply_mode": apply_mode,
-        "damping": damping,
-        "max_iterations": max_iterations,
-        "skip_stalled_controls": skip_stalled_controls,
-        "bridge_timeout": bridge_timeout,
-        "bridge_poll_interval": bridge_poll_interval,
-    }
+        # Keep the StartingAutocalLoop placeholder in the dict until the
+        # worker thread swaps it (#641): that way a stop() arriving before
+        # the worker starts still lands on a cancellable object, and the
+        # placeholder inherits the cancel via starting.cancelled.
+        signal_range = session.get("signal_range", "auto")
+        code_scale = session.get("code_scale", "8bit")
+        patch_rgb = _cms_patches(signal_range, code_scale)
+
+        def patch_for_colour(colour: str) -> Patch:
+            rgb = patch_rgb.get(colour, (235, 235, 235))
+            return Patch(
+                label=colour, r_target=rgb[0], g_target=rgb[1], b_target=rgb[2], meas_xyz=(0, 0, 0), kind="color"
+            )
+
+        # Clear any prior run's history before starting the new run so a
+        # fast-converging loop doesn't race against the clear (#641).
+        with _autocal_history_lock:
+            _autocal_last_run.pop(sid, None)
+
+        t = threading.Thread(
+            target=_run_autocal_background,
+            args=(sid, starting, loop, colours, patch_for_colour),
+            daemon=True,
+        )
+        t.start()
+        thread_started = True
+        return {
+            "status": "running",
+            "colours": colours,
+            "apply_mode": apply_mode,
+            "damping": damping,
+            "max_iterations": max_iterations,
+            "skip_stalled_controls": skip_stalled_controls,
+            "bridge_timeout": bridge_timeout,
+            "bridge_poll_interval": bridge_poll_interval,
+        }
+    finally:
+        # If we raised before the worker thread started (validation or
+        # construction failure), release the reserved placeholder so the
+        # slot doesn't wedge future autocal runs (#641).
+        if not thread_started:
+            with _autocal_loops_lock:
+                if _autocal_loops.get(sid) is starting:
+                    _autocal_loops.pop(sid, None)
+                    logger.warning(
+                        "Released unstarted autocal placeholder for %s "
+                        "(validation or construction failed)", sid
+                    )
 
 
 @app.post("/api/session/{sid}/autocal/stop")
@@ -3074,9 +3140,12 @@ def autocal_stop(sid: str):
     store.get(sid)  # raises 404 if session doesn't exist
     with _autocal_loops_lock:
         loop = _autocal_loops.get(sid)
-    if not loop:
+    if loop is None:
         return {"status": "not_running"}
     loop.cancel()
+    # StartingAutocalLoop placeholder: .cancel() sets its event, the worker
+    # thread reads it on startup via starting.cancelled and cancels the real
+    # loop before running (#641).
     return {"status": "stopping"}
 
 

@@ -18,11 +18,66 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# Process-wide lock serializing history read-modify-write sequences
+# (#640). FastAPI sync endpoints run in separate threadpool threads; without
+# this lock, two concurrent record_session() calls for the same tv_key read
+# the same entries list, each append its entry, and each rewrite the full
+# file — last writer wins, one session's entry silently vanishes.
+_HISTORY_LOCK = threading.Lock()
+# Scope note: this lock protects against concurrent *threads* within one
+# server process only. If history files are ever written by multiple
+# processes simultaneously, an inter-process lock (fcntl.flock on POSIX)
+# must be added around these critical sections as well.
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Atomically write *text* to *path* via tmp + os.replace.
+
+    A crash or OSError mid-write leaves the previously-persisted file
+    intact rather than a truncated/corrupt file on disk.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=path.name + ".", suffix=".tmp", dir=str(path.parent)
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp_path, path)
+        # fsync the directory so the rename itself is durable across
+        # crash/power loss (POSIX only; Windows lacks O_DIRECTORY).
+        if hasattr(os, "O_DIRECTORY"):
+            dir_fd = os.open(path.parent, os.O_DIRECTORY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def _atomic_write_lines(path: Path, lines: List[str]) -> None:
+    """Atomically write JSONL *lines* to *path* via tmp + os.replace (#640).
+
+    Each element of *lines* becomes one file line (a trailing "\\n" is
+    appended); elements must not contain embedded newlines.
+    """
+    assert all("\n" not in line for line in lines), "JSONL lines must be single-line"
+    _atomic_write_text(path, "\n".join(lines) + "\n" if lines else "")
 
 
 def _history_root() -> Path:
@@ -67,58 +122,58 @@ def record_session(
         wb_final:             Final white-balance gain/offset values applied, if available.
         cms_final:            Final CMS hue/sat/brightness values applied, if available.
     """
-    path = _sessions_path(tv_key)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    with _HISTORY_LOCK:
+        path = _sessions_path(tv_key)
+        path.parent.mkdir(parents=True, exist_ok=True)
 
-    entry: Dict[str, Any] = {
-        "session_id": session_id,
-        "date": datetime.now(timezone.utc).isoformat(),
-        "mode": mode,
-        "pre_grayscale_avg_de": (report.get("pre_cal") or {}).get("avg_de"),
-        "post_grayscale_avg_de": (report.get("post_cal") or {}).get("avg_de"),
-        "gamma_avg": (report.get("gamma") or {}).get("avg_gamma"),
-        "peak_luminance": report.get("peak_luminance"),
-        "improvement_pct": report.get("improvement_pct"),
-        "wb_avg_de": (report.get("white_balance") or {}).get("avg_de"),
-        "cms_avg_de": (report.get("color_tuner") or {}).get("avg_de"),
-        "accepted_compromises": accepted_compromises or [],
-        "wb_final": wb_final or {},
-        "cms_final": cms_final or {},
-    }
+        entry: Dict[str, Any] = {
+            "session_id": session_id,
+            "date": datetime.now(timezone.utc).isoformat(),
+            "mode": mode,
+            "pre_grayscale_avg_de": (report.get("pre_cal") or {}).get("avg_de"),
+            "post_grayscale_avg_de": (report.get("post_cal") or {}).get("avg_de"),
+            "gamma_avg": (report.get("gamma") or {}).get("avg_gamma"),
+            "peak_luminance": report.get("peak_luminance"),
+            "improvement_pct": report.get("improvement_pct"),
+            "wb_avg_de": (report.get("white_balance") or {}).get("avg_de"),
+            "cms_avg_de": (report.get("color_tuner") or {}).get("avg_de"),
+            "accepted_compromises": accepted_compromises or [],
+            "wb_final": wb_final or {},
+            "cms_final": cms_final or {},
+        }
 
-    # Idempotent upsert: update existing entry if session_id matches, append otherwise.
-    entries: List[Dict[str, Any]] = []
-    found = False
-    if path.exists():
-        try:
-            with open(path, encoding="utf-8") as fh:
-                for line in fh:
-                    line = line.strip()
-                    if line:
-                        try:
-                            existing = json.loads(line)
-                            if existing.get("session_id") == session_id:
-                                existing.update(entry)
-                                found = True
-                            entries.append(existing)
-                        except json.JSONDecodeError:
-                            logger.warning("Skipped corrupted JSON line in %s", path)
-                            pass
-        except OSError:
-            pass
+        # Idempotent upsert: update existing entry if session_id matches, append otherwise.
+        entries: List[Dict[str, Any]] = []
+        found = False
+        if path.exists():
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    for line in fh:
+                        line = line.strip()
+                        if line:
+                            try:
+                                existing = json.loads(line)
+                                if existing.get("session_id") == session_id:
+                                    existing.update(entry)
+                                    found = True
+                                entries.append(existing)
+                            except json.JSONDecodeError:
+                                logger.warning("Skipped corrupted JSON line in %s", path)
+                                pass
+            except OSError:
+                pass
 
-    if not found:
-        entries.append(entry)
+        if not found:
+            entries.append(entry)
 
-    with open(path, "w", encoding="utf-8") as fh:
-        for e in entries:
-            fh.write(json.dumps(e) + "\n")
+        # Atomic write via tmp + os.replace so a mid-write crash never
+        # truncates the history file (#640).
+        _atomic_write_lines(path, [json.dumps(e) for e in entries])
 
-    # Write baseline on the very first session only.
-    baseline = _baseline_path(tv_key)
-    if not baseline.exists():
-        with open(baseline, "w", encoding="utf-8") as fh:
-            json.dump(entry, fh, indent=2)
+        # Write baseline on the very first session only.
+        baseline = _baseline_path(tv_key)
+        if not baseline.exists():
+            _atomic_write_text(baseline, json.dumps(entry, indent=2))
 
 
 def load_history(tv_key: str, limit: int = 10) -> List[Dict[str, Any]]:
@@ -199,40 +254,35 @@ def update_history_entry(tv_key: str, session_id: str, metrics: Dict[str, Any]) 
     Returns:
         True if entry was found and updated, False otherwise.
     """
-    path = _sessions_path(tv_key)
-    if not path.exists():
-        return False
+    with _HISTORY_LOCK:
+        path = _sessions_path(tv_key)
+        if not path.exists():
+            return False
 
-    entries: List[Dict[str, Any]] = []
-    try:
-        with open(path, encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if line:
-                    try:
-                        entries.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        pass
-    except OSError:
-        return False
+        entries: List[Dict[str, Any]] = []
+        try:
+            with open(path, encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if line:
+                        try:
+                            entries.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            pass
+        except OSError:
+            return False
 
-    updated = False
-    for entry in entries:
-        if entry.get("session_id") == session_id:
-            entry.update(metrics)
-            updated = True
+        updated = False
+        for entry in entries:
+            if entry.get("session_id") == session_id:
+                entry.update(metrics)
+                updated = True
 
-    if not updated:
-        return False
+        if not updated:
+            return False
 
-    # Rewrite the entire file with updated entry
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
-            for entry in entries:
-                fh.write(json.dumps(entry) + "\n")
-    except OSError:
-        return False
+        # Rewrite atomically (tmp + os.replace) under the history lock (#640).
+        _atomic_write_lines(path, [json.dumps(entry) for entry in entries])
 
     return True
 
@@ -247,22 +297,23 @@ def update_baseline(tv_key: str, metrics: Dict[str, Any]) -> bool:
     Returns:
         True if baseline was found and updated, False otherwise.
     """
-    path = _baseline_path(tv_key)
-    if not path.exists():
-        return False
+    with _HISTORY_LOCK:
+        path = _baseline_path(tv_key)
+        if not path.exists():
+            return False
 
-    try:
-        baseline = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return False
+        try:
+            baseline = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return False
 
-    baseline.update(metrics)
+        baseline.update(metrics)
 
-    try:
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(baseline, fh, indent=2)
-    except OSError:
-        return False
+        try:
+            # Atomic write via tmp + os.replace (#640).
+            _atomic_write_text(path, json.dumps(baseline, indent=2))
+        except OSError:
+            return False
 
     return True
 

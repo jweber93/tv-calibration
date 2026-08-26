@@ -433,6 +433,124 @@ class TestConcurrentNextStep:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Issue #640: history.py atomic writes and locking
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestHistoryConcurrency:
+    """Tests for issue #640: concurrent access to sessions.jsonl / baseline.json"""
+
+    @pytest.fixture(autouse=True)
+    def history_dir(self, tmp_path, monkeypatch):
+        """Point history at an isolated temp dir."""
+        monkeypatch.setenv("TVCAL_HISTORY_DIR", str(tmp_path))
+
+    def _mk_report(self):
+        return {
+            "pre_cal": {"avg_de": 8.0},
+            "post_cal": {"avg_de": 2.0},
+            "gamma": {"avg_gamma": 2.2},
+            "peak_luminance": 100.0,
+            "improvement_pct": 75.0,
+            "white_balance": {"avg_de": 2.5},
+            "color_tuner": {"avg_de": 3.0},
+        }
+
+    def test_concurrent_record_session_no_lost_updates(self, tmp_path):
+        """N threads each appending a distinct session_id for one tv_key.
+
+        Without the module-level lock, concurrent read-modify-write cycles
+        can drop entries (each thread reads the file, appends its own, then
+        overwrites the whole file).
+        """
+        from calibrator.history import record_session, load_history
+
+        tv_key = "tv-parallel"
+        n = 8
+        errors = []
+        barrier = threading.Barrier(n)
+
+        def rec(i):
+            try:
+                barrier.wait()
+                record_session(
+                    tv_key=tv_key,
+                    session_id=f"sid-{i:03d}",
+                    mode="SDR",
+                    report=self._mk_report(),
+                )
+            except Exception as e:
+                errors.append(f"{i}: {e}")
+
+        threads = [threading.Thread(target=rec, args=(i,)) for i in range(n)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        assert not errors, f"record_session errors: {errors}"
+        sessions = load_history(tv_key, limit=100)
+        sids = {s["session_id"] for s in sessions}
+        assert len(sessions) == n, (
+            f"Expected {n} sessions, got {len(sessions)}: {sids}"
+        )
+        for i in range(n):
+            assert f"sid-{i:03d}" in sids, f"sid-{i:03d} missing"
+
+    def test_concurrent_update_history_entry_atomic(self, tmp_path):
+        """Concurrent update_history_entry calls must not corrupt the JSONL."""
+        from calibrator.history import (
+            record_session,
+            update_history_entry,
+            load_history,
+        )
+
+        tv_key = "tv-atomic"
+        for i in range(5):
+            record_session(
+                tv_key=tv_key,
+                session_id=f"sid-{i:03d}",
+                mode="SDR",
+                report=self._mk_report(),
+            )
+
+        def updater(thread_idx):
+            for i in range(5):
+                update_history_entry(
+                    tv_key=tv_key,
+                    session_id=f"sid-{i:03d}",
+                    metrics={"peak_luminance": float(thread_idx * 5 + i)},
+                )
+
+        threads = [threading.Thread(target=updater, args=(t,)) for t in range(6)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        # File must still be valid JSONL with exactly 5 lines.
+        sessions = load_history(tv_key, limit=100)
+        assert len(sessions) == 5, (
+            f"Expected 5 sessions, got {len(sessions)}"
+        )
+
+    def test_atomic_write_no_half_lines(self, tmp_path):
+        """_atomic_write_lines produces a parseable JSONL file."""
+        from calibrator.history import _atomic_write_lines
+        import json as _json
+
+        path = tmp_path / "sessions.jsonl"
+        _atomic_write_lines(path, [f'{{"session_id": "sid-{i}"}}' for i in range(3)])
+        _atomic_write_lines(
+            path,
+            [f'{{"session_id": "sid-{i}", "updated": true}}' for i in range(3)],
+        )
+        for line in path.read_text().splitlines():
+            entry = _json.loads(line)  # must not raise
+            assert entry.get("updated") is True
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Session-level dict mutation races
 # ═══════════════════════════════════════════════════════════════════════════════
 
