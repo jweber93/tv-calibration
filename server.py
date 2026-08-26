@@ -23,7 +23,7 @@ import threading
 from contextlib import asynccontextmanager, suppress as context_suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 from urllib.parse import urlparse
 
 import httpx
@@ -432,7 +432,7 @@ _llm_queues_lock = threading.Lock()
 # Value is normally an AutocalLoop, or a StartingAutocalLoop placeholder while
 # a run is starting up (registered atomically in autocal_run before validation
 # to close the check-then-register race — #641).
-_autocal_loops: Dict[str, object] = {}
+_autocal_loops: Dict[str, Union["AutocalLoop", "StartingAutocalLoop"]] = {}
 _autocal_loops_lock = threading.Lock()
 _autocal_queues: Dict[str, List[queue.Queue]] = {}
 _autocal_queues_lock = threading.Lock()
@@ -2910,6 +2910,7 @@ def _run_autocal_background(
     with _autocal_loops_lock:
         if _autocal_loops.get(sid) is starting:
             _autocal_loops[sid] = loop
+            logger.debug("Autocal worker for %s swapped placeholder for real loop", sid)
     if starting.cancelled:
         loop.cancel()
 
@@ -3019,6 +3020,7 @@ def autocal_run(sid: str, req: AutocalRunReq):
             raise HTTPException(409, "Autocal is already running for this session.")
         starting = StartingAutocalLoop()
         _autocal_loops[sid] = starting
+        logger.debug("Reserved autocal slot for session %s", sid)
 
     try:
         colours = req.colours or list(tv.CMS_COLOURS)
@@ -3127,6 +3129,10 @@ def autocal_run(sid: str, req: AutocalRunReq):
             with _autocal_loops_lock:
                 if _autocal_loops.get(sid) is starting:
                     _autocal_loops.pop(sid, None)
+                    logger.warning(
+                        "Released unstarted autocal placeholder for %s "
+                        "(validation or construction failed)", sid
+                    )
 
 
 @app.post("/api/session/{sid}/autocal/stop")

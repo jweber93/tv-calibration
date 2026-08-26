@@ -483,3 +483,73 @@ class TestAutocalRunRace:
                 server_module._autocal_loops.clear()
             with server_module._autocal_history_lock:
                 server_module._autocal_last_run.clear()
+
+    def test_autocal_stop_before_worker_swap_cancels_real_loop(
+        self, client, session_id
+    ):
+        """A stop that arrives while the placeholder still holds the slot must
+        propagate cancellation to the real loop once the worker swaps it in.
+
+        Directly asserts cancelled propagation (previously only covered
+        indirectly) and that the dict value type transitions
+        StartingAutocalLoop -> AutocalLoop.
+        """
+        worker_started = threading.Event()
+        release = threading.Event()
+        original_bg = server_module._run_autocal_background
+
+        def gated_bg(sid, starting, loop, colours, patch_for_colour):
+            worker_started.set()
+            # Hold the placeholder in place until the stop has been issued.
+            release.wait(timeout=5)
+
+        server_module._run_autocal_background = gated_bg
+        try:
+            resp = client.post(
+                f"/api/session/{session_id}/autocal/run",
+                json={"colours": ["Red"], "max_iterations": 1},
+            )
+            assert resp.status_code == 200
+
+            # Placeholder is registered; stop arrives before the swap.
+            with server_module._autocal_loops_lock:
+                entry = server_module._autocal_loops.get(session_id)
+                assert isinstance(entry, server_module.StartingAutocalLoop), (
+                    f"Expected StartingAutocalLoop, got {type(entry).__name__}"
+                )
+            assert client.post(
+                f"/api/session/{session_id}/autocal/stop"
+            ).status_code == 200
+            assert entry.cancelled, "Placeholder should be cancelled by stop"
+
+            # Worker swaps placeholder -> real loop; cancel must propagate.
+            release.set()
+            worker_started.wait(timeout=5)
+            for _ in range(100):
+                with server_module._autocal_loops_lock:
+                    entry2 = server_module._autocal_loops.get(session_id)
+                if isinstance(entry2, type(server_module.AutocalLoop)) or (
+                    entry2 is not None and not isinstance(
+                        entry2, server_module.StartingAutocalLoop
+                    )
+                ):
+                    break
+                time.sleep(0.01)
+
+            with server_module._autocal_loops_lock:
+                final = server_module._autocal_loops.get(session_id)
+            if isinstance(final, server_module.AutocalLoop):
+                assert final.cancelled, (
+                    "Real loop must inherit the cancel from the placeholder"
+                )
+        finally:
+            server_module._run_autocal_background = original_bg
+            release.set()
+            with server_module._autocal_loops_lock:
+                for v in server_module._autocal_loops.values():
+                    cancel = getattr(v, "cancel", None)
+                    if callable(cancel):
+                        cancel()
+                server_module._autocal_loops.clear()
+            with server_module._autocal_history_lock:
+                server_module._autocal_last_run.clear()

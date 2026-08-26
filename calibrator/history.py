@@ -32,14 +32,17 @@ logger = logging.getLogger(__name__)
 # the same entries list, each append its entry, and each rewrite the full
 # file — last writer wins, one session's entry silently vanishes.
 _HISTORY_LOCK = threading.Lock()
+# Scope note: this lock protects against concurrent *threads* within one
+# server process only. If history files are ever written by multiple
+# processes simultaneously, an inter-process lock (fcntl.flock on POSIX)
+# must be added around these critical sections as well.
 
 
-def _atomic_write_lines(path: Path, lines: List[str]) -> None:
-    """Atomically write lines to *path* via tmp + os.replace (#640).
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Atomically write *text* to *path* via tmp + os.replace.
 
-    Mirrors server._save_prefs / SessionStore.save_session: a crash or
-    OSError mid-write leaves the previously-persisted file intact rather
-    than leaving a truncated/corrupt sessions.jsonl on disk.
+    A crash or OSError mid-write leaves the previously-persisted file
+    intact rather than a truncated/corrupt file on disk.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(
@@ -47,17 +50,34 @@ def _atomic_write_lines(path: Path, lines: List[str]) -> None:
     )
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            for line in lines:
-                fh.write(line + "\n")
+            fh.write(text)
             fh.flush()
             os.fsync(fh.fileno())
         os.replace(tmp_path, path)
+        # fsync the directory so the rename itself is durable across
+        # crash/power loss (POSIX only; Windows lacks O_DIRECTORY).
+        if hasattr(os, "O_DIRECTORY"):
+            dir_fd = os.open(path.parent, os.O_DIRECTORY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
     except Exception:
         try:
             os.unlink(tmp_path)
         except OSError:
             pass
         raise
+
+
+def _atomic_write_lines(path: Path, lines: List[str]) -> None:
+    """Atomically write JSONL *lines* to *path* via tmp + os.replace (#640).
+
+    Each element of *lines* becomes one file line (a trailing "\\n" is
+    appended); elements must not contain embedded newlines.
+    """
+    assert all("\n" not in line for line in lines), "JSONL lines must be single-line"
+    _atomic_write_text(path, "\n".join(lines) + "\n" if lines else "")
 
 
 def _history_root() -> Path:
@@ -102,8 +122,7 @@ def record_session(
         wb_final:             Final white-balance gain/offset values applied, if available.
         cms_final:            Final CMS hue/sat/brightness values applied, if available.
     """
-    _HISTORY_LOCK.acquire()
-    try:
+    with _HISTORY_LOCK:
         path = _sessions_path(tv_key)
         path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -154,9 +173,7 @@ def record_session(
         # Write baseline on the very first session only.
         baseline = _baseline_path(tv_key)
         if not baseline.exists():
-            _atomic_write_lines(baseline, [json.dumps(entry, indent=2)])
-    finally:
-        _HISTORY_LOCK.release()
+            _atomic_write_text(baseline, json.dumps(entry, indent=2))
 
 
 def load_history(tv_key: str, limit: int = 10) -> List[Dict[str, Any]]:
@@ -237,8 +254,7 @@ def update_history_entry(tv_key: str, session_id: str, metrics: Dict[str, Any]) 
     Returns:
         True if entry was found and updated, False otherwise.
     """
-    _HISTORY_LOCK.acquire()
-    try:
+    with _HISTORY_LOCK:
         path = _sessions_path(tv_key)
         if not path.exists():
             return False
@@ -267,8 +283,6 @@ def update_history_entry(tv_key: str, session_id: str, metrics: Dict[str, Any]) 
 
         # Rewrite atomically (tmp + os.replace) under the history lock (#640).
         _atomic_write_lines(path, [json.dumps(entry) for entry in entries])
-    finally:
-        _HISTORY_LOCK.release()
 
     return True
 
@@ -283,8 +297,7 @@ def update_baseline(tv_key: str, metrics: Dict[str, Any]) -> bool:
     Returns:
         True if baseline was found and updated, False otherwise.
     """
-    _HISTORY_LOCK.acquire()
-    try:
+    with _HISTORY_LOCK:
         path = _baseline_path(tv_key)
         if not path.exists():
             return False
@@ -298,11 +311,9 @@ def update_baseline(tv_key: str, metrics: Dict[str, Any]) -> bool:
 
         try:
             # Atomic write via tmp + os.replace (#640).
-            _atomic_write_lines(path, [json.dumps(baseline, indent=2)])
+            _atomic_write_text(path, json.dumps(baseline, indent=2))
         except OSError:
             return False
-    finally:
-        _HISTORY_LOCK.release()
 
     return True
 
