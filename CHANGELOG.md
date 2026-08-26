@@ -9,6 +9,13 @@ changes.
 
 ### Fixed
 
+- **`suggested_patches` step was a dead end (#638).** The step is in
+  `STEPS_ORDER` and rendered clickable in the Phase rail (reachable via
+  `jump_to_step` from report), but `next_step` had no branch for it and
+  `prev_step`'s transitions dict had no entry — both returned 400, leaving the
+  SuggestedPatches page's Continue/Back buttons broken. Continue now goes to
+  `report`; Back now goes to `post_grayscale`.
+
 - **HDR10/PQ gamma phase could never converge (#656).** `assess_convergence()`
   gated the `gamma` phase solely on `gamma_deviation`, which `analyze()` only
   populates for power-law/BT.1886 (SDR) sessions — PQ/ST.2084 sessions
