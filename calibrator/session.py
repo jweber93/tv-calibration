@@ -2029,6 +2029,10 @@ class SessionStore:
                         f"Need {len(grayscale_levels)} measurements, have {len(session['post_measurements'])}",
                     )
                 session["step"] = "report"
+            elif step == "suggested_patches":
+                # #638: this step was reachable via jump_to_step but had no
+                # forward transition, leaving the page dead-ended.
+                session["step"] = "report"
             else:
                 raise HTTPException(400, f"No transition from step '{step}'")
             self.save_session(sid)
@@ -2059,6 +2063,7 @@ class SessionStore:
                 "gamma": "white_balance",
                 "color_tuner": "gamma",
                 "post_grayscale": "color_tuner",
+                "suggested_patches": "post_grayscale",  # #638
                 "report": "post_grayscale",
             }
             step = session["step"]
