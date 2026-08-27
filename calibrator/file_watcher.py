@@ -511,6 +511,24 @@ class _ZROHandler(FileSystemEventHandler):
                 return
 
             # ── merge ─────────────────────────────────────────────────────
+            # Recontextualize before bucketing so the watch-folder path decodes
+            # code values with the session's real signal range / code scale.
+            # Without this, a 10-bit full-range ramp (HDR10/Dogegen) falls
+            # through the 8-bit heuristic in stimulus_pct_from_code_value for
+            # any code value <= 255 and gets mislabeled (e.g. a 20% patch
+            # filed as "WB Gain (80% gray)"). The manual upload path
+            # (SessionStore.import_zro_bytes) has always done this; the watcher
+            # path diverged (#657).
+            #
+            # Imported inside the method: session.py imports this module at
+            # load time, so a module-level import here would be circular.
+            from .session import recontextualize_import_result
+
+            result = recontextualize_import_result(
+                result,
+                session.get("signal_range", "full"),
+                session.get("code_scale", "8bit"),
+            )
             bucket_map = _bucket_map_for_session_step(result, session.get("step"))
             step_warnings = _warnings_for_session_step(result, session.get("step"))
 

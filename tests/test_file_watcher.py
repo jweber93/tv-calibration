@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from pathlib import Path
 from typing import Dict, Optional
 from unittest.mock import patch
 
@@ -25,6 +26,8 @@ from fastapi.testclient import TestClient
 # ── Helpers to reset singleton state between tests ───────────────────────────
 
 import calibrator.file_watcher as fw
+from calibrator.session import SessionStore, deserialize_measurement
+from calibrator.utils import stimulus_pct_from_code_value
 
 
 def _reset_watcher():
@@ -73,12 +76,30 @@ MINIMAL_ZRO_CSV = (
 
 MALFORMED_CSV = "not,a,valid,zro,file\n1,2,3\n"
 
+# 11-step 10-bit full-range ramp (codes 0–1023). The two low-end codes (205,
+# 307) are ≤ 255, so they only decode correctly under a "full10" signal range —
+# the 8-bit heuristic in stimulus_pct_from_code_value mislabels them (#657).
+TEN_BIT_RAMP_LEVELS = [0, 102, 205, 307, 409, 512, 614, 716, 818, 921, 1023]
+
+
+def _make_ten_bit_ramp_csv() -> str:
+    hdr = "Date and time\t R\t G\t B\t Y\t x\t y\t msec\n"
+    rows = ""
+    for i, code in enumerate(TEN_BIT_RAMP_LEVELS):
+        rows += (
+            f"15/03/2026 10:{48 + i:02d}:1{5 + i % 4}\t"
+            f"{code}\t{code}\t{code}\t{code / 4:.2f}\t0.31\t0.32\t 360ms\n"
+        )
+    return hdr + rows
+
 
 def _make_session() -> Dict:
     """Return a minimal session dict compatible with merge_into_session."""
     return {
         "step": "pre_grayscale",
         "mode": "SDR",
+        "signal_range": "full",
+        "code_scale": "8bit",
         "pre_measurements": [],
         "post_measurements": [],
         "cms_measurements": [],
@@ -394,6 +415,165 @@ class TestImport:
             time.sleep(0.1)
 
         assert len(session["pre_measurements"]) > 0
+
+
+class TestTenBitCodeScale:
+    """The watch-folder path must decode code values with the session's real
+    signal range / code scale, exactly like the manual upload path (#657)."""
+
+    @staticmethod
+    def _session_at_white_balance() -> Dict:
+        session = _make_session()
+        session.update(
+            step="white_balance",
+            signal_range="full",
+            code_scale="10bit",
+        )
+        return session
+
+    def test_auto_import_honours_10bit_code_scale(self, tmp_path):
+        """10-bit ramp into a full-range/10-bit session: no measurement carries
+        a label whose percentage disagrees with the full10 decode."""
+        session = self._session_at_white_balance()
+        fw.start_watching(
+            tmp_path,
+            lambda: session,
+            lambda: None,
+            measurement_deserializer=deserialize_measurement,
+        )
+
+        (tmp_path / "ramp.csv").write_text(_make_ten_bit_ramp_csv())
+
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            if session.get("wb_measurements"):
+                break
+            time.sleep(0.1)
+
+        wb = session.get("wb_measurements", [])
+        assert wb, "wb_measurements never populated by the watcher"
+
+        def label_pct(label: str) -> Optional[int]:
+            if "(" not in label:
+                return None
+            pct = label.split("(")[1].split("%")[0]
+            return int(pct)
+
+        for m in wb:
+            stim_pct = stimulus_pct_from_code_value(m.stimulus_rgb[0], "full10")
+            # Label percentage must equal the full10 decode within the 7%
+            # window recontextualize uses to assign WB buckets.
+            if "(" in m.label:
+                pct = label_pct(m.label)
+                assert pct is not None, f"Label '{m.label}' missing percentage"
+                assert abs(pct - stim_pct) <= 1.0, (
+                    f"Label '{m.label}' disagrees with full10 decode "
+                    f"{stim_pct}% for code {m.stimulus_rgb[0]}"
+                )
+        # The 205-code patch (20% under full10) must not appear as a WB row —
+        # before the fix it was filed as "WB Gain (80% gray)".
+        for m in wb:
+            assert not (
+                "WB Gain" in m.label
+                and abs(stimulus_pct_from_code_value(m.stimulus_rgb[0], "full10") - 20.0) <= 1.0
+            )
+
+    def test_auto_import_matches_manual_import_buckets(self, tmp_path):
+        """Parity: the same 10-bit CSV imported via the watcher vs via
+        SessionStore.import_zro_bytes must produce identical WB and gamma
+        buckets (labels and stimulus values)."""
+        csv = _make_ten_bit_ramp_csv()
+
+        # ── Watcher path ─────────────────────────────────────────────────
+        watcher_session = self._session_at_white_balance()
+        fw.start_watching(
+            tmp_path,
+            lambda: watcher_session,
+            lambda: None,
+            measurement_deserializer=deserialize_measurement,
+        )
+        (tmp_path / "ramp.csv").write_text(csv)
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            if watcher_session.get("wb_measurements"):
+                break
+            time.sleep(0.1)
+
+        # ── Manual path ───────────────────────────────────────────────────
+        from datetime import timedelta
+
+        store = SessionStore(
+            session_dir_getter=lambda: Path(tmp_path) / "sessions",
+            ttl_getter=lambda: timedelta(days=7),
+            watched_session_id_getter=lambda: None,
+        )
+        sid = store.create_session("u8g")["id"]
+        store.select_mode(sid, "HDR10", sdr_peak_nits=600)
+        store.confirm_prepared(sid)
+        s = store.get(sid)
+        s.update(
+            step="white_balance",
+            signal_range="full",
+            code_scale="10bit",
+        )
+        store.save_session(sid)
+        store.import_zro_bytes(sid, "ramp.csv", csv.encode())
+        manual_session = store.get(sid)
+
+        def m_label(m) -> str:
+            return m["label"] if isinstance(m, dict) else m.label
+
+        def m_rgb(m):
+            return m["stimulus_rgb"] if isinstance(m, dict) else m.stimulus_rgb
+
+        def bucket_norm(session_dict: Dict, key: str):
+            return sorted((m_label(m), m_rgb(m)) for m in session_dict[key])
+
+        wb_watcher = bucket_norm(watcher_session, "wb_measurements")
+        wb_manual = bucket_norm(manual_session, "wb_measurements")
+        assert wb_watcher == wb_manual, (
+            f"WB buckets differ.\nWatcher: {wb_watcher}\nManual: {wb_manual}"
+        )
+        assert wb_manual, "Manual import produced no WB measurements"
+
+        # Repeat the comparison at the gamma step: both paths must decode and
+        # label the gamma ramp identically for a 10-bit session.
+        watcher_session2 = self._session_at_white_balance()
+        watcher_session2["step"] = "gamma"
+        tmp2 = tmp_path / "gamma_watched"
+        tmp2.mkdir()
+        fw.start_watching(
+            tmp2,
+            lambda: watcher_session2,
+            lambda: None,
+            measurement_deserializer=deserialize_measurement,
+        )
+        (tmp2 / "ramp.csv").write_text(csv)
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            if watcher_session2.get("gamma_measurements"):
+                break
+            time.sleep(0.1)
+
+        sid2 = store.create_session("u8g")["id"]
+        store.select_mode(sid2, "HDR10", sdr_peak_nits=600)
+        store.confirm_prepared(sid2)
+        s2 = store.get(sid2)
+        s2.update(
+            step="gamma",
+            signal_range="full",
+            code_scale="10bit",
+        )
+        store.save_session(sid2)
+        store.import_zro_bytes(sid2, "ramp.csv", csv.encode())
+        manual_session2 = store.get(sid2)
+
+        gamma_watcher = bucket_norm(watcher_session2, "gamma_measurements")
+        gamma_manual = bucket_norm(manual_session2, "gamma_measurements")
+        assert gamma_watcher == gamma_manual, (
+            f"Gamma buckets differ.\nWatcher: {gamma_watcher}\nManual: {gamma_manual}"
+        )
+        assert gamma_manual, "Manual import produced no gamma measurements"
 
 
 @pytest.mark.flaky(reruns=2, reruns_delay=1)
