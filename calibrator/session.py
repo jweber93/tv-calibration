@@ -2103,13 +2103,14 @@ class SessionStore:
     ) -> Dict[str, Any]:
         """Handle an LLM pass-decision repass action.
 
-        "ceiling" actions are rejected below alongside anything else not in
-        ``REPASS_ACTIONS``; "repatch" charges the re-measure to the *target
-        phase's* own budget (a fresh phase gets its own
-        ``REPATCH_MAX_PASSES`` allowance, even after other phases exhausted
-        theirs; re-entering a phase spends its remaining allowance), then
-        jumps the session back to that measurement step. "accept" records
-        the decision and leaves the session step untouched (#659).
+        Invalid actions (not in ``REPASS_ACTIONS``) are rejected below.
+        "ceiling" is recorded as-is and stops (unchanged). "repatch" charges
+        the re-measure to the *target phase's* own budget (a fresh phase gets
+        its own ``REPATCH_MAX_PASSES`` allowance, even after other phases
+        exhausted theirs; re-entering a phase spends its remaining
+        allowance), then jumps the session back to that measurement step.
+        "accept" records the decision and leaves the session step untouched
+        (#659).
 
         Atomic: held under ``SessionStore._lock`` to prevent TOCTOU races
         with concurrent delete/eviction (#503).
@@ -2123,11 +2124,6 @@ class SessionStore:
                     f"unknown repass action {action!r}; expected one of: "
                     f"{', '.join(REPASS_ACTIONS)}"
                 )
-
-            # Per-phase re-measure accounting (#645): the ceiling decision is
-            # taken against the budget of the phase the re-measure would
-            # re-enter, never against a session-wide total.
-            phase_counts = dict(session.get("repass_phase_counts") or {})
 
             if action == "ceiling":
                 session.setdefault("repass_decision", {})
@@ -2147,6 +2143,10 @@ class SessionStore:
                 self.save_session(sid)
                 return session
 
+            # Per-phase re-measure accounting (#645): the ceiling decision is
+            # taken against the budget of the phase the re-measure would
+            # re-enter, never against a session-wide total.
+            phase_counts = dict(session.get("repass_phase_counts") or {})
             target_step = _repass_target_step(current_step)
             used = phase_counts.get(target_step, 0)
             if used >= REPATCH_MAX_PASSES:
