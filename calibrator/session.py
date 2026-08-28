@@ -134,7 +134,10 @@ STEPS_ORDER = [
     "report",
 ]
 
-# Repatch is a transient meta-state that can occur during any measurement step
+# Repatch is a transient meta-state that can occur during any measurement step.
+# The budget is PER PHASE: each measurement step gets its own budget of
+# REPATCH_MAX_PASSES re-measures, tracked in session["repass_phase_counts"]
+# keyed by measurement step (#645).
 REPATCH_MAX_PASSES = 3
 
 # Pass-decision actions that repass() understands (#659). Any other value is
@@ -728,6 +731,7 @@ def serialize_session(s: Dict[str, Any]) -> Dict[str, Any]:
             "timeout": llm_cfg.get("timeout", 30.0),
         },
         "repass_count": s.get("repass_count", 0),
+        "repass_phase_counts": s.get("repass_phase_counts", {}),
         "llm_adjustment_rounds": s.get("llm_adjustment_rounds", []),
         "tv_settings": s.get("tv_settings", {}),
         "_history_recorded": s.get("_history_recorded", False),
@@ -799,6 +803,7 @@ def deserialize_session(data: Dict[str, Any]) -> Dict[str, Any]:
             "timeout": data.get("llm_config", {}).get("timeout", 30.0),
         },
         "repass_count": data.get("repass_count", 0),
+        "repass_phase_counts": data.get("repass_phase_counts", {}),
         "llm_adjustment_rounds": data.get("llm_adjustment_rounds", []),
         "tv_settings": data.get("tv_settings", {}),
         "_history_recorded": data.get("_history_recorded", False),
@@ -1612,11 +1617,10 @@ def session_view(s: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _repass_target_step(current_step: str) -> str:
-    """Determine which measurement step to jump back to for a repass.
+    """Determine which measurement step a repass re-enters.
 
-    When the LLM decides to repatch, we jump to the step whose measurements
-    correspond to the current phase.  For pre/post grayscale we go back to
-    the grayscale step; for WB/gamma/color we go back to the respective step.
+    For pre/post grayscale we go back to the grayscale step; for WB/gamma/color
+    we go back to the respective step.
     """
     measurement_steps = {
         "pre_grayscale", "luminance", "white_balance",
@@ -1629,6 +1633,17 @@ def _repass_target_step(current_step: str) -> str:
     if current_step == "report":
         return "post_grayscale"
     return "post_grayscale"
+
+
+def repass_phase_used(session: Dict[str, Any], step: str) -> int:
+    """Re-measures already spent against *step*'s own budget (per-phase).
+
+    Re-measures spent elsewhere in the session don't reduce this phase's
+    budget (#645), so callers must count against the target phase, never a
+    session-wide total.
+    """
+    target = _repass_target_step(step)
+    return int((session.get("repass_phase_counts") or {}).get(target, 0))
 
 
 class SessionStore:
@@ -1793,6 +1808,7 @@ class SessionStore:
                 "timeout": 30.0,
             },
             "repass_count": 0,
+            "repass_phase_counts": {},
             "llm_adjustment_rounds": [],
         }
             return self.sessions[sid]
@@ -2087,10 +2103,14 @@ class SessionStore:
     ) -> Dict[str, Any]:
         """Handle an LLM pass-decision repass action.
 
-        "ceiling" records the decision and stops. "repatch" increments
-        repass_count, checks against REPATCH_MAX_PASSES, and jumps the
-        session back to the relevant measurement step. "accept" records
-        the decision and leaves the session step untouched (#659).
+        Invalid actions (not in ``REPASS_ACTIONS``) are rejected below.
+        "ceiling" is recorded as-is and stops (unchanged). "repatch" charges
+        the re-measure to the *target phase's* own budget (a fresh phase gets
+        its own ``REPATCH_MAX_PASSES`` allowance, even after other phases
+        exhausted theirs; re-entering a phase spends its remaining
+        allowance), then jumps the session back to that measurement step.
+        "accept" records the decision and leaves the session step untouched
+        (#659).
 
         Atomic: held under ``SessionStore._lock`` to prevent TOCTOU races
         with concurrent delete/eviction (#503).
@@ -2098,6 +2118,12 @@ class SessionStore:
         with self._lock:
             session = self.get(sid)
             current_step = session["step"]
+
+            if action not in REPASS_ACTIONS:
+                raise ValueError(
+                    f"unknown repass action {action!r}; expected one of: "
+                    f"{', '.join(REPASS_ACTIONS)}"
+                )
 
             if action == "ceiling":
                 session.setdefault("repass_decision", {})
@@ -2117,34 +2143,40 @@ class SessionStore:
                 self.save_session(sid)
                 return session
 
-            if action == "repatch":
-                session["repass_count"] = session.get("repass_count", 0) + 1
-                if session["repass_count"] > REPATCH_MAX_PASSES:
-                    session.setdefault("repass_decision", {})
-                    session["repass_decision"]["action"] = "ceiling"
-                    session["repass_decision"]["reason"] = (
-                        f"Max repass limit ({REPATCH_MAX_PASSES}) reached"
-                    )
-                    session["repass_decision"]["ceiling_reason"] = ceiling_reason or "Exceeded maximum repass count"
-                    session["repass_decision"]["timestamp"] = now().isoformat()
-                    session["step"] = "report"
-                    self.save_session(sid)
-                    return session
-
+            # Per-phase re-measure accounting (#645): the ceiling decision is
+            # taken against the budget of the phase the re-measure would
+            # re-enter, never against a session-wide total.
+            phase_counts = dict(session.get("repass_phase_counts") or {})
+            target_step = _repass_target_step(current_step)
+            used = phase_counts.get(target_step, 0)
+            if used >= REPATCH_MAX_PASSES:
                 session.setdefault("repass_decision", {})
-                session["repass_decision"]["action"] = "repatch"
-                session["repass_decision"]["reason"] = reason
-                session["repass_decision"]["patches"] = patches or []
+                session["repass_decision"]["action"] = "ceiling"
+                session["repass_decision"]["reason"] = (
+                    f"Max repass limit ({REPATCH_MAX_PASSES}) reached for "
+                    f"{STEP_LABELS.get(target_step, target_step)}"
+                )
+                session["repass_decision"]["ceiling_reason"] = (
+                    ceiling_reason or "Exceeded maximum repass count for this phase"
+                )
                 session["repass_decision"]["timestamp"] = now().isoformat()
-
-                session["step"] = _repass_target_step(current_step)
+                session["step"] = "report"
                 self.save_session(sid)
                 return session
 
-            raise ValueError(
-                f"unknown repass action {action!r}; expected one of: "
-                f"{', '.join(REPASS_ACTIONS)}"
-            )
+            phase_counts[target_step] = used + 1
+            session["repass_phase_counts"] = phase_counts
+            session["repass_count"] = sum(phase_counts.values())
+
+            session.setdefault("repass_decision", {})
+            session["repass_decision"]["action"] = "repatch"
+            session["repass_decision"]["reason"] = reason
+            session["repass_decision"]["patches"] = patches or []
+            session["repass_decision"]["timestamp"] = now().isoformat()
+
+            session["step"] = target_step
+            self.save_session(sid)
+            return session
 
     def record_adjustment_round(
         self,

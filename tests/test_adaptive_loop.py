@@ -703,12 +703,65 @@ class TestSessionStoreRepash:
         assert "timestamp" in session["repass_decision"]
 
     def test_repatch_hits_max_and_flags_ceiling(self):
+        """The ceiling fires when the *phase's own* budget is exhausted (#645)."""
         session = self._base_session()
-        session["repass_count"] = 3
+        session["repass_phase_counts"] = {"post_grayscale": REPATCH_MAX_PASSES}
         store = self._make_store(session)
         result = store.repass("test1234", "repatch", reason="still bad")
         assert result["repass_decision"]["action"] == "ceiling"
         assert "Max repass limit" in result["repass_decision"]["reason"]
+        assert result["step"] == "report"
+
+    def test_repass_budget_is_per_phase_not_session_global(self):
+        """#645: a fresh phase keeps its own budget even after three earlier repasses."""
+        store = self._make_store(self._base_session("white_balance"))
+        session = store.repass("test1234", "repatch", reason="wb still off")
+        assert session["step"] == "white_balance"
+        # Forward-advance through the next phases; each gets its own budget.
+        session["step"] = "gamma"
+        session = store.repass("test1234", "repatch", reason="gamma off")
+        assert session["step"] == "gamma"
+        session["step"] = "color_tuner"
+        session = store.repass("test1234", "repatch", reason="colour off")
+        assert session["repass_decision"]["action"] == "repatch"
+        # A session-global counter would now be exhausted and force the
+        # ceiling. A *second* color_tuner repass is still allowed because
+        # color_tuner has only spent two of its own three passes.
+        session = store.repass("test1234", "repatch", reason="colour still off")
+        assert session["repass_decision"]["action"] == "repatch"
+        assert session["step"] == "color_tuner"
+        # Session-total counter is a display/history counter, not a budget.
+        assert session["repass_count"] == 4
+        assert session["repass_phase_counts"] == {
+            "white_balance": 1, "gamma": 1, "color_tuner": 2,
+        }
+
+    def test_repass_budget_not_refunded_by_back_navigation(self):
+        """Re-entering a phase via report does not refund its spent budget (#645)."""
+        store = self._make_store(self._base_session("report"))
+        for _ in range(REPATCH_MAX_PASSES):
+            session = store.repass("test1234", "repatch", reason="re-measure")
+            assert session["repass_decision"]["action"] == "repatch"
+            # report -> post_grayscale re-entry: the step may bounce back and
+            # forth, the spent budget must not reset either way.
+            session["step"] = "report"
+        result = store.repass("test1234", "repatch", reason="out of budget")
+        assert result["repass_decision"]["action"] == "ceiling"
+        assert result["step"] == "report"
+
+    def test_serialize_deserialize_roundtrips_repass_phase_counts(self):
+        """Per-phase budget dict survives session persistence (#645)."""
+        from calibrator.session import deserialize_session, serialize_session
+
+        session = self._base_session()
+        session["repass_phase_counts"] = {"white_balance": 1, "gamma": 3}
+        dumped = serialize_session(session)
+        assert dumped["repass_phase_counts"] == {"white_balance": 1, "gamma": 3}
+        assert deserialize_session(dumped)["repass_phase_counts"] == {
+            "white_balance": 1, "gamma": 3,
+        }
+        legacy = {k: v for k, v in session.items() if k != "repass_phase_counts"}
+        assert deserialize_session(legacy)["repass_phase_counts"] == {}
 
     def test_ceiling_action_sets_ceiling_flag(self):
         store = self._make_store(self._base_session())

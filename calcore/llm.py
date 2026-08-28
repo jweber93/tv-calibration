@@ -873,7 +873,7 @@ class PassDecision:
     patches: List[str]  # patch labels to re-measure (only for "repatch")
     reason: str  # plain-English explanation
     confidence: float  # 0–1
-    repass_count: int  # how many repasses already done this phase
+    repass_count: int  # how many repasses already done this phase (per-phase)
     ceiling_reason: Optional[str] = None  # why hardware ceiling was flagged
 
 
@@ -1000,7 +1000,9 @@ def query_pass_decision(
         "Evaluate the measurement residuals for the current phase and decide whether to: "
         "(a) accept and advance, (b) trigger targeted re-measurement of the worst patches, "
         "or (c) flag a hardware ceiling (TV cannot achieve target regardless of adjustments).\n\n"
-        "Decision rules:\n"
+        "Decision rules (repass_count counts re-measurement passes already spent "
+        "IN THIS PHASE only; every phase gets its own budget of "
+        f"{_REPATCH_MAX_PASSES}):\n"
         "- ACCEPT if: grayscale avg ΔE ≤ 2.0 AND max ΔE ≤ 3.0 AND no single color ΔE > 4.0\n"
         "- REPATCH if: avg ΔE > 2.0 OR max ΔE > 3.0 AND repass_count < 3 — list the worst 3-5 patches to re-measure\n"
         "- CEILING if: repass_count ≥ 3 AND worst color ΔE > 5.0, OR grayscale max ΔE > 6.0 AND no improvement trend\n\n"
@@ -1010,7 +1012,7 @@ def query_pass_decision(
         '  "patches": ["<worst patch labels>"],\n'
         '  "reason": "<1-2 sentences explaining the decision>",\n'
         '  "confidence": <0.0-1.0>,\n'
-        '  "repass_count": <current repass count>,\n'
+        '  "repass_count": <repasses spent in this phase>,\n'
         '  "ceiling_reason": "<only if action=ceiling, otherwise null>"\n'
         "}\n\n"
         f"MEASUREMENT DATA:\n{json.dumps(payload, indent=2, default=str)}"
