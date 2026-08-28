@@ -1907,6 +1907,42 @@ class TestPassDecisionEndpoint:
         data = resp.json()
         assert data["action"] == "accept"
 
+    def test_repass_count_derived_from_session_not_request(self, client, session_id, monkeypatch):
+        """#645: /pass-decision derives the per-phase budget from session state.
+
+        A client-supplied repass_count of 0 must not mask a phase whose own
+        budget is already exhausted, and the count handed to the LLM is the
+        count for the phase the session currently sits in.
+        """
+        session = server_module._sessions[session_id]
+        session["step"] = "white_balance"
+        session["repass_phase_counts"] = {"white_balance": 3, "gamma": 2}
+        session["repass_count"] = 5
+
+        seen = {}
+
+        def fake_query(**kwargs):
+            seen.update(kwargs)
+            return None
+
+        client.post(f"/api/session/{session_id}/llm/configure",
+                    json={"endpoint": "http://localhost:4000", "model": "gpt-4o"})
+        monkeypatch.setattr(server_module, "_query_pass_decision", fake_query)
+
+        resp = client.post(
+            f"/api/session/{session_id}/pass-decision",
+            json={"measurements": [{"label": "White 50%", "delta_e": 2.5,
+                                   "stimulus_pct": 50}], "repass_count": 0},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Session-state per-phase count for white_balance wins over both the
+        # client-supplied 0 and the session-global total of 5.
+        assert seen["repass_count"] == 3
+        assert seen["phase"] == "white_balance"
+        assert data["action"] == "accept"  # LLM unavailable -> graceful accept
+        assert data["repass_count"] == 3
+
 
 # ── Issue #188: Periodic session TTL eviction ──────────────────────────────────
 

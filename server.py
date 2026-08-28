@@ -111,6 +111,7 @@ from calibrator.session import (
     m_to_dict as _m_to_dict,
     now as _now,
     recommended_code_scale as _recommended_code_scale,
+    repass_phase_used as _repass_phase_used,
     session_view as _session_view,
     validate_peak_luminance as _validate_peak_luminance,
     zro_step_instructions as _zro_step_instructions,
@@ -2401,6 +2402,8 @@ def post_repass(sid: str, req: RepassReq):
 
 class PassDecisionReq(BaseModel):
     measurements: List[Dict[str, Any]]
+    # Deprecated: kept so older clients keep parsing. The server now derives
+    # the repass count from session state (per-phase, #645) and ignores this.
     repass_count: int = 0
 
 
@@ -2409,11 +2412,18 @@ def post_pass_decision(sid: str, req: PassDecisionReq):
     """Evaluate measurement residuals and decide: accept, repatch, or ceiling.
 
     Returns {"action": "accept"|"repatch"|"ceiling", "patches": [...], "reason": "...", "confidence": 0.0, "repass_count": N}.
+
+    The repass count handed to the LLM is the *current phase's* spent budget
+    (#645), derived from session state, not the caller-supplied field.
     """
     session = store.get(sid)
+    # #645: the ceiling decision is per-phase; count only the re-measures
+    # charged to the measurement phase this decision belongs to.
+    phase_step = session.get("step", "post_grayscale")
+    phase_repass_count = _repass_phase_used(session, phase_step)
     llm_cfg_dict = session.get("llm_config", {})
     if not (llm_cfg_dict.get("endpoint") and llm_cfg_dict.get("model")):
-        return {"action": "accept", "reason": "LLM not configured", "confidence": 1.0, "repass_count": req.repass_count}
+        return {"action": "accept", "reason": "LLM not configured", "confidence": 1.0, "repass_count": phase_repass_count}
 
     llm_cfg = LLMConfig.from_dict(llm_cfg_dict, default_timeout=45.0, default_temperature=0.0)
 
@@ -2425,7 +2435,7 @@ def post_pass_decision(sid: str, req: PassDecisionReq):
 
     decision = _query_pass_decision(
         measurements=req.measurements,
-        phase=session.get("step", "baseline"),
+        phase=phase_step,
         signal_range=session.get("signal_range", "full"),
         code_scale=session.get("code_scale", "8bit"),
         target_gamma=target_gamma,
@@ -2433,11 +2443,11 @@ def post_pass_decision(sid: str, req: PassDecisionReq):
         target_white_point=target_wp,
         target_gamut=target_gamut,
         llm=llm_cfg,
-        repass_count=req.repass_count,
+        repass_count=phase_repass_count,
     )
 
     if decision is None:
-        return {"action": "accept", "reason": "LLM unavailable", "confidence": 1.0, "repass_count": req.repass_count}
+        return {"action": "accept", "reason": "LLM unavailable", "confidence": 1.0, "repass_count": phase_repass_count}
 
     return {
         "action": decision.action,
