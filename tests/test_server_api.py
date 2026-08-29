@@ -276,6 +276,48 @@ class TestSessionCreation:
         assert "stale_latest" not in _sessions
 
 
+class TestSessionDefaultsCodeScale:
+    """Session creation honours an explicit code_scale session-default (#639).
+
+    Defaults used to apply as signal_range -> code_scale -> pattern_generator,
+    and both setters re-derive code_scale unconditionally; with mode still
+    unset that derivation is always "8bit", so a configured "10bit" default
+    was silently discarded at creation and again at mode selection.
+    """
+
+    TEN_BIT_DEFAULTS = {
+        "signal_range": "full",
+        "code_scale": "10bit",
+        "pattern_generator": "dogegen",
+    }
+
+    def test_create_session_honours_10bit_code_scale_default(self, client):
+        server_module._prefs["session_defaults"] = dict(self.TEN_BIT_DEFAULTS)
+        resp = client.post("/api/session", json={"tv_key": "u8g"})
+        assert resp.status_code == 200
+        assert resp.json()["code_scale"] == "10bit"
+
+    def test_sdr_session_keeps_pinned_10bit_code_scale(self, client):
+        server_module._prefs["session_defaults"] = dict(self.TEN_BIT_DEFAULTS)
+        resp = client.post("/api/session", json={"tv_key": "u8g"})
+        sid = resp.json()["id"]
+        mode_resp = client.post(f"/api/session/{sid}/mode", json={"mode": "SDR"})
+        assert mode_resp.status_code == 200
+        assert mode_resp.json()["code_scale"] == "10bit"
+        # A 10-bit SDR signal must keep code_max=1023 for the whole session.
+        cfg = server_module._session_to_analysis_config(server_module.store.get(sid))
+        assert cfg.code_max == 1023
+
+    def test_default_8bit_pref_keeps_hdr10_auto_bump(self, client):
+        # The shipped "8bit" default stays un-pinned: an HDR10 session must
+        # still auto-bump to 10-bit codes (regression guard for #639's fix).
+        resp = client.post("/api/session", json={"tv_key": "u8g"})
+        sid = resp.json()["id"]
+        assert resp.json()["code_scale"] == "8bit"
+        mode_resp = client.post(f"/api/session/{sid}/mode", json={"mode": "HDR10"})
+        assert mode_resp.json()["code_scale"] == "10bit"
+
+
 # ── Mode selection ────────────────────────────────────────────────────────────
 
 class TestModeSelection:

@@ -707,6 +707,7 @@ def serialize_session(s: Dict[str, Any]) -> Dict[str, Any]:
         "gamma_workflow": s.get("gamma_workflow", "quick"),
         "signal_range": s.get("signal_range", "full"),
         "code_scale": s.get("code_scale", "8bit"),
+        "code_scale_explicit": s.get("code_scale_explicit", False),
         "lightspace_tier": s.get("lightspace_tier", "free"),
         "pattern_generator": s.get("pattern_generator", "dogegen"),
         "grayscale_ramp_steps": s.get("grayscale_ramp_steps", 11),
@@ -762,6 +763,7 @@ def deserialize_session(data: Dict[str, Any]) -> Dict[str, Any]:
         "gamma_workflow": data.get("gamma_workflow", "quick"),
         "signal_range": data.get("signal_range", "full"),
         "code_scale": data.get("code_scale", "8bit"),
+        "code_scale_explicit": data.get("code_scale_explicit", False),
         "lightspace_tier": data.get("lightspace_tier", "free"),
         "pattern_generator": data.get("pattern_generator", "dogegen"),
         "grayscale_ramp_steps": data.get("grayscale_ramp_steps", 11),
@@ -1785,6 +1787,7 @@ class SessionStore:
             "gamma_workflow": "quick",
             "signal_range": "full",
             "code_scale": "8bit",
+            "code_scale_explicit": False,
             "lightspace_tier": "free",
             "pattern_generator": "dogegen",
             "grayscale_ramp_steps": 11,
@@ -1839,11 +1842,12 @@ class SessionStore:
             else:
                 session["target"] = TARGETS[mode]
                 session.setdefault("sdr_peak_nits", None)
-            session["code_scale"] = recommended_code_scale(
-                session.get("pattern_generator", "lightspace_connect"),
-                session.get("signal_range", "limited"),
-                mode,
-            )
+            if not session.get("code_scale_explicit"):
+                session["code_scale"] = recommended_code_scale(
+                    session.get("pattern_generator", "lightspace_connect"),
+                    session.get("signal_range", "limited"),
+                    mode,
+                )
             session["step"] = "prepare"
             self.save_session(sid)
         return session
@@ -1884,11 +1888,12 @@ class SessionStore:
             if signal_range not in ("limited", "full"):
                 raise HTTPException(400, "signal_range must be 'limited' or 'full'")
             session["signal_range"] = signal_range
-            session["code_scale"] = recommended_code_scale(
-                session.get("pattern_generator", "lightspace_connect"),
-                signal_range,
-                session.get("mode"),
-            )
+            if not session.get("code_scale_explicit"):
+                session["code_scale"] = recommended_code_scale(
+                    session.get("pattern_generator", "lightspace_connect"),
+                    signal_range,
+                    session.get("mode"),
+                )
             self.save_session(sid)
             return session
 
@@ -1906,11 +1911,12 @@ class SessionStore:
                     f"pattern_generator must be one of {sorted(PATTERN_GENERATOR_OPTIONS)}",
                 )
             session["pattern_generator"] = pattern_generator
-            session["code_scale"] = recommended_code_scale(
-                pattern_generator,
-                session.get("signal_range", "limited"),
-                session.get("mode"),
-            )
+            if not session.get("code_scale_explicit"):
+                session["code_scale"] = recommended_code_scale(
+                    pattern_generator,
+                    session.get("signal_range", "limited"),
+                    session.get("mode"),
+                )
             self.save_session(sid)
             return session
 
@@ -1929,6 +1935,14 @@ class SessionStore:
                     400, "10bit code_scale currently requires Full signal range"
                 )
             session["code_scale"] = code_scale
+            # An explicit choice overrides the auto-derived recommendation and
+            # pins the scale against later re-derivation; a value that merely
+            # matches the recommendation leaves auto-derivation in charge (#639).
+            session["code_scale_explicit"] = code_scale != recommended_code_scale(
+                session.get("pattern_generator", "lightspace_connect"),
+                session.get("signal_range", "limited"),
+                session.get("mode"),
+            )
             self.save_session(sid)
             return session
 
