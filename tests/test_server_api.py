@@ -296,6 +296,8 @@ class TestSessionDefaultsCodeScale:
         resp = client.post("/api/session", json={"tv_key": "u8g"})
         assert resp.status_code == 200
         assert resp.json()["code_scale"] == "10bit"
+        # The pin is visible in the session view so the UI can show it.
+        assert resp.json()["code_scale_explicit"] is True
 
     def test_sdr_session_keeps_pinned_10bit_code_scale(self, client):
         server_module._prefs["session_defaults"] = dict(self.TEN_BIT_DEFAULTS)

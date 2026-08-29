@@ -1331,6 +1331,9 @@ def session_view(s: Dict[str, Any]) -> Dict[str, Any]:
         "zro_imports": s.get("zro_imports", []),
         "signal_range": signal_range,
         "code_scale": code_scale,
+        # True when the user picked code_scale deliberately; the frontend can
+        # show a pinned/auto indicator (#639 review).
+        "code_scale_explicit": s.get("code_scale_explicit", False),
         "lightspace_tier": s.get("lightspace_tier", "free"),
         "pattern_generator": s.get("pattern_generator", "lightspace_connect"),
         "grayscale_ramp_steps": s.get("grayscale_ramp_steps", 11),

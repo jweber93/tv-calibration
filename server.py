@@ -1368,7 +1368,6 @@ def create_session(req: CreateSessionReq):
             session = store.set_pattern_generator(sid, sd["pattern_generator"])
         except Exception:
             logger.warning("Failed to apply default pattern_generator for sid=%s", sid, exc_info=True)
-            pass
     if sd.get("signal_range"):
         try:
             session = store.set_signal_range(sid, sd["signal_range"])
