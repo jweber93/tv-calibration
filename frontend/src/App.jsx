@@ -43,6 +43,7 @@ import { Report } from './pages/Report';
 import { ComparisonPage } from './pages/ComparisonPage';
 import { ConfirmModal }  from './components/ConfirmModal';
 import { LlmInsightCard } from './components/LlmInsightCard';
+import { SessionWarnings } from './components/SessionWarnings';
 import { TvSettingsInput } from './components/TvSettingsInput';
 import { LogsPanel }     from './components/LogsPanel';
 import { AppShell }     from './components/AppShell';
@@ -177,6 +178,7 @@ export default function App() {
           <ComparisonPage profiles={profiles} />
         ) : (
           <>
+            <SessionWarnings key={session?.id} warnings={session?.warnings} />
             {session && saveTvSettings && (
               <TvSettingsInput onSave={saveTvSettings} />
             )}
