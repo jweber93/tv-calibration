@@ -320,6 +320,59 @@ class TestSessionDefaultsCodeScale:
         assert mode_resp.json()["code_scale"] == "10bit"
 
 
+class TestSessionDefaultWarnings:
+    """#673: session creation surfaces defaults that failed to apply.
+
+    An internally-inconsistent session_defaults combo used to fail silently —
+    the setter's HTTPException was logged and swallowed, and the client got a
+    200 with silently-different effective settings. The failure now surfaces
+    as a `warnings` entry on the session response (and later session reads)
+    so the frontend can banner it.
+    """
+
+    INCONSISTENT_DEFAULTS = {
+        "signal_range": "limited",
+        "code_scale": "10bit",
+        "pattern_generator": "dogegen",
+    }
+
+    def test_inconsistent_defaults_surface_warnings(self, client):
+        # 10-bit codes require Full range, so the code_scale pref must be
+        # rejected — but the rejection must be visible, not log-only.
+        server_module._prefs["session_defaults"] = dict(self.INCONSISTENT_DEFAULTS)
+        resp = client.post("/api/session", json={"tv_key": "u8g"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["code_scale"] == "8bit"
+        assert any("code_scale" in w for w in body["warnings"])
+        assert "was not applied" in body["warnings"][0]
+
+    def test_unknown_generator_default_surfaces_warning(self, client):
+        server_module._prefs["session_defaults"] = {"pattern_generator": "nope"}
+        resp = client.post("/api/session", json={"tv_key": "u8g"})
+        body = resp.json()
+        assert any("pattern_generator" in w for w in body["warnings"])
+
+    def test_warnings_persist_in_later_session_reads(self, client):
+        server_module._prefs["session_defaults"] = dict(self.INCONSISTENT_DEFAULTS)
+        resp = client.post("/api/session", json={"tv_key": "u8g"})
+        sid = resp.json()["id"]
+        assert resp.json()["warnings"]
+        assert client.get("/api/session").json()["warnings"]
+        assert client.get(f"/api/session/{sid}").json()["warnings"]
+
+    def test_applicable_defaults_have_no_warnings(self, client):
+        server_module._prefs["session_defaults"] = {
+            "signal_range": "full",
+            "code_scale": "10bit",
+            "pattern_generator": "dogegen",
+        }
+        resp = client.post("/api/session", json={"tv_key": "u8g"})
+        body = resp.json()
+        assert body["warnings"] == []
+        assert body["code_scale"] == "10bit"
+
+
 # ── Mode selection ────────────────────────────────────────────────────────────
 
 class TestModeSelection:

@@ -737,6 +737,7 @@ def serialize_session(s: Dict[str, Any]) -> Dict[str, Any]:
         "tv_settings": s.get("tv_settings", {}),
         "_history_recorded": s.get("_history_recorded", False),
         "repass_decision": s.get("repass_decision", {}),
+        "session_warnings": list(s.get("session_warnings", [])),
     }
 
 
@@ -810,6 +811,7 @@ def deserialize_session(data: Dict[str, Any]) -> Dict[str, Any]:
         "tv_settings": data.get("tv_settings", {}),
         "_history_recorded": data.get("_history_recorded", False),
         "repass_decision": data.get("repass_decision", {}),
+        "session_warnings": list(data.get("session_warnings", [])),
     }
 
 
@@ -1334,6 +1336,9 @@ def session_view(s: Dict[str, Any]) -> Dict[str, Any]:
         # True when the user picked code_scale deliberately; the frontend can
         # show a pinned/auto indicator (#639 review).
         "code_scale_explicit": s.get("code_scale_explicit", False),
+        # Session-creation warnings (defaults that failed to apply) for the
+        # UI to surface (#673). Always a fresh list; never mutated here.
+        "warnings": list(s.get("session_warnings", [])),
         "lightspace_tier": s.get("lightspace_tier", "free"),
         "pattern_generator": s.get("pattern_generator", "lightspace_connect"),
         "grayscale_ramp_steps": s.get("grayscale_ramp_steps", 11),
@@ -1816,6 +1821,7 @@ class SessionStore:
             "repass_count": 0,
             "repass_phase_counts": {},
             "llm_adjustment_rounds": [],
+            "session_warnings": [],
         }
             return self.sessions[sid]
 
