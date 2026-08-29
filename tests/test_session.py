@@ -466,3 +466,52 @@ class TestSerializeDeserializeRoundTrip:
         assert deserialized["tv_settings"] == {}
         assert deserialized["_history_recorded"] is False
         assert deserialized["repass_decision"] == {}
+
+
+class TestSessionCodeScalePin:
+    """An explicit code_scale survives later re-derivation (#639)."""
+
+    @pytest.fixture
+    def store(self, tmp_path):
+        return SessionStore(
+            session_dir_getter=lambda: tmp_path,
+            ttl_getter=lambda: timedelta(days=7),
+            watched_session_id_getter=lambda: None,
+        )
+
+    def test_pinned_code_scale_survives_mode_selection(self, store):
+        sid = store.create_session("u8g")["id"]
+        store.set_code_scale(sid, "10bit")
+        session = store.select_mode(sid, "SDR")
+        assert session["code_scale"] == "10bit"
+
+    def test_unpinned_sdr_mode_stays_8bit(self, store):
+        sid = store.create_session("u8g")["id"]
+        session = store.select_mode(sid, "SDR")
+        assert session["code_scale"] == "8bit"
+
+    def test_unpinned_hdr10_mode_auto_bumps_to_10bit(self, store):
+        sid = store.create_session("u8g")["id"]
+        session = store.select_mode(sid, "HDR10")
+        assert session["code_scale"] == "10bit"
+
+    def test_pinned_code_scale_survives_signal_range_change(self, store):
+        sid = store.create_session("u8g")["id"]
+        store.set_code_scale(sid, "10bit")
+        session = store.set_signal_range(sid, "limited")
+        assert session["code_scale"] == "10bit"
+
+    def test_pinned_code_scale_survives_pattern_generator_change(self, store):
+        sid = store.create_session("u8g")["id"]
+        store.set_code_scale(sid, "10bit")
+        session = store.set_pattern_generator(sid, "lightspace_connect")
+        assert session["code_scale"] == "10bit"
+
+    def test_serialize_round_trip_preserves_pin(self, store):
+        sid = store.create_session("u8g")["id"]
+        store.set_code_scale(sid, "10bit")
+        session = store.get(sid)
+        assert session["code_scale_explicit"] is True
+        restored = deserialize_session(serialize_session(session))
+        assert restored["code_scale"] == "10bit"
+        assert restored["code_scale_explicit"] is True

@@ -1355,23 +1355,30 @@ def create_session(req: CreateSessionReq):
     session = store.create_session(req.tv_key, req.sdr_peak_nits)
     sid = session["id"]
     sd = _prefs.get("session_defaults", {})
+    # pattern_generator and signal_range re-derive code_scale via
+    # recommended_code_scale(), which only picks "10bit" for HDR modes — with
+    # mode still unset at creation that derivation is always "8bit". Apply
+    # them first, then honour a configured code_scale default (issue #639):
+    # set_code_scale pins an explicit value so mode/range/generator changes
+    # cannot silently revert it, while a pref that merely matches the
+    # auto-derived recommendation (the shipped "8bit" default) leaves
+    # auto-derivation in charge, preserving the HDR10 auto-bump.
+    if sd.get("pattern_generator"):
+        try:
+            session = store.set_pattern_generator(sid, sd["pattern_generator"])
+        except Exception:
+            logger.warning("Failed to apply default pattern_generator for sid=%s", sid, exc_info=True)
     if sd.get("signal_range"):
         try:
             session = store.set_signal_range(sid, sd["signal_range"])
         except Exception:
             logger.warning("Failed to apply default signal_range for sid=%s", sid, exc_info=True)
             pass
-    if sd.get("code_scale"):
+    if sd.get("code_scale") and sd.get("code_scale") != session.get("code_scale"):
         try:
             session = store.set_code_scale(sid, sd["code_scale"])
         except Exception:
             logger.warning("Failed to apply default code_scale for sid=%s", sid, exc_info=True)
-            pass
-    if sd.get("pattern_generator"):
-        try:
-            session = store.set_pattern_generator(sid, sd["pattern_generator"])
-        except Exception:
-            logger.warning("Failed to apply default pattern_generator for sid=%s", sid, exc_info=True)
             pass
     llm = _prefs.get("llm", {})
     if llm.get("endpoint") or llm.get("model"):
