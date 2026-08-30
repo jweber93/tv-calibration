@@ -1372,7 +1372,7 @@ def create_session(req: CreateSessionReq):
     def _default_failed(key: str, value, exc: Exception) -> None:
         logger.warning("Failed to apply default %s for sid=%s", key, sid, exc_info=True)
         detail = exc.detail if isinstance(exc, HTTPException) else str(exc) or type(exc).__name__
-        session.setdefault("session_warnings", []).append(
+        session["session_warnings"].append(
             f"Default session {key}={value!r} was not applied: {detail}"
         )
 
@@ -1398,8 +1398,12 @@ def create_session(req: CreateSessionReq):
             llm_cfg["endpoint"] = llm["endpoint"]
         if llm.get("model") and not llm_cfg.get("model"):
             llm_cfg["model"] = llm["model"]
-        store.save_session(sid)
-        session = store.get(sid)
+    # Persist the finished session exactly once, after defaults were applied.
+    # The setters each saved a mid-creation snapshot (or raised before
+    # reaching their own save), so without this the disk copy — and every
+    # restart/resume loaded through load_sessions — silently lost the
+    # warnings this endpoint just recorded (#673 review).
+    store.save_session(sid)
     return {
         **_session_view(session),
         "modes": MODE_OPTIONS,

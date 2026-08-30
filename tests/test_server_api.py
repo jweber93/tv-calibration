@@ -1,6 +1,7 @@
 """Tests for server.py API endpoints — ZRO helper workflow."""
 import asyncio
 import io
+import json
 import os
 import shutil
 from datetime import datetime, timedelta
@@ -360,6 +361,27 @@ class TestSessionDefaultWarnings:
         assert resp.json()["warnings"]
         assert client.get("/api/session").json()["warnings"]
         assert client.get(f"/api/session/{sid}").json()["warnings"]
+
+    def test_warnings_survive_restart_reload(self, client, monkeypatch, tmp_path):
+        # The disk copy is what a server restart actually replays: the
+        # setters' mid-creation saves used to persist a session whose
+        # session_warnings was still empty, so the warning only ever lived
+        # in the in-memory store. Read the JSON back from disk and reload
+        # it through load_sessions/deserialize_session — a simulated
+        # restart — instead of reading back through the live store.
+        monkeypatch.setattr(server_module, "SESSION_STORE_DIR", tmp_path)
+        server_module._prefs["session_defaults"] = dict(self.INCONSISTENT_DEFAULTS)
+        resp = client.post("/api/session", json={"tv_key": "u8g"})
+        sid = resp.json()["id"]
+        disk = json.loads((tmp_path / f"{sid}.json").read_text())
+        assert disk["session_warnings"] == resp.json()["warnings"]
+        reloaded = server_module.SessionStore(
+            session_dir_getter=lambda: tmp_path,
+            ttl_getter=lambda: timedelta(days=7),
+            watched_session_id_getter=lambda: None,
+        )
+        reloaded.load_sessions()
+        assert reloaded.get(sid)["session_warnings"] == resp.json()["warnings"]
 
     def test_applicable_defaults_have_no_warnings(self, client):
         server_module._prefs["session_defaults"] = {
