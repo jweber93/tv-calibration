@@ -920,6 +920,43 @@ def gamma_levels_for_session(session: Dict[str, Any]) -> Tuple[int, ...]:
     return GAMMA_WORKFLOW_LEVELS.get(workflow, GAMMA_TRACKING_LEVELS)
 
 
+def measured_black_nits(session: Dict[str, Any]) -> float:
+    """Best-effort measured black floor (0% luminance) for BT.1886 gamma fitting.
+
+    Neither gamma workflow measures a true 0% patch, but the grayscale-ramp
+    passes (pre/post calibration) always do — ``grayscale_levels_for_ramp``
+    starts at 0 — so this looks there for the panel's measured black floor
+    (issue #637), the same way ``calcore.analysis.analyze`` does.
+
+    Only a reading that is itself provably near-black is trusted as the
+    floor (stim_pct <= 0.5%, matching the ``is_black_patch`` precedent in
+    ``m_to_dict``) — *not* just whichever reading happens to be darkest.
+    Pre/post buckets can hold a partial pass with no true 0% patch (e.g. a
+    repatch or an in-progress ramp); mistaking its darkest *midtone* for the
+    black floor would bias the BT.1886 fit high instead of low — the same
+    failure mode issue #637 fixed, inverted.
+
+    Returns 0.0 when no confirmed-black reading is available, which leaves
+    ``gamma_from_luminance`` at its original through-origin power-law
+    behaviour.
+    """
+    signal_range = session.get("signal_range", "auto")
+    code_scale = session.get("code_scale", "8bit")
+    decode_range = (
+        "full10" if signal_range == "full" and code_scale == "10bit" else signal_range
+    )
+    ys = [
+        m.Y
+        for key in ("pre_measurements", "post_measurements")
+        for m in (session.get(key) or [])
+        if getattr(m, "Y", None) is not None
+        and m.Y >= 0
+        and m.stimulus_rgb
+        and stimulus_pct_from_code_value(m.stimulus_rgb[0], decode_range) <= 0.5
+    ]
+    return min(ys) if ys else 0.0
+
+
 def gamma_workflows_for_tv(tv: TVProfile) -> List[Dict[str, str]]:
     workflows = getattr(tv, "GAMMA_WORKFLOWS", ["quick"])
     return [

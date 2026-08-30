@@ -5,7 +5,12 @@ from __future__ import annotations
 import math
 
 from calcore.colour import ciede2000, xyY_to_xyz, xyz_to_lab
-from calcore.eotf import pq_eotf, pq_inverse_eotf, pq_target_nits
+from calcore.eotf import (
+    bt1886_gamma_from_luminance,
+    pq_eotf,
+    pq_inverse_eotf,
+    pq_target_nits,
+)
 
 
 def delta_xy(measured_xy, target_xy) -> float:
@@ -49,14 +54,20 @@ def stimulus_pct_from_code_value(value: int, signal_range: str = "auto") -> floa
     return 0.0
 
 
-def gamma_from_luminance(measured_nits, peak_nits, stimulus_pct):
+def gamma_from_luminance(measured_nits, peak_nits, stimulus_pct, black_nits=0.0):
+    """Effective gamma of a measured grayscale point.
+
+    ``black_nits`` is the panel's measured black floor (0% luminance). Left at
+    its default of 0.0, this is the plain through-origin power law
+    ``log(Y/peak) / log(stim)``. Passed a real measured floor, it instead
+    fits against the BT.1886 EOTF (which the floor flattens at the low end),
+    so a perfectly-tracking SDR panel with a realistic black level reports
+    its true gamma instead of a biased low one (issue #637).
+    """
     if stimulus_pct <= 0 or stimulus_pct >= 100 or peak_nits <= 0:
         return None
-    normalised_out = measured_nits / peak_nits
     normalised_in = stimulus_pct / 100.0
-    if normalised_out <= 0 or normalised_in <= 0 or normalised_out > 1.0:
-        return None
-    return math.log(normalised_out) / math.log(normalised_in)
+    return bt1886_gamma_from_luminance(measured_nits, peak_nits, normalised_in, black_nits)
 
 
 def is_pq_eotf(eotf: str) -> bool:
@@ -94,7 +105,7 @@ def pq_point_above_knee(stimulus_pct: float, peak_nits: float) -> bool:
     return pq_target_nits(n, peak_nits) < pq_eotf(n)
 
 
-def eotf_from_luminance(measured_nits, peak_nits, stimulus_pct, eotf="gamma"):
+def eotf_from_luminance(measured_nits, peak_nits, stimulus_pct, eotf="gamma", black_nits=0.0):
     """Effective tracking exponent of a measured point under its session EOTF.
 
     For power-law / BT.1886 EOTFs this returns the plain effective gamma
@@ -140,7 +151,7 @@ def eotf_from_luminance(measured_nits, peak_nits, stimulus_pct, eotf="gamma"):
         return math.log(pq_signal) / math.log(normalised_in)
     # Power-law and BT.1886 (BT.1886 with a near-zero black floor reduces to a
     # pure power law, which is the regime SDR panels operate in).
-    return gamma_from_luminance(measured_nits, peak_nits, stimulus_pct)
+    return gamma_from_luminance(measured_nits, peak_nits, stimulus_pct, black_nits)
 
 
 def delta_e_ciede2000_xyY(

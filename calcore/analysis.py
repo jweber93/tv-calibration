@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import math
 import statistics
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .colour import D65_XYZ, D65_xy, ciede2000, xyY_to_xyz, xyz_to_lab
-from .eotf import pq_target_nits
+from .eotf import bt1886_gamma_from_luminance, pq_target_nits
 from .models import AnalysisConfig, Patch, Summary, _normalize_code
 from .targets import target_xyz_for_patch
 
@@ -51,16 +50,32 @@ def analyze(
     grayscale = [p for p in patches if p.is_grayscale]
     colors = [p for p in patches if not p.is_grayscale]
 
-    gray_measured_y = [
-        p.meas_yxy[0] if p.meas_yxy is not None else p.meas_xyz[1]
+    gray_n_y = [
+        (
+            _normalize_code(p.r_target, cfg.signal_range) / cfg.code_max,
+            p.meas_yxy[0] if p.meas_yxy is not None else p.meas_xyz[1],
+        )
         for p in grayscale
     ]
-    if gray_measured_y:
+    if gray_n_y:
+        gray_measured_y = [y for _, y in gray_n_y]
         measured_peak_y = max(gray_measured_y)
         measured_black_y = min(gray_measured_y)
     else:
         measured_peak_y = None
         measured_black_y = 0.0
+
+    # A black floor for the BT.1886 gamma fit must come from a patch that is
+    # itself provably near-black (n <= 0.5%, matching the ``is_black_patch``
+    # precedent in calibrator/session.py) — not just whichever patch happens
+    # to be darkest in the current call. analyze() can be invoked with a
+    # partial import (e.g. cli.py's run_once() analyzing a single CSV that
+    # only contains gamma-tracking points at 20/40/60/80%, no true 0% patch),
+    # in which case `measured_black_y` above is a lifted midtone rather than
+    # a black floor; feeding that to the fit as `lb` biases gamma high
+    # instead of low — the same failure mode issue #637 fixed, inverted.
+    confirmed_black_ys = [y for n, y in gray_n_y if n <= 0.005]
+    gamma_black_y = min(confirmed_black_ys) if confirmed_black_ys else 0.0
 
     # Define a safe default for peak luminance to prevent None values
     peak_fallback = 100.0 if cfg.mode.lower() == 'sdr' else 1000.0
@@ -103,9 +118,17 @@ def analyze(
                         gray_pq_err_mid.append(pq_err_pct)
             else:
                 if 0 < meas_y < measured_peak_y_effective:
-                    rel = meas_y / measured_peak_y_effective
-                    gamma_val = math.log(rel) / math.log(n)
-                    if 0.20 <= n <= 0.80:
+                    # BT.1886-aware fit: a through-origin power law assumes
+                    # Y(0) == 0, but real SDR panels have a non-zero measured
+                    # black floor that flattens the low end of the curve and
+                    # biases a naive log/log fit low (issue #637). Feed the
+                    # panel's own measured black level in so a perfect
+                    # BT.1886 tracker reports its true gamma regardless of
+                    # black level.
+                    gamma_val = bt1886_gamma_from_luminance(
+                        meas_y, measured_peak_y_effective, n, gamma_black_y
+                    )
+                    if gamma_val is not None and 0.20 <= n <= 0.80:
                         gray_gamma_mid.append(gamma_val)
 
         grayscale_rows.append(

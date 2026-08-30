@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import math
 import warnings
+from typing import Optional
 
 
 def clamp(v: float, lo: float, hi: float) -> float:
@@ -77,3 +79,71 @@ def bt1886_eotf(v: float, lw: float, lb: float, gamma: float = 2.4) -> float:
 
 def gamma_eotf(v: float, gamma: float = 2.2) -> float:
     return clamp(v, 0.0, 1.0) ** gamma
+
+
+def bt1886_gamma_from_luminance(
+    measured_nits: float,
+    peak_nits: float,
+    stimulus_frac: float,
+    black_nits: float = 0.0,
+    gamma_lo: float = 0.5,
+    gamma_hi: float = 8.0,
+    tol: float = 1e-7,
+    max_iter: int = 80,
+) -> Optional[float]:
+    """Effective gamma for a measured point, accounting for the BT.1886 black floor.
+
+    A pure through-origin power-law fit (``log(Y/peak) / log(stim)``) implicitly
+    assumes ``Y(0) == 0``. Real panels have a non-zero black floor, which the
+    BT.1886 EOTF absorbs via its ``lb`` term (see ``bt1886_eotf``) — fitting the
+    naive power law to such a panel reports a biased (too-low) gamma even when
+    the panel tracks BT.1886 perfectly (issue #637).
+
+    When *black_nits* is 0 (unknown/negligible floor), this reduces to the
+    plain power-law estimate, so behaviour is unchanged for callers that don't
+    have a measured floor to pass. When *black_nits* is positive, this instead
+    solves for the gamma that reproduces the measurement via
+    ``bt1886_eotf(stimulus_frac, peak_nits, black_nits, gamma)``, by bisection —
+    the BT.1886 formula isn't algebraically invertible for gamma, but for a
+    fixed signal in (0, 1) it is monotonically non-increasing in gamma, so
+    bisection converges reliably over a generous [gamma_lo, gamma_hi] bracket.
+
+    Returns ``None`` when the inputs are out of range (signal not in (0, 1),
+    non-positive peak, or a measurement outside the valid [black, peak] band).
+    """
+    if peak_nits <= 0 or not (0.0 < stimulus_frac < 1.0) or measured_nits <= 0:
+        return None
+
+    if black_nits <= 0:
+        rel = measured_nits / peak_nits
+        if rel <= 0 or rel > 1.0:
+            return None
+        return math.log(rel) / math.log(stimulus_frac)
+
+    if measured_nits <= black_nits or measured_nits > peak_nits:
+        return None
+
+    def f(gamma: float) -> float:
+        return bt1886_eotf(stimulus_frac, peak_nits, black_nits, gamma) - measured_nits
+
+    lo, hi = gamma_lo, gamma_hi
+    f_lo, f_hi = f(lo), f(hi)
+    if f_lo == 0:
+        return lo
+    if f_hi == 0:
+        return hi
+    if (f_lo > 0) == (f_hi > 0):
+        # Measurement falls outside what's reachable in [gamma_lo, gamma_hi];
+        # report the closer bound rather than fail silently on a real deviation.
+        return lo if abs(f_lo) < abs(f_hi) else hi
+
+    for _ in range(max_iter):
+        mid = (lo + hi) / 2.0
+        f_mid = f(mid)
+        if abs(f_mid) <= tol * measured_nits or (hi - lo) < 1e-6:
+            return mid
+        if (f_mid > 0) == (f_lo > 0):
+            lo, f_lo = mid, f_mid
+        else:
+            hi, f_hi = mid, f_mid
+    return (lo + hi) / 2.0
