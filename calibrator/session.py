@@ -918,6 +918,28 @@ def gamma_levels_for_session(session: Dict[str, Any]) -> Tuple[int, ...]:
     return GAMMA_WORKFLOW_LEVELS.get(workflow, GAMMA_TRACKING_LEVELS)
 
 
+def measured_black_nits(session: Dict[str, Any]) -> float:
+    """Best-effort measured black floor (0% luminance) for BT.1886 gamma fitting.
+
+    Neither gamma workflow measures a true 0% patch, but the grayscale-ramp
+    passes (pre/post calibration) always do — ``grayscale_levels_for_ramp``
+    starts at 0. Use the darkest available reading from those passes as the
+    panel's measured black floor so the gamma quality gate can account for it
+    (issue #637), the same way ``calcore.analysis.analyze`` already does.
+
+    Returns 0.0 when no grayscale-ramp measurements are available yet, which
+    leaves ``gamma_from_luminance`` at its original through-origin power-law
+    behaviour.
+    """
+    ys = [
+        m.Y
+        for key in ("pre_measurements", "post_measurements")
+        for m in (session.get(key) or [])
+        if getattr(m, "Y", None) is not None and m.Y >= 0
+    ]
+    return min(ys) if ys else 0.0
+
+
 def gamma_workflows_for_tv(tv: TVProfile) -> List[Dict[str, str]]:
     workflows = getattr(tv, "GAMMA_WORKFLOWS", ["quick"])
     return [

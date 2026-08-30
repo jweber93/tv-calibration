@@ -127,6 +127,45 @@ class TestGammaGate:
         gates = _step_quality(s, TV)
         assert "gamma" not in gates
 
+    def test_passes_with_realistic_black_floor(self):
+        """A perfectly-tracking panel with a realistic non-zero black floor
+        must still pass the gamma gate (issue #637): the naive through-origin
+        power law used to report a biased-low gamma for exactly this case."""
+        from calcore.eotf import bt1886_eotf
+
+        peak, black_floor = SDR_TARGET.peak_luminance_nits, 0.5
+        meas = [
+            _gray(
+                f"Gamma {p}%",
+                bt1886_eotf(p / 100.0, peak, black_floor, SDR_TARGET.gamma),
+                (round(16 + (p / 100) * (235 - 16)),) * 3,
+            )
+            for p in (20, 40, 60, 80)
+        ]
+        # The grayscale ramp's own 0% patch is where the measured black floor
+        # comes from (calibrator.session.measured_black_nits).
+        pre = [_gray("0% Gray", black_floor, (16, 16, 16))]
+        s = _base_session(gamma_measurements=meas, pre_measurements=pre)
+        gates = _step_quality(s, TV)
+        assert gates["gamma"]["passed"] is True, gates["gamma"]
+
+    def test_black_floor_from_post_measurements_also_used(self):
+        from calcore.eotf import bt1886_eotf
+
+        peak, black_floor = SDR_TARGET.peak_luminance_nits, 1.0
+        meas = [
+            _gray(
+                f"Gamma {p}%",
+                bt1886_eotf(p / 100.0, peak, black_floor, SDR_TARGET.gamma),
+                (round(16 + (p / 100) * (235 - 16)),) * 3,
+            )
+            for p in (20, 40, 60, 80)
+        ]
+        post = [_gray("0% Gray", black_floor, (16, 16, 16))]
+        s = _base_session(gamma_measurements=meas, post_measurements=post)
+        gates = _step_quality(s, TV)
+        assert gates["gamma"]["passed"] is True, gates["gamma"]
+
 
 # ── Color Tuner ───────────────────────────────────────────────────────────────
 

@@ -192,6 +192,26 @@ class TestGammaFromLuminance:
         assert gamma_from_luminance(130, 120, 50) is None
 
 
+class TestGammaFromLuminanceBlackFloor:
+    """black_nits (issue #637): a measured black floor makes the estimate
+    BT.1886-aware instead of a naive through-origin power law."""
+
+    def test_recovers_true_gamma_with_black_floor(self):
+        from calcore.eotf import bt1886_eotf
+
+        peak, black_nits, stim = 100.0, 0.5, 50
+        measured = bt1886_eotf(stim / 100.0, peak, black_nits, 2.2)
+        g = gamma_from_luminance(measured, peak, stim, black_nits)
+        assert g == pytest.approx(2.2, abs=1e-3)
+
+    def test_default_black_nits_matches_legacy_power_law(self):
+        peak, stim = 120.0, 50
+        measured = peak * (stim / 100.0) ** 2.2
+        assert gamma_from_luminance(measured, peak, stim) == pytest.approx(
+            gamma_from_luminance(measured, peak, stim, 0.0)
+        )
+
+
 # ---------------------------------------------------------------------------
 # pq_inverse_eotf / is_pq_eotf / eotf_from_luminance
 # ---------------------------------------------------------------------------

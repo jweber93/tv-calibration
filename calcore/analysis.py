@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import math
 import statistics
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .colour import D65_XYZ, D65_xy, ciede2000, xyY_to_xyz, xyz_to_lab
-from .eotf import pq_target_nits
+from .eotf import bt1886_gamma_from_luminance, pq_target_nits
 from .models import AnalysisConfig, Patch, Summary, _normalize_code
 from .targets import target_xyz_for_patch
 
@@ -103,9 +102,17 @@ def analyze(
                         gray_pq_err_mid.append(pq_err_pct)
             else:
                 if 0 < meas_y < measured_peak_y_effective:
-                    rel = meas_y / measured_peak_y_effective
-                    gamma_val = math.log(rel) / math.log(n)
-                    if 0.20 <= n <= 0.80:
+                    # BT.1886-aware fit: a through-origin power law assumes
+                    # Y(0) == 0, but real SDR panels have a non-zero measured
+                    # black floor that flattens the low end of the curve and
+                    # biases a naive log/log fit low (issue #637). Feed the
+                    # panel's own measured black level in so a perfect
+                    # BT.1886 tracker reports its true gamma regardless of
+                    # black level.
+                    gamma_val = bt1886_gamma_from_luminance(
+                        meas_y, measured_peak_y_effective, n, measured_black_y
+                    )
+                    if gamma_val is not None and 0.20 <= n <= 0.80:
                         gray_gamma_mid.append(gamma_val)
 
         grayscale_rows.append(

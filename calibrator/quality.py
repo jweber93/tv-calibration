@@ -14,6 +14,7 @@ from .session import (
     latest_wb_measurements,
     m_to_dict,
     gamma_levels_for_session,
+    measured_black_nits,
     validate_peak_luminance,
 )
 from .utils import gamma_from_luminance
@@ -89,12 +90,13 @@ def step_quality(session: Dict[str, Any], tv: Optional[TVProfile]) -> Dict[str, 
         if latest_pass:
             peak_nits = target.peak_luminance_nits
             target_gamma = target.gamma
+            black_nits = measured_black_nits(session)
             deltas = []
             for measurement in latest_pass:
                 stim_pct = gamma_nominal_pct(measurement, signal_range, code_scale, gamma_levels)
                 if stim_pct is None:
                     continue
-                gamma_value = gamma_from_luminance(measurement.Y, peak_nits, stim_pct)
+                gamma_value = gamma_from_luminance(measurement.Y, peak_nits, stim_pct, black_nits)
                 if gamma_value is not None:
                     deltas.append(abs(gamma_value - target_gamma))
             if deltas:
