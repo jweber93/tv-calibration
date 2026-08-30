@@ -166,6 +166,56 @@ class TestGammaGate:
         gates = _step_quality(s, TV)
         assert gates["gamma"]["passed"] is True, gates["gamma"]
 
+    def test_lifted_midtone_in_pre_measurements_not_mistaken_for_floor(self):
+        """A pre_measurements bucket with no true 0% patch (e.g. a partial or
+        in-progress ramp) must not have its darkest *midtone* reading treated
+        as the black floor -- that would bias gamma high instead of low,
+        inverting issue #637's own failure mode on a perfectly tracked panel.
+
+        Without a confirmed-black reading the gate can't correct for the
+        panel's real floor at all, so it falls back to the original
+        through-origin power law and (like before this PR) still reports a
+        biased-low gamma here -- that's expected, pre-existing behaviour, not
+        a regression. What must NOT happen is the darkest reading (9.1 nits
+        at 30%) being mistaken for the floor, which would send the score to
+        implausible values (>5, some None) instead of the plain power law's
+        modest ~0.3-0.5 bias.
+        """
+        from calcore.eotf import bt1886_eotf
+
+        peak, black_floor = SDR_TARGET.peak_luminance_nits, 1.0
+        meas = [
+            _gray(
+                f"Gamma {p}%",
+                bt1886_eotf(p / 100.0, peak, black_floor, SDR_TARGET.gamma),
+                (round(16 + (p / 100) * (235 - 16)),) * 3,
+            )
+            for p in (20, 40, 60, 80)
+        ]
+        # Darkest available pre_measurements reading is a lifted 30% gray,
+        # not a confirmed 0% patch -- must not be picked up as the floor.
+        pre = [_gray("30% Gray", 9.1, (round(16 + 0.30 * (235 - 16)),) * 3)]
+        s = _base_session(gamma_measurements=meas, pre_measurements=pre)
+        gates = _step_quality(s, TV)
+        assert gates["gamma"]["score"] < 1.0, gates["gamma"]
+
+    def test_measured_black_nits_ignores_lifted_midtone(self):
+        from calibrator.session import measured_black_nits
+
+        pre = [_gray("30% Gray", 9.1, (round(16 + 0.30 * (235 - 16)),) * 3)]
+        s = _base_session(pre_measurements=pre)
+        assert measured_black_nits(s) == 0.0
+
+    def test_measured_black_nits_uses_confirmed_black_patch(self):
+        from calibrator.session import measured_black_nits
+
+        pre = [
+            _gray("0% Gray", 0.4, (16, 16, 16)),
+            _gray("30% Gray", 9.1, (round(16 + 0.30 * (235 - 16)),) * 3),
+        ]
+        s = _base_session(pre_measurements=pre)
+        assert measured_black_nits(s) == 0.4
+
 
 # ── Color Tuner ───────────────────────────────────────────────────────────────
 

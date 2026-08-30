@@ -14,6 +14,8 @@ floors, and assert the estimator recovers the true gamma regardless.
 """
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from calcore.analysis import analyze
@@ -67,6 +69,53 @@ class TestGammaMidtonesWithBlackFloor:
         no_floor = _analyze(0.0).gamma_midtones
         with_floor = _analyze(black_floor).gamma_midtones
         assert with_floor == pytest.approx(no_floor, abs=0.02)
+
+
+class TestPartialImportWithoutConfirmedBlackPatch:
+    """A partial import with no true 0% patch (e.g. cli.py's run_once() fed
+    only the "quick" gamma-workflow's 20/40/60/80% tracking points) must not
+    have its darkest *midtone* mistaken for the BT.1886 black floor. Doing so
+    inverts issue #637's own failure mode: it biases gamma high instead of
+    low, on a panel with a perfectly ordinary black level that analyze() just
+    never got a confirmed-black reading for in this particular call.
+    """
+
+    def _tracking_points_csv(self, black_floor: float) -> bytes:
+        # Peak (100%) plus the "quick" workflow's tracking points, but
+        # deliberately no 0% patch anywhere in this import.
+        lines = []
+        for i, code in enumerate((20, 40, 60, 80, 100)):
+            n = code / 100.0
+            y = bt1886_eotf(n, PEAK_NITS, black_floor, TRUE_GAMMA)
+            lines.append(f"{i},{code},{code},{code},{y:.6f},0.3127,0.3290")
+        return ("\n".join(lines) + "\n").encode()
+
+    def test_falls_back_to_plain_power_law_not_darkest_reading_as_floor(self):
+        black_floor = 1.0
+        patches = parse_measurement_csv(
+            self._tracking_points_csv(black_floor), format="xyY"
+        )
+        summary = analyze(patches, CFG)
+
+        # Expected: with no confirmed-black patch, the fit must fall back to
+        # the original through-origin power law (peak from the measured 100%
+        # patch, floor 0) -- computed independently here, not copied from the
+        # implementation.
+        peak = max(
+            bt1886_eotf(c / 100.0, PEAK_NITS, black_floor, TRUE_GAMMA)
+            for c in (20, 40, 60, 80, 100)
+        )
+        expected = [
+            math.log(bt1886_eotf(c / 100.0, PEAK_NITS, black_floor, TRUE_GAMMA) / peak)
+            / math.log(c / 100.0)
+            for c in (20, 40, 60, 80)
+        ]
+        expected_avg = sum(expected) / len(expected)
+
+        assert summary.gamma_midtones == pytest.approx(expected_avg, abs=1e-6)
+        # And, concretely, nowhere near the badly-biased value that treating
+        # the 20% reading as a black floor would produce (>6 in this fixture).
+        assert summary.gamma_midtones < 3.0
 
 
 class TestPhaseGateWithBlackFloor:
