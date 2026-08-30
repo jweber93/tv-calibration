@@ -1363,23 +1363,34 @@ def create_session(req: CreateSessionReq):
     # cannot silently revert it, while a pref that merely matches the
     # auto-derived recommendation (the shipped "8bit" default) leaves
     # auto-derivation in charge, preserving the HDR10 auto-bump.
+    #
+    # A default that cannot be applied (e.g. the internally-inconsistent
+    # signal_range="limited" + code_scale="10bit" combo) used to be logged and
+    # dropped, so the user got a 200 with silently-different effective
+    # settings (#673). Each swallow now also records a session warning that
+    # surfaces in session_view().
+    def _default_failed(key: str, value, exc: Exception) -> None:
+        logger.warning("Failed to apply default %s for sid=%s", key, sid, exc_info=True)
+        detail = exc.detail if isinstance(exc, HTTPException) else str(exc) or type(exc).__name__
+        session["session_warnings"].append(
+            f"Default session {key}={value!r} was not applied: {detail}"
+        )
+
     if sd.get("pattern_generator"):
         try:
             session = store.set_pattern_generator(sid, sd["pattern_generator"])
-        except Exception:
-            logger.warning("Failed to apply default pattern_generator for sid=%s", sid, exc_info=True)
+        except Exception as exc:
+            _default_failed("pattern_generator", sd["pattern_generator"], exc)
     if sd.get("signal_range"):
         try:
             session = store.set_signal_range(sid, sd["signal_range"])
-        except Exception:
-            logger.warning("Failed to apply default signal_range for sid=%s", sid, exc_info=True)
-            pass
+        except Exception as exc:
+            _default_failed("signal_range", sd["signal_range"], exc)
     if sd.get("code_scale") and sd.get("code_scale") != session.get("code_scale"):
         try:
             session = store.set_code_scale(sid, sd["code_scale"])
-        except Exception:
-            logger.warning("Failed to apply default code_scale for sid=%s", sid, exc_info=True)
-            pass
+        except Exception as exc:
+            _default_failed("code_scale", sd["code_scale"], exc)
     llm = _prefs.get("llm", {})
     if llm.get("endpoint") or llm.get("model"):
         llm_cfg = session.setdefault("llm_config", {})
@@ -1387,8 +1398,12 @@ def create_session(req: CreateSessionReq):
             llm_cfg["endpoint"] = llm["endpoint"]
         if llm.get("model") and not llm_cfg.get("model"):
             llm_cfg["model"] = llm["model"]
-        store.save_session(sid)
-        session = store.get(sid)
+    # Persist the finished session exactly once, after defaults were applied.
+    # The setters each saved a mid-creation snapshot (or raised before
+    # reaching their own save), so without this the disk copy — and every
+    # restart/resume loaded through load_sessions — silently lost the
+    # warnings this endpoint just recorded (#673 review).
+    store.save_session(sid)
     return {
         **_session_view(session),
         "modes": MODE_OPTIONS,
