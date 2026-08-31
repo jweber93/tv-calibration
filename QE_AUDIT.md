@@ -18,42 +18,105 @@ Do not propose features or refactors.
 - **Do not report possible bugs that lack a concrete execution path.** No
   "this could cause…", "this may happen…", or speculative findings. If you
   cannot show how execution reaches the defect, do not report it.
+- **Graph evidence is a lead, not proof.** A `trace_path` or `search_graph`
+  hit that you have not confirmed by reading the exact source lines is
+  **Needs Evidence**, not a confirmed finding. See *Tools* below.
 - **Stop after 20 confirmed findings, or when no additional High-confidence
   defects remain** — whichever comes first. Do not pad the report.
 - Rank findings by impact on a real calibration run. A wrong dE2000 or an
   inverted slider correction is worse than a cosmetic UI glitch.
+
+## Tools — codebase-memory graph (optional; codebase-memory skill)
+
+The codebase-memory MCP server (a personal Hermes skill, not vendored in this
+repo) can hold a knowledge graph of this checkout — call graph, HTTP hops,
+data flow — for a fraction of the tokens of repo-wide grep. Check it exists
+before planning around it (a `list_projects` call, or just try a tool). If it
+is unavailable, **fall back to `rg` over the tree plus source reading; the
+Phase 3 reachability requirement is unchanged — only the tool that satisfies
+it differs.** Do not treat graph output as proof either way (Freshness rule
+below).
+
+**Preflight (every run, when the server is configured).**
+1. `list_projects` / `index_status` — resolve the project id at runtime
+   (do not hardcode it; it encodes the checkout path), confirm the index is
+   `ready`, and read the coverage report. Treat any file flagged
+   `parse_partial` or `skipped` as unreliable for graph results.
+2. Before relying on graph output for any file, call `check_index_coverage`
+   with that path. `indexed_no_recorded_gap` is best-effort, not a
+   completeness guarantee.
+
+**Phase 1 (map architecture).** `get_architecture` with
+`aspects:["structure","routes","hotspots","clusters"]`. Clusters run Leiden
+community detection over the call graph — the de-facto modules — which is how
+you detect a `calcore` module importing hardware/web code (package-boundary
+invariant, AGENTS.md).
+
+**Phase 2 (entry points).** `search_graph(label="Route", ...)` and
+`query_graph` with Cypher `HTTP_CALLS`/`DATA_FLOWS` patterns to enumerate
+routes and the CSV/ZRO → analysis → correction math → API → UI data path.
+Gotchas: `search_graph(relationship="HTTP_CALLS")` filters by node *degree* —
+go through `query_graph` for actual edge lists; `query_graph` has a 100k-row
+ceiling — always `LIMIT`.
+
+**Phase 3 (reachability oracle).** For every candidate defect,
+`trace_path(function_name=…, direction="both", depth=3)` from the suspect
+function. If the inbound direction dead-ends at no live entry point, or the
+path only exists via heuristic (not `lsp`) resolvers — downgrade to **Needs
+Evidence**. `include_evidence=true` shows the resolver per hop; use it when
+the call chain decides a finding.
+
+**Incremental mode.** When a `git diff` is the scope (post-merge sweeps,
+mid-branch reviews), start with `detect_changes()` to map the diff to its
+blast radius and probe only the affected symbols. Full-repo sweeps are the
+exception, not the default.
+
+**Freshness rule.** The index goes stale as the repo changes. After a
+rebase/checkout, re-check `index_status` before trusting a trace, and always
+read the cited lines before writing the finding. Treat a graph hop the way
+you treat "this could cause…" speculation — neither is evidence until
+confirmed from source.
 
 ---
 
 ## Phased workflow — do not skip ahead
 
 **Phase 1 — Map architecture.** Build an internal model of the modules, the
-calibration signal chain, and how state flows. **Report no defects in this
-phase.**
+calibration signal chain, and how state flows (use `get_architecture` if the
+graph is configured; see Tools). **Report no defects in this phase.**
 
 **Phase 2 — Identify executable calibration code paths.** Enumerate the real
-entry points and the paths data takes through them (CSV/ZRO import → analysis →
-correction math → API → UI).
+entry points and the paths data takes through them (CSV/ZRO import → analysis
+→ correction math → API → UI). Do not assume the phase list or route list
+below is complete — enumerate routes from `server.py` (via the graph where
+available), not by memory.
 
 **Phase 3 — Trace each path against the invariants below.** For every candidate
 defect, walk the execution from entry point to the defect and confirm it is
-reachable with concrete inputs/state. A finding that cannot be traced here does
-not get reported.
+reachable with concrete inputs/state (trace + source read, per Tools). A
+finding that cannot be traced here does not get reported.
 
 **Phase 4 — Produce findings.** Report **only** defects confirmed in Phase 3.
 
 ---
 
-## Ground truth — these invariants MUST hold
+## Ground truth — invariants
+
+The canonical list is AGENTS.md **§ Calibration Invariants** — read it before
+auditing; it covers EOTF/gamma non-substitution, PQ absolute-nits targets,
+`_normalize_code`/`code_max` mapping, the 40–70% tone-mapping wall, ADB
+injection safety, and `analyze()` determinism. Do not re-derive those from
+this file; audit *against* them. Checks specific to this pass:
 
 - Target **dE2000 < 2.0**; white point **D65 (6504K)** — but grayscale targets
   use the **session** white point, not a hardcoded D65 (regression: #485).
-- **SDR** = BT.1886 EOTF / gamma 2.2; **HDR10** = PQ EOTF. EOTF and gamma are
-  **not interchangeable** — confirm neither is silently substituted for the
-  other (regression: #487, #388).
 - Conservative Round-1 correction factor (~0.55) for inter-node bleed.
-- Do **not** "correct" the 40–70% firmware tone-mapping wall via menu controls.
 - `CalibrationTarget.primaries` must always be normalized to dict form (#362).
+- **Golden baselines are the oracle.** `analyze()` output is pinned against
+  `tests/golden/data/*.json` with fixed tolerances
+  (`tests/golden/conftest.py:GOLDEN_TOLERANCE`). Regenerate baselines **only**
+  with `pytest tests/golden/ --update-golden` — a moved metric is a
+  regression until the PR proves it intentional.
 
 ---
 
@@ -63,30 +126,36 @@ Probe these hotspots:
 
 1. **Color math** (`calcore/`, color-science modules): dE2000 near black,
    degenerate EOTF/BT.1886 inputs, division-by-zero / NaN at CV=0, xyY↔XYZ
-   round-trips, gamma vs EOTF mixups. Verify against `tests/golden/` datasets
-   and `tests/test_colour_*`.
+   round-trips, gamma vs EOTF mixups. Verify against `tests/golden/data/`
+   baselines (`hdr_pq_p3d65_grayscale.json`, `sdr_bt709_grayscale.json`;
+   tolerances in `tests/golden/conftest.py:GOLDEN_TOLERANCE`) and
+   `tests/test_colour_*`, `tests/test_calcore/test_ciede2000_*`.
 2. **Numeric stability** (calibration software lives or dies on this): float
-   equality / epsilon misuse, clipping (clamp ranges, off-by-one at boundaries),
-   integer/float overflow, NaN/Inf propagation through transforms, accumulated
-   rounding across multi-step pipelines, singular / ill-conditioned matrix
-   handling, tolerance comparisons.
-3. **CSV / ZRO import** (`calibrator/zro_import.py`, `csv_adapter.py`):
-   headerless XYZ-vs-xyY ambiguity, short/truncated rows, subsecond timestamps,
+   equality / epsilon misuse, clipping (clamp ranges, off-by-one at
+   boundaries), integer/float overflow, NaN/Inf propagation through
+   transforms, accumulated rounding across multi-step pipelines, singular /
+   ill-conditioned matrix handling, tolerance comparisons.
+3. **CSV / ZRO import** (`calibrator/zro_import.py`,
+   `calibrator/csv_adapter.py`, `calcore/csv_import.py`): headerless
+   XYZ-vs-xyY ambiguity, short/truncated rows, subsecond timestamps,
    multiple grayscale passes, dedup/merge correctness. Off-by-one in pass
    boundaries silently corrupts a run.
-4. **FastAPI concurrency & lifecycle** (`server.py`, `session.py`): mutable
-   default arguments, cached **mutable** state shared across requests
-   (sessions returned by reference and mutated concurrently), async/sync misuse
-   (blocking calls in async handlers), thread safety of the session store,
-   background-task leaks, concurrent requests on the same session id, stale /
-   missing session.
-5. **Hardware I/O resilience** (`adb_control.py`, `file_watcher.py`, ZRO
-   bridge): blocking ArgyllCMS calls, USB timeout retry logic, ADB command
-   **injection** safety, file-watcher races. A hang here stalls the whole loop.
+4. **FastAPI concurrency & lifecycle** (`server.py` — 3.4k+ lines, navigate
+   it via the route graph rather than top-to-bottom reading —
+   `calibrator/session.py`): mutable default arguments, cached **mutable**
+   state shared across requests (sessions returned by reference and mutated
+   concurrently), async/sync misuse (blocking calls in async handlers),
+   thread safety of the session store, background-task leaks, concurrent
+   requests on the same session id, stale / missing session.
+5. **Hardware I/O resilience** (`calibrator/adb_control.py`,
+   `calibrator/file_watcher.py`, `calibrator/autocal*.py`, ZRO bridge):
+   blocking ArgyllCMS calls, USB timeout retry logic, ADB command
+   **injection** safety, file-watcher races. A hang here stalls the whole
+   loop.
 6. **LLM query path** (`calcore/llm.py`): per the recipe, `query_*` functions
    must **never raise** — malformed/partial JSON, HTTP errors, empty
-   measurements, and not-configured (`endpoint`/`model` empty → `None`) must all
-   degrade gracefully, never 500.
+   measurements, and not-configured (`endpoint`/`model` empty → `None`) must
+   all degrade gracefully, never 500.
 7. **API contracts**: every endpoint's success and error shape; 400 on bad
    input (budget/param validation), not 500; typed null (never 500) on
    unconfigured paths.
@@ -94,21 +163,32 @@ Probe these hotspots:
 ## Frontend track (React / Vite)
 
 1. **Numeric & unit correctness** (`utils/fmt.js`, charts, `MeasurementTable`):
-   does the UI display the sign-inverted slider values the way an operator must
-   *enter* them on the TV? A correct backend value shown with a flipped sign is
-   a Critical UX bug.
-2. **State machine** (`pages/`, `PhaseRail`, `useSession`): phase transitions
-   (Setup → Prepare → Grayscale → WhiteBalance → Gamma → Report), back/refresh
-   mid-flow, resuming a session, double-submits.
+   does the UI display the sign-inverted slider values the way an operator
+   must *enter* them on the TV? A correct backend value shown with a flipped
+   sign is a Critical UX bug.
+2. **State machine** (`pages/`, `PhaseRail`, `hooks/useSession`): enumerate
+   the session flow from `STEPS_ORDER` in `calibrator/session.py` — do not
+   trust a copy of this list, it goes stale (last read it held ten steps,
+   including `suggested_patches`, a step with a proven `next_step`/`prev_step`
+   transition bug: #638). Probe phase transitions, back/refresh mid-flow,
+   resuming a session, double-submits. `ComparisonPage.jsx` is not a flow
+   step — it renders as an overlay from `App.jsx` — but probe it the same
+   way.
 3. **Loading / empty / error states**: every card must handle `null`, empty,
    loading, and error explicitly (per the Card recipe). Look for cards that
    crash or render stale data when the API returns `null`/error.
-4. **Charts** (`charts/`): CIE scatter, gamma, dE overlays with missing points,
-   single-point datasets, out-of-gamut values, NaN — no silent mis-scaling.
+4. **Charts** (`charts/`): CIE scatter, gamma, dE overlays with missing
+   points, single-point datasets, out-of-gamut values, NaN — no silent
+   mis-scaling.
 5. **API client** (`api/client.js`): param encoding, error propagation, and
    wrappers matching the backend contract exactly.
-6. **E2E happy path + interruption** (Playwright): a full mocked calibration run
-   completes, and an interrupted/retried run recovers correctly.
+6. **E2E happy path + interruption** (Playwright, `frontend/tests/`): a full
+   mocked calibration run completes, and an interrupted/retried run recovers
+   correctly.
+
+> Caveat (graph mode only): JS/JSX is indexed but trace-coverage over it is
+> unverified. A frontend finding traced only in the graph needs an exact
+> source read before it is **confirmed**; otherwise **Needs Evidence**.
 
 ---
 
@@ -123,13 +203,17 @@ Confidence**. Use exactly these columns:
 Column definitions:
 
 - **Severity** — Critical / High / Medium / Low (impact on a real calibration run).
-- **Confidence** — **High** = I traced the execution path; **Medium** =
-  strong evidence, one assumption unverified; **Low** = appears wrong but I
-  could not prove it (consider **Needs Evidence** instead of reporting).
+- **Confidence** — **High** = I traced the execution path (graph trace *and*
+  source read, per Tools); **Medium** = strong evidence, one assumption
+  unverified; **Low** = appears wrong but I could not prove it (consider
+  **Needs Evidence** instead of reporting).
 - **Failure Scenario** — concrete inputs/state → wrong output or crash.
 - **Evidence** — the relevant code path: show how execution **reaches** the
-  defect (e.g. "`server.py:212` passes `None` into `normalize_target()`, which
-  dereferences `primaries`"). Not "this could cause…".
+  defect (e.g. "`analyze_session()` hands `primaries=None` to
+  `normalize_target()`, which dereferences `primaries` — confirmed by
+  `trace_path direction=inbound` and reading `server.py` where that call is
+  made"). Cite function names, not bare line numbers — line anchors don't
+  survive rebase and the graph tools key off names. Not "this could cause…".
 - **Root Cause** — the underlying reason, not the symptom (e.g. "the cache
   returns shared mutable session instances" — not "missing null check").
 - **Fix** — strategy that addresses the root cause.
@@ -145,7 +229,10 @@ Column definitions:
 - **Test** — the regression test that would have caught it. Mirror existing
   patterns: pytest `TestClient` for backend, Vitest+RTL / Playwright for FE.
   If existing coverage already exists, say so; if missing, name the exact new
-  test file and case.
+  test file and case. Hardware-adjacent tests use the `tests/conftest.py`
+  fixtures (`adb_device_found`/`adb_no_device`/`adb_silent`,
+  `zro_bridge_up`/`zro_bridge_down`) and the `hardware`/`flaky` markers —
+  never a live device in CI.
 
 End with a **"Top 5 fixes for a fast, error-free run"** shortlist. If any
 candidate defects were downgraded to **Needs Evidence**, list them separately
@@ -157,22 +244,33 @@ This is a **bug-hunting pass, not an implementation pass** — do not fix
 anything and do not open a PR. Instead, file each confirmed (non–Needs
 Evidence) finding as its own GitHub issue:
 
-- **Search first.** Run `search_issues` (or `list_issues`) for an existing
-  open issue covering the same defect before filing a new one — do not
-  create duplicates.
+- **Search first.** Search for an existing open issue covering the same
+  defect before filing (GitHub MCP `search_issues`/`list_issues` if
+  available; otherwise `curl` against api.github.com with the session token,
+  or `gh issue list`). Do not create duplicates, and do not silently skip
+  dedupe when no GitHub tool exists — say so in the report.
 - **Title**: concise defect summary, e.g. `Grayscale target uses hardcoded
   D65 instead of session white point`.
 - **Body**: reuse the row's Failure Scenario, Evidence, Root Cause, Fix, and
   Test columns as sections; include File:Line.
-- **Labels**: `bug`, plus severity (`critical`/`high`/`medium`/`low`) and
-  track (`backend`/`frontend`) as available in the repo's label set.
+- **Labels**: `bug`, plus severity (`critical`/`high`/`medium`/
+  `low-priority`) and topic (`backend`/`frontend`/`math-error`/`hardware-adb`/
+  `concurrency`/`session`/`llm`/`import`/`state-machine`…) — every label must
+  exist in the repo's label set before use (check
+  `GET /repos/{owner}/{repo}/labels`); GitHub silently auto-creates unknown
+  names, and the audit's label vocabulary must not drift from the repo's.
 - One issue per finding — do not batch multiple defects into one issue.
 - If a candidate was downgraded to **Needs Evidence**, do not file an issue
   for it; leave it in the report only.
 
 ---
 
-> **Related protocols.** `AGENTS.md` defines an `audit QE` protocol focused on
-> *test infrastructure* (CI, hardware mocking, fixtures). This document is the
-> complementary **bug-hunting** pass — it finds defects rather than designing the
-> harness. For a tighter, single-PR diff review, prefer the `/code-review` skill.
+> **Related protocols.** This document is the canonical **bug-hunting**
+> procedure. `AGENTS.md`'s `audit QE` trigger is complementary — *test
+> infrastructure* (CI, hardware mocking, fixtures) — and this doc defers to
+> AGENTS.md § Calibration Invariants as the invariant source. The doc lives in
+> the repo, but the **codebase-memory** and **requesting-code-review** tools
+> it references are personal Hermes skills/MCP, not vendored here — neither
+> ships with a fresh clone, so check for them before planning around them
+> (Tools section) and for a single-PR diff review prefer `requesting-code-review`
+> over re-running this protocol.
