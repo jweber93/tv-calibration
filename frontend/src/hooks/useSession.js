@@ -90,9 +90,12 @@ export function useSession() {
           console.log('[LLM] insight received', data.phase, data.text?.slice(0, 80));
           setLlmInsight(data);
         } catch (err) {
-          console.warn('[LLM] malformed insight payload', e.data, err);
+          console.warn('[LLM] malformed insight payload', { eventData: e?.data }, err);
+        } finally {
+          // The insight event finishes an LLM run, so the streaming flag must
+          // be cleared even when the payload fails validation (#677).
+          setLlmStreaming(false);
         }
-        setLlmStreaming(false);
       });
       es.addEventListener('patch_strategy', e => {
         console.log('[LLM] patch_strategy received', JSON.parse(e.data));
