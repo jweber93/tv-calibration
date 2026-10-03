@@ -42,6 +42,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from calcore.colour import xyY_to_xyz
 from calcore.models import Measurement
 
 from .utils import stimulus_pct_from_code_value
@@ -177,18 +178,9 @@ def _nearest_target_pct(stim: float, targets: Tuple[float, ...]) -> Optional[flo
     return min(matches, key=lambda target: abs(stim - target))
 
 
-def _xyY_to_XZ(x: float, y: float, Y: float) -> Tuple[float, float]:
-    """Derive CIE X and Z from chromaticity + luminance."""
-    if y == 0:
-        return 0.0, 0.0
-    X = (x / y) * Y
-    Z = ((1.0 - x - y) / y) * Y
-    return X, Z
-
-
 def _to_measurement(row: _Row, label: str) -> dict:
     """Build a session-ready measurement dict from a parsed row."""
-    X, Z = _xyY_to_XZ(row.x, row.y, row.Y)
+    X, _, Z = xyY_to_xyz(row.x, row.y, row.Y)
     m = Measurement(
         x=row.x,
         y=row.y,

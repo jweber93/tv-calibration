@@ -17,6 +17,7 @@ from calibrator.zro_import import (
     parse_zro_csv,
     merge_into_session,
     SESSION_BREAK_SECONDS,
+    _to_measurement,
 )
 from server import app, _sessions
 
@@ -1005,3 +1006,30 @@ class TestPeakLuminanceGuard:
         # Import a grayscale CSV — should not crash on the dict in lum_measurements
         resp = _upload(client, session_id, CLEAN_GRAYSCALE_CSV)
         assert resp.status_code == 200
+
+
+class TestToMeasurementXYZ:
+    """#690: _to_measurement delegates to calcore.colour.xyY_to_xyz."""
+
+    @staticmethod
+    def _row(x, y, Y):
+        from datetime import datetime
+
+        return _Row(dt=datetime(2026, 1, 1), r=255, g=255, b=255, Y=Y, x=x, y=y)
+
+    def test_parity_with_calcore_for_normal_row(self):
+        from calcore.colour import xyY_to_xyz
+
+        m = _to_measurement(self._row(0.3127, 0.329, 100.0), "w")
+        X, _, Z = xyY_to_xyz(0.3127, 0.329, 100.0)
+        assert (m["X"], m["Z"]) == (X, Z)
+
+    def test_degenerate_chromaticity_y_zero(self):
+        """y=0 with Y>0 falls back to D65 chromaticity (calcore behaviour)."""
+        m = _to_measurement(self._row(0.0, 0.0, 20.0), "w")
+        assert m["X"] == pytest.approx(19.0, abs=0.1)  # D65 X/Y ~0.95
+        assert m["Z"] == pytest.approx(21.8, abs=0.1)  # D65 Z/Y ~1.09
+
+    def test_zero_luminance_is_zero_xyz(self):
+        m = _to_measurement(self._row(0.0, 0.0, 0.0), "k")
+        assert (m["X"], m["Z"]) == (0.0, 0.0)

@@ -18,11 +18,12 @@ from __future__ import annotations
 import json
 import logging
 import os
-import tempfile
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from .utils import atomic_write_text as _atomic_write_text
 
 logger = logging.getLogger(__name__)
 
@@ -36,38 +37,6 @@ _HISTORY_LOCK = threading.Lock()
 # server process only. If history files are ever written by multiple
 # processes simultaneously, an inter-process lock (fcntl.flock on POSIX)
 # must be added around these critical sections as well.
-
-
-def _atomic_write_text(path: Path, text: str) -> None:
-    """Atomically write *text* to *path* via tmp + os.replace.
-
-    A crash or OSError mid-write leaves the previously-persisted file
-    intact rather than a truncated/corrupt file on disk.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(
-        prefix=path.name + ".", suffix=".tmp", dir=str(path.parent)
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(text)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp_path, path)
-        # fsync the directory so the rename itself is durable across
-        # crash/power loss (POSIX only; Windows lacks O_DIRECTORY).
-        if hasattr(os, "O_DIRECTORY"):
-            dir_fd = os.open(path.parent, os.O_DIRECTORY)
-            try:
-                os.fsync(dir_fd)
-            finally:
-                os.close(dir_fd)
-    except Exception:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
 
 
 def _atomic_write_lines(path: Path, lines: List[str]) -> None:

@@ -4,26 +4,20 @@ from datetime import datetime, timezone
 
 from calcore.models import Measurement, Patch
 from calibrator.session import ZROImportResult, CalibrationTarget
+from calibrator.zro_import import (
+    GAMMA_TARGET_PCTS,
+    PCT_SNAP_TOLERANCE,
+    WB_GAIN_TARGET_PCT,
+    WB_OFFSET_TARGET_PCT,
+    _nearest_target_pct,
+)
 from calibrator.utils import stimulus_pct_from_code_value
 
 logger = logging.getLogger(__name__)
 
-# Grayscale stimulus levels used by the calibration workflow (% of signal range)
-WB_GAIN_TARGET_PCT = 80.0
-WB_OFFSET_TARGET_PCT = 30.0
-GAMMA_TARGET_PCTS = tuple(float(pct) for pct in range(5, 100, 5))
-PCT_SNAP_TOLERANCE = 7.0
-
 # Session steps that should route grayscale to pre/post buckets
 _PRE_STEPS = {"pre_grayscale", "prepare", "select_mode"}
 _POST_STEPS = {"post_grayscale", "suggested_patches", "report"}
-
-
-def _nearest_target_pct(stim: float, targets: tuple) -> Optional[float]:
-    matches = [t for t in targets if abs(stim - t) <= PCT_SNAP_TOLERANCE]
-    if not matches:
-        return None
-    return min(matches, key=lambda t: abs(stim - t))
 
 
 def _stimulus_pct_from_patch(patch: Patch, signal_range: str = "auto") -> float:

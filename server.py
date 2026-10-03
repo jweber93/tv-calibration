@@ -59,7 +59,6 @@ from calcore.llm import (
     query_pass_decision as _query_pass_decision,
 )
 from calcore.models import AnalysisConfig, LLMConfig, Patch, TVSettings
-from calcore.phase import determine_phase as _determine_phase
 from calibrator import TV_PROFILES, get_tv_profile as _get_tv_profile
 from calibrator.history import (
     history_summary as _history_summary,
@@ -76,15 +75,7 @@ from calibrator.file_watcher import (
     subscribe as _fw_subscribe,
     unsubscribe as _fw_unsubscribe,
 )
-from calibrator.guidance import (
-    cms_hints as _cms_hints,
-    target_nits_for_colour as _target_nits_for_colour,
-    target_xy_for_colour as _target_xy_for_colour,
-    wb_control_plan as _wb_control_plan,
-    wb_hints as _wb_hints,
-    wb_recommendations as _wb_recommendations,
-)
-from calibrator.quality import QG_LUMINANCE_PCT, step_quality as _step_quality
+from calibrator.quality import QG_LUMINANCE_PCT
 from calibrator.reports import (
     comparison_payload as _comparison_payload,
     render_comparison_html as _render_comparison_html,
@@ -99,24 +90,18 @@ from calibrator.session import (
     cms_patches as _cms_patches,
     cv as _cv,
     MODE_OPTIONS,
-    PATTERN_GENERATOR_OPTIONS,
     SDR_AMBIENT_GUIDE,
     SessionStore,
     deserialize_measurement as _deserialize_measurement,
-    gamma_levels_for_session as _gamma_levels_for_session,
-    gamma_pass_complete as _gamma_pass_complete,
     grayscale_levels_for_ramp as _grayscale_levels_for_ramp,
-    latest_grayscale_pass as _latest_grayscale_pass,
-    latest_wb_measurements as _latest_wb_measurements,
-    m_to_dict as _m_to_dict,
     now as _now,
-    recommended_code_scale as _recommended_code_scale,
     repass_phase_used as _repass_phase_used,
     session_view as _session_view,
-    validate_peak_luminance as _validate_peak_luminance,
-    zro_step_instructions as _zro_step_instructions,
 )
-from calibrator.utils import get_all_measurements as _get_all_measurements
+from calibrator.utils import (
+    atomic_write_text as _atomic_write_text,
+    get_all_measurements as _get_all_measurements,
+)
 import calibrator.adb_control as _adb
 from calibrator.autocal import ControllerConfig
 from calibrator.autocal_apply import (
@@ -544,11 +529,9 @@ def _save_prefs() -> None:
     _prefs["bridge_url"] = _zro_bridge.get()
     _prefs["dogegen_agent_url"] = _dogegen_agent.get()
     payload = json.dumps(_prefs, indent=2)
-    tmp = _PREFS_PATH.with_suffix(".tmp")
     try:
-        tmp.write_text(payload, encoding="utf-8")
         try:
-            tmp.replace(_PREFS_PATH)
+            _atomic_write_text(_PREFS_PATH, payload)
         except OSError as exc:
             if exc.errno != errno.EBUSY:
                 raise
@@ -557,8 +540,6 @@ def _save_prefs() -> None:
             # replaced via rename, so fall back to writing the contents
             # in place instead of swapping the inode.
             _PREFS_PATH.write_text(payload, encoding="utf-8")
-            with context_suppress(OSError):
-                tmp.unlink()
     except OSError as exc:
         logger.warning("Could not save preferences to %s: %s", _PREFS_PATH, exc)
     except Exception as exc:

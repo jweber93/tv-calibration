@@ -1,7 +1,11 @@
 """Tests for CMS hint generation."""
 
 from calibrator import Measurement, SDR_TARGET
-from server import _cms_hints, _target_nits_for_colour, _target_xy_for_colour
+from calibrator.guidance import (
+    cms_hints as _cms_hints,
+    target_nits_for_colour as _target_nits_for_colour,
+    target_xy_for_colour as _target_xy_for_colour,
+)
 
 
 def test_blue_close_measurement_uses_normal_guidance_not_u8g_hold_message():

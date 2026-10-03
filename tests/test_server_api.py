@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from calibrator import Measurement
 import server as server_module
+from calibrator.session import latest_grayscale_pass
 from server import app, _sessions
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -1478,7 +1479,7 @@ class TestGrayscalePassHelpers:
         ]
 
         # max_count=3 caps at 3 labels from the latest pass
-        latest = server_module._latest_grayscale_pass(measurements, max_count=3)
+        latest = latest_grayscale_pass(measurements, max_count=3)
 
         assert len(latest) == 3
         assert [m.label for m in latest] == ["5% Gray", "10% Gray", "15% Gray"]
@@ -1492,7 +1493,7 @@ class TestGrayscalePassHelpers:
             Measurement(x=0.3127, y=0.3290, Y=4.0, X=1.0, Z=1.0, timestamp="2026-03-15T16:00:09", label="Black (0%)", stimulus_rgb=(16, 16, 16)),
         ]
 
-        latest = server_module._latest_grayscale_pass(measurements, max_count=10)
+        latest = latest_grayscale_pass(measurements, max_count=10)
 
         assert [m.timestamp for m in latest] == ["2026-03-15T16:00:09", "2026-03-15T16:00:06"]
         assert [m.label for m in latest] == ["Black (0%)", "10% Gray"]
@@ -1518,7 +1519,7 @@ class TestGrayscalePassHelpers:
                         stimulus_rgb=(235, 235, 235)),
         ]
         # With detect_sessions=False (imported CSV), all measurements are kept
-        latest_imported = server_module._latest_grayscale_pass(
+        latest_imported = latest_grayscale_pass(
             measurements, max_count=10, detect_sessions=False)
         assert len(latest_imported) == 4
         assert [m.label for m in latest_imported] == [
@@ -1543,7 +1544,7 @@ class TestGrayscalePassHelpers:
                         timestamp="2026-03-15T15:17:00", label="Black (0%)",
                         stimulus_rgb=(16, 16, 16)),
         ]
-        latest = server_module._latest_grayscale_pass(
+        latest = latest_grayscale_pass(
             measurements, max_count=10, detect_sessions=False)
         # Sorted by stimulus percentage ascending
         assert [m.label for m in latest] == [
@@ -2223,9 +2224,7 @@ class TestSavePrefsLogging:
         """_save_prefs logs an error for unexpected exceptions."""
         from unittest.mock import patch
 
-        with patch("server._PREFS_PATH") as mock_path:
-            mock_path.with_suffix.return_value.write_text.side_effect = RuntimeError("unexpected")
-
+        with patch("server._atomic_write_text", side_effect=RuntimeError("unexpected")):
             with patch.object(server_module.logger, "error") as mock_error:
                 server_module._save_prefs()
 
