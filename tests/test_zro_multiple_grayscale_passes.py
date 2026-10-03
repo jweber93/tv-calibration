@@ -1,6 +1,5 @@
-import pytest
 from datetime import datetime, timedelta
-from calibrator.zro_import import parse_zro_csv, ZROImportResult, merge_into_session
+from calibrator.zro_import import parse_zro_csv, merge_into_session
 
 def create_zro_row(index: int, r: int, g: int, b: int, Y: float, x: float, y: float, timestamp: datetime):
     return f"{timestamp.strftime('%Y-%m-%d %H:%M:%S')}\t{r}\t{g}\t{b}\t{Y}\t{x}\t{y}\t0\n"

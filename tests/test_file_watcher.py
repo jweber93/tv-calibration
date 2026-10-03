@@ -13,7 +13,6 @@ Covers:
 """
 from __future__ import annotations
 
-import json
 import os
 import time
 from pathlib import Path
@@ -909,7 +908,7 @@ class TestErrorHandling:
 # Integration tests — HTTP endpoints via TestClient
 # ════════════════════════════════════════════════════════════════════════════
 
-from server import app, _sessions, _save_session  # noqa: E402
+from server import app  # noqa: E402
 
 
 @pytest.fixture()
@@ -925,7 +924,6 @@ def live_session(client):
     import uuid as _uuid
 
     sid = _uuid.uuid4().hex
-    from calibrator import Measurement
     import threading
 
     _sessions[sid] = {

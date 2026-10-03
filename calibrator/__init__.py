@@ -18,13 +18,10 @@ from calcore import (
     P3D65_PRIMARIES as P3_PRIMARIES,
     SDR_TARGET,
     TVSettings,
-    XYZ_to_lab,
     ciede2000,
     delta_e_cie76,
-    xyY_to_XYZ,
     xyY_to_lab,
 )
-from .models import CalibrationReport
 from .profiles import TVProfile, TV_PROFILES, DEFAULT_TV_PROFILE, get_tv_profile
 from .runtime import REQUIRED_PACKAGES, console, ensure_packages
 from .guidance import (
@@ -68,9 +65,9 @@ __all__ = [
     "REC709_PRIMARIES", "P3_PRIMARIES", "REC2020_PRIMARIES",
     "GRAYSCALE_LEVELS", "SATURATION_LEVELS", "COLOUR_TARGETS",
     "GAMMA_SDR", "GAMMA_HDR_PQ",
-    "CalMode", "Measurement", "CalibrationTarget", "CalibrationReport",
+    "CalMode", "Measurement", "CalibrationTarget",
     "SDR_TARGET", "HDR10_TARGET", "DV_TARGET",
-    "ciede2000", "delta_e_cie76", "delta_e_ciede2000_xyY", "xyY_to_XYZ", "XYZ_to_lab", "xyY_to_lab",
+    "ciede2000", "delta_e_cie76", "delta_e_ciede2000_xyY", "xyY_to_lab",
     "delta_xy", "gamma_from_luminance", "eotf_from_luminance", "is_pq_eotf",
     "pq_point_above_knee",
     "rating_emoji", "direction_hint",

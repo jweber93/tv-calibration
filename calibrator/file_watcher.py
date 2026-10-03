@@ -288,7 +288,6 @@ class _ZROHandler(FileSystemEventHandler):
         self._session_getter = session_getter
         self._session_saver = session_saver
         self._measurement_deserializer = measurement_deserializer
-        self._grayscale_level_count = grayscale_level_count
         self._watched_file = os.path.abspath(watched_file) if watched_file else None
         self._post_import_hook = post_import_hook
         self._session_lock = session_lock if session_lock is not None else contextlib.nullcontext()

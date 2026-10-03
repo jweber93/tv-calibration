@@ -1,13 +1,10 @@
 """Tests for calibrator/autocal_apply.py (Autocal roadmap Item 1a)."""
 from unittest.mock import patch
 
-import pytest
 
-from calcore.models import Measurement, Patch
 from calibrator.autocal import CorrectionResult
 from calibrator.autocal_apply import (
     AdbApplyTarget,
-    CallableMeasurementSource,
     FallbackApplyTarget,
     ManualApplyTarget,
 )
@@ -28,14 +25,6 @@ def _correction(step=1, new_value=1, control="Hue", reason="damped step"):
         out_of_range=False,
         reason=reason,
     )
-
-
-class TestCallableMeasurementSource:
-    def test_delegates_to_trigger_ignoring_patch(self):
-        expected = Measurement(x=0.3, y=0.3, Y=50.0, label="Red")
-        source = CallableMeasurementSource(lambda: expected)
-        patch_obj = Patch(label="Red", r_target=940, g_target=0, b_target=0, meas_xyz=(0, 0, 0))
-        assert source.measure(patch_obj) is expected
 
 
 class TestManualApplyTarget:

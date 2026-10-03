@@ -54,10 +54,6 @@ ignore = [
     "W291",   # trailing whitespace — pre-existing in test files
     "W292",   # no newline at end of file — pre-existing
     "W293",   # whitespace in blank line — pre-existing in test files
-    # Pre-existing unused-import debt (widespread; clean up separately)
-    "F401",
-    "F811",   # redefinition of unused name
-    "F841",   # local variable assigned but never used
     # Pre-existing simplification suggestions (style, not bugs)
     "SIM105", # use contextlib.suppress instead of try/except/pass
     "SIM108", # use ternary operator

@@ -10,7 +10,6 @@ Covers:
 import subprocess
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 import calibrator.adb_control as adb_mod
 

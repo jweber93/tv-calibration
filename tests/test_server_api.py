@@ -1,6 +1,5 @@
 """Tests for server.py API endpoints — ZRO helper workflow."""
 import asyncio
-import io
 import json
 import os
 import shutil
@@ -2208,7 +2207,6 @@ class TestSavePrefsLogging:
     def test_save_prefs_logs_warning_on_oserror(self, monkeypatch):
         """_save_prefs logs a warning when OSError occurs during write."""
         from unittest.mock import patch
-        import logging
 
         with patch("server._PREFS_PATH") as mock_path:
             mock_path.with_suffix.return_value.write_text.side_effect = OSError("disk full")

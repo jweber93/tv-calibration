@@ -2,8 +2,7 @@
 
 import os
 import threading
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from datetime import timedelta
 from unittest.mock import MagicMock
 
 import pytest

@@ -2,7 +2,6 @@
 
 import textwrap
 import unittest
-from io import StringIO
 
 from calcore import parse_measurement_csv
 

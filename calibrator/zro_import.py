@@ -37,7 +37,6 @@ from __future__ import annotations
 
 import csv
 import io
-import math
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -63,7 +62,6 @@ CHANNEL_OFF_THRESHOLD = 20
 # 10-bit equivalents used when ColourSpace ZRO exports full-range 10-bit code values
 # (detected when max(r, g, b) > 255).  Named constants prevent magic-number drift and
 # make the classification thresholds reviewable against the 0–1023 range.
-BIT10_MAX = 1023
 BIT10_ON_THRESHOLD = 900  # ~88% of 1023 — channel treated as "fully on"
 BIT10_OFF_THRESHOLD = 80  # ~8%  of 1023 — channel treated as "fully off"
 BIT10_WHITE_THRESHOLD = (

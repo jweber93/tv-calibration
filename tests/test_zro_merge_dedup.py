@@ -6,8 +6,6 @@ duplicate measurements, and that the seeding of ``existing_keys`` from the
 session's current buckets works correctly.
 """
 
-import csv
-import io
 from pathlib import Path
 
 import pytest

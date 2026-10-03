@@ -160,7 +160,6 @@ class SessionState:
     last_report_hash: str = ""
     config: AnalysisConfig = field(default_factory=AnalysisConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
-    grayscale_at_cms_entry: Optional[float] = None  # stored when CMS phase begins
 
 
 class CalMode(Enum):

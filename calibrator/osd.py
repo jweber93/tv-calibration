@@ -191,13 +191,6 @@ def _lookup_nested(d: Dict[str, Any], dotted_key: str) -> Optional[Any]:
     return current
 
 
-def _get_settings_from_profile(tv_profile: Any) -> Dict[str, Any]:
-    """Extract the settings dict from a TV profile's llm_schema."""
-    if hasattr(tv_profile, "llm_schema") and isinstance(tv_profile.llm_schema, dict):
-        return tv_profile.llm_schema.get("settings", {})
-    return {}
-
-
 def _format_value(val: Any, setting_type: str) -> Optional[str]:
     """Format a raw value into a user-friendly display string."""
     if val is None:
@@ -228,19 +221,6 @@ def _build_menu_path(base_path: str, channel_name: Optional[str] = None) -> str:
         return f"{base_path} -> {channel_name}"
     # Normalise arrow separators
     return base_path.replace(">", "").replace("> ", " ")
-
-
-def _channel_label_for_key(schema_key: str, schema_entry: Dict) -> Optional[str]:
-    """Extract the display label for a channel within a multipoint setting."""
-    if "channels" in schema_entry:
-        parts = schema_key.split(".")
-        if len(parts) >= 2:
-            channel_part = parts[-1]
-            channels = schema_entry["channels"]
-            for ck, cv in channels.items():
-                if ck == channel_part:
-                    return cv.get("label", ck)
-    return None
 
 
 def _extract_cms_colour(adj: Dict[str, Any]) -> str:

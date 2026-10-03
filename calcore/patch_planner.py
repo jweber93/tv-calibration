@@ -8,7 +8,7 @@ sparser where results are already within tolerance.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 MAX_PATCH_BUDGET: int = 30  # configurable default cap on recommended patches
 MAX_RGB: int = 255  # 8-bit display maximum for patch RGB values

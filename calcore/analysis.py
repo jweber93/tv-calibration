@@ -3,7 +3,7 @@ from __future__ import annotations
 import statistics
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from .colour import D65_XYZ, D65_xy, ciede2000, xyY_to_xyz, xyz_to_lab
+from .colour import D65_xy, ciede2000, xyY_to_xyz, xyz_to_lab
 from .eotf import bt1886_gamma_from_luminance, pq_target_nits
 from .models import AnalysisConfig, Patch, Summary, _normalize_code
 from .targets import target_xyz_for_patch
@@ -13,12 +13,6 @@ def mean_or_none(values: Sequence[float]) -> Optional[float]:
     if not values:
         return None
     return statistics.mean(values)
-
-
-def max_patch(rows: List[Dict[str, Any]], key: str) -> Optional[Dict[str, Any]]:
-    if not rows:
-        return None
-    return max(rows, key=lambda r: r.get(key, float("-inf")))
 
 
 def analyze(

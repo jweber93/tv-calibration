@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Optional
 
 from calcore.models import Measurement, Patch
 
@@ -24,23 +24,6 @@ class MeasurementSource(ABC):
     @abstractmethod
     def measure(self, patch: Patch) -> Measurement:
         ...
-
-
-class CallableMeasurementSource(MeasurementSource):
-    """Adapts any zero-arg measurement trigger into a MeasurementSource.
-
-    Today's ZRO Bridge (and Argyll's ``spotread``) read back whatever pattern
-    is currently displayed rather than accepting patch RGB directly — see
-    `docs/autocal-roadmap.md` Item 3's note on `/measure/sequence` ignoring
-    RGB. This adapter is deliberately patch-agnostic so it matches that
-    real-world behavior instead of pretending the trigger can set the patch.
-    """
-
-    def __init__(self, trigger: Callable[[], Measurement]) -> None:
-        self._trigger = trigger
-
-    def measure(self, patch: Patch) -> Measurement:
-        return self._trigger()
 
 
 @dataclass

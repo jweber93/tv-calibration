@@ -85,7 +85,7 @@ class TestMaybeTriggerLlmWhitePoint(unittest.TestCase):
     def test_d65_target_matches_default_analysis(self):
         """Sanity check: a D65 session target should match the D65 default."""
         from calcore.analysis import analyze
-        from calcore.models import AnalysisConfig, Patch
+        from calcore.models import Patch
 
         summary_via_trigger = self._trigger_and_capture_summary(_session(D65_xy))
 

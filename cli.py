@@ -169,7 +169,7 @@ def load_state(path: Path, default_cfg: AnalysisConfig) -> SessionState:
             ),
             llm=LLMConfig.from_dict(llm_raw, default_timeout=120.0),
         )
-    except Exception as exc:
+    except Exception:
         logger.warning("Failed to load session state from %s; starting fresh", path, exc_info=True)
         return SessionState(config=default_cfg)
 

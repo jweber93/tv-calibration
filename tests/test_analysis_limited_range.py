@@ -6,7 +6,6 @@ normalizing against code_max.  Without this conversion, a perfect panel
 produces phantom dE errors (e.g. dE 22.8 on code 82) and wrong gamma values.
 """
 
-import math
 import unittest
 
 from calcore import AnalysisConfig, Patch, analyze

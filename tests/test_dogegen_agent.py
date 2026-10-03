@@ -11,7 +11,7 @@ import socket
 import struct
 import sys
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
