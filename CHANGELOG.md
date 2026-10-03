@@ -7,6 +7,17 @@ changes.
 
 ## [Unreleased]
 
+### Removed
+
+- **Breaking: removed public API symbols (#679, #683).** The `xyY_to_XYZ` /
+  `XYZ_to_lab` alias wrappers are gone, along with their `calcore` and
+  `calibrator` re-exports — use the canonical `xyY_to_xyz` / `xyz_to_lab`
+  from `calcore` instead (identical signatures and math). `CalibrationReport`
+  (and its `save_json` / `save_csv` / `save_html`) is gone from
+  `calibrator`, as is the now-empty `calibrator/models.py` module — reports
+  are built by `report_payload` → `render_report_html` / `render_report_pdf`
+  in `calibrator/reports.py`. Update downstream scripts accordingly.
+
 ### Fixed
 
 - **`suggested_patches` step was a dead end (#638).** The step is in
