@@ -3,7 +3,12 @@ import pytest
 
 from calibrator import Measurement, D65_XY, SDR_TARGET, stimulus_pct_from_code_value
 from calibrator.profiles import TV_PROFILES
-from server import _m_to_dict, _wb_control_plan, _wb_hints, _wb_recommendations
+from calibrator.guidance import (
+    wb_control_plan as _wb_control_plan,
+    wb_hints as _wb_hints,
+    wb_recommendations as _wb_recommendations,
+)
+from calibrator.session import m_to_dict as _m_to_dict
 
 
 # ---------------------------------------------------------------------------

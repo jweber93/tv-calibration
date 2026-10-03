@@ -3,7 +3,7 @@ import pytest
 
 from calibrator import Measurement, SDR_TARGET
 from calibrator.profiles import TV_PROFILES
-from server import _step_quality
+from calibrator.quality import step_quality as _step_quality
 
 TV = TV_PROFILES["u8g"]
 

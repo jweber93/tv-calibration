@@ -115,6 +115,17 @@ def _color_csv(rows):
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
+def test_bucket_constants_shared_with_zro_import():
+    """#689: one definition of the snap targets/tolerance for both importers."""
+    from calibrator import csv_adapter, zro_import
+
+    assert csv_adapter.PCT_SNAP_TOLERANCE is zro_import.PCT_SNAP_TOLERANCE
+    assert csv_adapter.GAMMA_TARGET_PCTS is zro_import.GAMMA_TARGET_PCTS
+    assert csv_adapter.WB_GAIN_TARGET_PCT is zro_import.WB_GAIN_TARGET_PCT
+    assert csv_adapter.WB_OFFSET_TARGET_PCT is zro_import.WB_OFFSET_TARGET_PCT
+    assert csv_adapter._nearest_target_pct is zro_import._nearest_target_pct
+
+
 class TestGenericImportRequiresMode:
     def test_no_mode_returns_400(self, client, session_id):
         """Import when no calibration mode selected should fail."""

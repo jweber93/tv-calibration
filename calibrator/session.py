@@ -53,6 +53,7 @@ from .zro_import import (
 )
 from .utils import (
     delta_e_ciede2000_xyY,
+    atomic_write_text,
     delta_xy,
     eotf_from_luminance,
     stimulus_pct_from_code_value,
@@ -1769,9 +1770,7 @@ class SessionStore:
                 self.touch_session(self.sessions[sid])
                 path = self.session_dir / f"{sid}.json"
                 payload = json.dumps(serialize_session(self.sessions[sid]), indent=2)
-                tmp = path.with_name(path.name + ".tmp")
-                tmp.write_text(payload)
-                tmp.replace(path)
+                atomic_write_text(path, payload)
             except Exception:
                 logger.exception("Failed to save session %s to disk", sid)
 

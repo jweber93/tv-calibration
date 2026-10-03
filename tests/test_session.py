@@ -1,5 +1,6 @@
 """Tests for calibrator/session.py deserialization and thread-safety."""
 
+import os
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -334,19 +335,26 @@ class TestSaveSessionAtomicWrite:
         path = tmp_path / f"{sid}.json"
         original_contents = path.read_text()
 
-        real_write_text = Path.write_text
+        def _boom(fd):
+            raise OSError("disk full")
 
-        def _boom(self, *args, **kwargs):
-            if self.name.endswith(".tmp"):
-                raise OSError("disk full")
-            return real_write_text(self, *args, **kwargs)
-
-        monkeypatch.setattr(Path, "write_text", _boom)
+        monkeypatch.setattr(os, "fsync", _boom)
         store.sessions[sid]["step"] = "white_balance"
         store.save_session(sid)  # logs and swallows the OSError internally
 
-        # The real file must be untouched by the aborted write.
+        # The real file must be untouched by the aborted write, and the
+        # unique tmp file must be cleaned up.
         assert path.read_text() == original_contents
+        assert list(tmp_path.glob("*.tmp")) == []
+
+    def test_save_session_uses_fsync(self, store, tmp_path, monkeypatch):
+        """#691: both the file and its directory are fsynced."""
+        sid = store.create_session("u8g")["id"]
+        calls = []
+        real_fsync = os.fsync
+        monkeypatch.setattr(os, "fsync", lambda fd: (calls.append(fd), real_fsync(fd))[1])
+        store.save_session(sid)
+        assert len(calls) == 2  # file, then directory
 
 
 class TestRepassCeilingBehavior:

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import math
+import os
+import tempfile
+from pathlib import Path
 
 from calcore.colour import ciede2000, xyY_to_xyz, xyz_to_lab
 from calcore.eotf import (
@@ -203,3 +206,35 @@ def get_all_measurements(session: dict) -> list:
         if bucket:
             result.extend(bucket)
     return result
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    """Atomically write *text* to *path* via tmp + os.replace.
+
+    A crash or OSError mid-write leaves the previously-persisted file
+    intact rather than a truncated/corrupt file on disk.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=path.name + ".", suffix=".tmp", dir=str(path.parent)
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp_path, path)
+        # fsync the directory so the rename itself is durable across
+        # crash/power loss (POSIX only; Windows lacks O_DIRECTORY).
+        if hasattr(os, "O_DIRECTORY"):
+            dir_fd = os.open(path.parent, os.O_DIRECTORY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise

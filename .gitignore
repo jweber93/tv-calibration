@@ -4,7 +4,7 @@ __pycache__/
 *.py[cod]
 .sessions/
 .calibration-history/
-frontend/node_modules/
+node_modules/
 
 # Test and coverage artifacts
 .coverage
