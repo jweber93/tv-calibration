@@ -121,7 +121,7 @@ When I say **"give PR feedback"**, **"review this PR"**, or **"PR feedback for [
 5. PR body **must** include `Closes #[issue-number]` to auto-close on merge.
    - If no issue exists yet, **create one first** before opening the PR.
    - Exception: pure documentation-only changes may skip issue creation if self-evident — note this in the PR body (e.g. "Doc-only change; no issue created").
-6. **The PR body must satisfy `.github/pull_request_template.md`**, which CI enforces (`pr-template` job). Required headings, verbatim: `## 📺 Overview`, `### What does this PR do?`, `## 🛠️ Technical Context & Implementation`, `## 🧪 Testing & Validation`, `## 🧼 Checklist`. At least one `**Type of change:**` box must be `[x]`, and `**The Problem:**` / `**The Solution:**` must have inline content. `.pr_body.md` is a filled-in example of this template.
+6. **The PR body must satisfy `.github/pull_request_template.md`**, which CI enforces (`pr-template` job). Required headings, verbatim: `## 📺 Overview`, `### What does this PR do?`, `## 🛠️ Technical Context & Implementation`, `## 🧪 Testing & Validation`, `## 🧼 Checklist`. At least one `**Type of change:**` box must be `[x]`, and `**The Problem:**` / `**The Solution:**` must have inline content.
 
 ## Post-Merge Cleanup
 
