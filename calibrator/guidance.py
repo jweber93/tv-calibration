@@ -720,8 +720,6 @@ def target_nits_for_colour(target: CalibrationTarget, colour_name: str) -> float
 
 def cms_hints(m: Measurement, target: CalibrationTarget, colour_name: str) -> Dict[str, Any]:
     target_xy = target_xy_for_colour(target, colour_name)
-    dx = m.x - target_xy[0]
-    dy = m.y - target_xy[1]
     total_shift = delta_xy(m.xy, target_xy)
     wx, wy = target.white_point_xy
     target_radius = math.dist((wx, wy), target_xy)

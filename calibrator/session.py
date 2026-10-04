@@ -34,7 +34,6 @@ from .guidance import (
     gamma_recommendations,
     gamma_target_for_measurement,
     luminance_control_plan,
-    measurement_stimulus_pct,
     preset_gamma_control_plan,
     target_nits_for_colour,
     target_xy_for_colour,

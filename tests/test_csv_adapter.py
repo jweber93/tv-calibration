@@ -9,9 +9,6 @@ from calibrator.csv_adapter import (
     _nearest_target_pct,
     _stimulus_pct_from_patch,
     _bucket_for_grayscale,
-    WB_GAIN_TARGET_PCT,
-    WB_OFFSET_TARGET_PCT,
-    GAMMA_TARGET_PCTS,
 )
 
 SDR_TARGET = CalibrationTarget(

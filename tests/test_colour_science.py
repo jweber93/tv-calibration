@@ -4,10 +4,9 @@ from pathlib import Path
 
 import pytest
 
+from calcore import xyY_to_xyz, xyz_to_lab
 from calcore.eotf import pq_eotf, pq_inverse_eotf
 from calibrator import (
-    xyY_to_XYZ,
-    XYZ_to_lab,
     xyY_to_lab,
     delta_e_cie76,
     delta_xy,
@@ -44,25 +43,25 @@ def test_runtime_module_does_not_call_ensure_packages_at_import_time():
 class TestXyYToXYZ:
     def test_d65_white(self):
         """D65 white point at 100 nits should produce known XYZ."""
-        X, Y, Z = xyY_to_XYZ(0.3127, 0.3290, 100.0)
+        X, Y, Z = xyY_to_xyz(0.3127, 0.3290, 100.0)
         assert Y == 100.0
         assert X == pytest.approx(95.0456, rel=1e-3)
         assert Z == pytest.approx(108.875, rel=1e-2)
 
     def test_zero_luminance(self):
-        X, Y, Z = xyY_to_XYZ(0.3127, 0.3290, 0.0)
+        X, Y, Z = xyY_to_xyz(0.3127, 0.3290, 0.0)
         assert (X, Y, Z) == (0.0, 0.0, 0.0)
 
     def test_zero_y_chromaticity(self):
         """y=0 should project onto D65 if Y > 0."""
-        X, Y, Z = xyY_to_XYZ(0.3, 0.0, 50.0)
+        X, Y, Z = xyY_to_xyz(0.3, 0.0, 50.0)
         assert Y == 50.0
         assert X == pytest.approx(47.5228, rel=1e-3)
         assert Z == pytest.approx(54.4529, rel=1e-3)
 
     def test_pure_red_chromaticity(self):
         """Rec.709 red primary chromaticity at 10 nits."""
-        X, Y, Z = xyY_to_XYZ(0.64, 0.33, 10.0)
+        X, Y, Z = xyY_to_xyz(0.64, 0.33, 10.0)
         assert X == pytest.approx(19.394, rel=1e-2)
         assert Y == 10.0
         assert Z == pytest.approx(0.909, rel=1e-1)
@@ -75,13 +74,13 @@ class TestXyYToXYZ:
 class TestXYZToLab:
     def test_d65_gives_L100(self):
         """D65 reference white should give L*=100, a*=0, b*=0."""
-        L, a, b = XYZ_to_lab(*D65_XYZ)
+        L, a, b = xyz_to_lab(D65_XYZ)
         assert L == pytest.approx(100.0, abs=0.01)
         assert a == pytest.approx(0.0, abs=0.01)
         assert b == pytest.approx(0.0, abs=0.01)
 
     def test_black(self):
-        L, a, b = XYZ_to_lab(0, 0, 0)
+        L, a, b = xyz_to_lab((0, 0, 0))
         assert L == pytest.approx(0.0, abs=1.0)
 
     def test_known_value(self):
@@ -92,7 +91,7 @@ class TestXYZToLab:
         X = D65_XYZ[0] * 0.5
         Y_val = D65_XYZ[1] * 0.5
         Z = D65_XYZ[2] * 0.5
-        L, a, b = XYZ_to_lab(X, Y_val, Z)
+        L, a, b = xyz_to_lab((X, Y_val, Z))
         # L* for Y/Yn = 0.5 ≈ 76.07
         assert L == pytest.approx(76.07, abs=0.5)
         assert abs(a) < 1.0  # neutral grey, a* should be near 0

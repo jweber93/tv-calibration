@@ -44,15 +44,11 @@ class TVProfile:
     GAMMA_NOTES: List[str] = field(default_factory=list)
     GAMMA_WORKFLOWS: List[str] = field(default_factory=lambda: ["quick"])
 
-    # Optional UI automation hints
-    AUTO_PRECAL_INTERVAL_MS: int = 0
-
     # Colour Management System (CMS)
     CMS_MENU_PATH: str = ""
     CMS_CONTROLS: List[str] = field(default_factory=list)
     CMS_COLOURS: List[str] = field(default_factory=list)
     CMS_NOTES: List[str] = field(default_factory=list)
-    supported_gamuts: List[str] = field(default_factory=lambda: ["bt709"])
 
     # Quality gate thresholds for adaptive multi-pass loop (#166)
     quality_gate_thresholds: Dict[str, Any] = field(default_factory=dict)
@@ -143,7 +139,6 @@ def _build_u8g_profile() -> TVProfile:
             "If measured gamma is below target, that part of the image is too bright, so lower that Input Level control by 5. If measured gamma is above target, that part is too dark, so raise that Input Level control by 5.",
             "After every 5-point move, re-measure the same gray patch first. When that point is close, rerun the full 20/40/60/80% pass before making more changes.",
         ],
-        AUTO_PRECAL_INTERVAL_MS=500,
         CMS_MENU_PATH="Settings → Picture → Calibration Settings → Colour Tuner",
         CMS_CONTROLS=["Hue", "Saturation", "Brightness"],
         CMS_COLOURS=["Red", "Green", "Blue", "Cyan", "Magenta", "Yellow"],
@@ -181,7 +176,6 @@ def _build_u8g_profile() -> TVProfile:
                 "0  (no edge enhancement — sharpening can corrupt near-white patch readings)",
             ),
         ],
-        supported_gamuts=["bt709", "p3d65", "bt2020"],
         quality_gate_thresholds={
             "grayscale": {"avg_de": 2.0, "max_de": 3.0},
             "white_balance": {"avg_de": 1.5, "max_de": 2.5},
@@ -377,7 +371,6 @@ def _build_tcl7105x_profile() -> TVProfile:
                 "Show a 100% white patch. Use Backlight to hit the target luminance (e.g. 120 nits for SDR).",
             ),
         ],
-        AUTO_PRECAL_INTERVAL_MS=500,
         WB_MENU_PATH="Settings → Picture → Advanced Picture → White Balance",
         WB_2POINT={
             "Red Gain": "Adjusts red in highlights (80% gray patch) — scale −50 to +50, neutral 0",
@@ -439,7 +432,6 @@ def _build_tcl7105x_profile() -> TVProfile:
                 "0  (no edge enhancement — sharpening corrupts near-white patch readings)",
             ),
         ],
-        supported_gamuts=["bt709", "p3d65", "bt2020"],
         llm_schema={
             "model": "TCL 7105X",
             "variants": ["557105X", "657105X", "757105X"],
@@ -600,7 +592,6 @@ def _build_lg_oled55b7a_profile() -> TVProfile:
                 "Show a 100% white patch and use OLED Light to hit the target luminance (e.g. ~120 nits SDR at OLED Light 35-45).",
             ),
         ],
-        AUTO_PRECAL_INTERVAL_MS=500,
         WB_MENU_PATH="Settings → Picture → Picture Mode Settings → Expert Controls → White Balance",
         WB_2POINT={
             "Red Gain": "Adjusts red in highlights (80% gray) — scale −50 to +50, neutral 0",
@@ -896,7 +887,6 @@ def _build_vizio_v4k55m_profile() -> TVProfile:
                 "Show a 100% white patch. Use Backlight to reach the target luminance (e.g. 120 nits SDR).",
             ),
         ],
-        AUTO_PRECAL_INTERVAL_MS=0,
         WB_MENU_PATH=(
             "Service Menu → White Balance (see service menu access below) "
             "— or — Settings → Picture → Color Calibration → Color Tuner"

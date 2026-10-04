@@ -2,7 +2,6 @@
 
 import queue
 import threading
-import time
 import unittest
 
 from server import (
@@ -80,7 +79,7 @@ class TestLlmSubscribeUnsubscribeBroadcast(unittest.TestCase):
     def test_queue_capacity_overflow(self):
         """When a queue is full, broadcast should drop the event with a warning, not crash."""
         sid = "test-full-queue"
-        q = _llm_subscribe(sid)
+        _llm_subscribe(sid)
 
         # Fill the queue (maxsize=100)
         for i in range(100):

@@ -1,11 +1,10 @@
 """Tests for white-point-aware target XYZ and delta-E computation (Issue #369)."""
 from __future__ import annotations
 
-import math
 import unittest
 
 from calcore.analysis import analyze
-from calcore.colour import D65_XYZ, D65_xy, xyY_to_xyz
+from calcore.colour import D65_xy, xyY_to_xyz
 from calcore.models import AnalysisConfig, Patch
 from calcore.targets import target_xyz_for_patch
 

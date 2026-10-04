@@ -211,19 +211,6 @@ def ciede2000(
     )
 
 
-def xyY_to_XYZ(x: float, y: float, Y: float) -> Tuple[float, float, float]:
-    return xyY_to_xyz(x, y, Y)
-
-
-def XYZ_to_lab(
-    X: float,
-    Y: float,
-    Z: float,
-    ref_white: Tuple[float, float, float] = D65_XYZ,
-) -> Tuple[float, float, float]:
-    return xyz_to_lab((X, Y, Z), ref_white)
-
-
 def xyY_to_lab(
     x: float,
     y: float,

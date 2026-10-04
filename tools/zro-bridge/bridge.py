@@ -21,8 +21,6 @@ Configure bridge.json (see bridge.example.json) before starting.
 import argparse
 import json
 import logging
-import sys
-import time
 from pathlib import Path
 from typing import Optional
 

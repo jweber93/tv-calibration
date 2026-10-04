@@ -2,11 +2,11 @@ import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 
-from calcore.models import Measurement, Patch
-from calibrator.session import ZROImportResult, CalibrationTarget
+from calcore.models import Patch
+from calibrator.session import CalibrationTarget
 from calibrator.zro_import import (
     GAMMA_TARGET_PCTS,
-    PCT_SNAP_TOLERANCE,
+    PCT_SNAP_TOLERANCE,  # noqa: F401 — re-exported; pinned by test_bucket_constants_shared_with_zro_import
     WB_GAIN_TARGET_PCT,
     WB_OFFSET_TARGET_PCT,
     _nearest_target_pct,

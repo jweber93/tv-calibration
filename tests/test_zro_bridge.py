@@ -4,8 +4,6 @@ Tests for ZRO Bridge proxy endpoints in server.py.
 These tests mock httpx calls so no real bridge needs to be running.
 """
 
-import json
-import pytest
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 
@@ -26,7 +24,7 @@ def _mock_httpx_get(json_data, status_code=200):
     resp.json.return_value = json_data
     resp.raise_for_status = MagicMock()
     if status_code >= 400:
-        from httpx import HTTPStatusError, Request, Response
+        from httpx import HTTPStatusError
         resp.raise_for_status.side_effect = HTTPStatusError(
             "error", request=MagicMock(), response=MagicMock()
         )
@@ -342,7 +340,7 @@ class TestBridgeUrlParamPassthrough:
             captured["url"] = url
             return _mock_httpx_get(bridge_resp)
         with patch("httpx.get", side_effect=mock_get):
-            r = client.get("/api/zro/bridge/status")
+            client.get("/api/zro/bridge/status")
         assert captured["url"] == "http://stored-host:7070/status"
 
     def test_measure_uses_body_url_over_stored(self):
@@ -365,7 +363,7 @@ class TestBridgeUrlParamPassthrough:
             captured["url"] = url
             return _mock_httpx_post(bridge_resp)
         with patch("httpx.post", side_effect=mock_post):
-            r = client.post("/api/bridge/measure")
+            client.post("/api/bridge/measure")
         assert captured["url"] == "http://stored-host:7070/measure"
 
     def test_measure_no_url_configured_raises_400(self):
@@ -381,7 +379,7 @@ class TestBridgeUrlParamPassthrough:
             captured["url"] = url
             return _mock_httpx_post(bridge_resp)
         with patch("httpx.post", side_effect=mock_post):
-            r = client.post("/api/bridge/measure")
+            client.post("/api/bridge/measure")
         assert captured["url"] == "http://stored-host:7070/measure"
 
     def test_status_empty_query_url_uses_stored(self):
@@ -392,5 +390,5 @@ class TestBridgeUrlParamPassthrough:
             captured["url"] = url
             return _mock_httpx_get(bridge_resp)
         with patch("httpx.get", side_effect=mock_get):
-            r = client.get("/api/zro/bridge/status?url=")
+            client.get("/api/zro/bridge/status?url=")
         assert captured["url"] == "http://stored-host:7070/status"

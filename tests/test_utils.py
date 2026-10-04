@@ -1,6 +1,5 @@
 """Tests for calibrator/utils.py helpers."""
 
-import pytest
 from calibrator.utils import get_all_measurements
 
 

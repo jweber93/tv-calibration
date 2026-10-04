@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from calcore.llm import (
-    ConvergenceAssessment,
     NextSettingsPrediction,
     PassDecision,
     _CONVERGENCE_STALL_EPSILON,
@@ -24,13 +22,9 @@ from calcore.models import HDR10_TARGET, Summary
 from calibrator.profiles import TV_PROFILES
 from calibrator.session import (
     REPATCH_MAX_PASSES,
-    session_view,
-    serialize_session,
-    deserialize_session,
     _repass_target_step,
     SessionStore,
 )
-from fastapi import HTTPException
 
 
 class TestRepashMaxPasses:

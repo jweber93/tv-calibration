@@ -2,15 +2,9 @@
 Tests for issue #149: malformed ZRO rows (short, None-valued, extra columns)
 should not abort the entire import — they are skipped with diagnostics.
 """
-import io
-import shutil
-import tempfile
-from pathlib import Path
 
-import pytest
 
 from calibrator.zro_import import (
-    ZROImportResult,
     parse_zro_csv,
 )
 

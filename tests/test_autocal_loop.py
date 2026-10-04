@@ -1,7 +1,6 @@
 """Tests for calibrator/autocal_loop.py (Autocal roadmap Item 1c)."""
 import math
 
-import pytest
 
 from calcore.models import CalMode, CalibrationTarget, Measurement, Patch
 from calibrator.autocal_apply import ApplyResult, ApplyTarget, ManualApplyTarget, MeasurementSource

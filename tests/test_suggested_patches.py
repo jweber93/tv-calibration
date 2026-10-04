@@ -1,6 +1,5 @@
 """Tests for suggested-patches API endpoints and ZRO bridge /measure/sequence."""
 
-import json
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -268,8 +267,6 @@ class TestZROBridgeMeasureSequence(unittest.TestCase):
 
     def _make_bridge_app(self, config=None):
         """Create a ZRO bridge app with mocked backend."""
-        import sys
-        from io import StringIO
 
         # Create a minimal bridge app without importing backends
         from fastapi import FastAPI

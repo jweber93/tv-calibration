@@ -2,7 +2,6 @@
 
 import json
 import unittest
-from http.client import HTTPResponse
 from io import BytesIO
 from unittest.mock import MagicMock, patch
 

@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 
 from calibrator import Measurement
 from calibrator.zro_import import (
-    ZROImportResult,
     _classify,
     _rgb_to_stimulus_pct,
     _check_abl,

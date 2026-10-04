@@ -151,7 +151,6 @@ class TestGenericImportHappyPath:
         assert resp.status_code == 200
 
         data = resp.json()
-        session_data = data["session"]
         summary = data["import_summary"]
 
         # Summary should reflect 3 rows parsed

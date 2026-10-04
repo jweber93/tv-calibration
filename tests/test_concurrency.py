@@ -20,7 +20,6 @@ from __future__ import annotations
 import threading
 import time
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -129,7 +128,6 @@ class TestConcurrentImport:
                 barrier.wait()
                 session = store.get(sid)
                 time.sleep(0)  # force GIL release
-                step = session.get("step", "pre_grayscale")
                 bucket_map = {"pre_measurements": measurements}
                 for key, items in bucket_map.items():
                     for item in items:
@@ -328,7 +326,6 @@ class TestConcurrentEviction:
         # If the eviction thread wins, the import gets 404 on save — that's
         # a valid graceful failure.  If the import wins, it completes and the
         # eviction is a no-op (session was just touched).
-        import_errors = [e for e in errors if e.startswith("import:")]
         evict_errors = [e for e in errors if e.startswith("evict:")]
         assert not evict_errors, f"Eviction should never crash: {evict_errors}"
         # Import may fail with 404 if eviction won the race — acceptable.

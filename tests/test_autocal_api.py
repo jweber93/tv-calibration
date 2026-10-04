@@ -132,7 +132,6 @@ class TestAutocalRunLifecycle:
 
     def test_stop_cancels_running_loop(self, client, session_id):
         block = threading.Event()
-        cancelled_seen = threading.Event()
 
         def fake_measure(self, patch_obj):
             block.wait(timeout=5.0)

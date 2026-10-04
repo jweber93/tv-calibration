@@ -1,7 +1,6 @@
 """Tests for JSON code-fence extraction and LLM response parsing (#148)."""
 
 import json
-import textwrap
 import unittest
 
 from calcore.llm import _extract_json, parse_adjustment_plan
