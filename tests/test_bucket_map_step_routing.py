@@ -1,14 +1,12 @@
 """#636: ZRO imports at select_mode/prepare/suggested_patches/report must not
 silently drop every measurement row.
 
-Both `bucket_map_for_session_step` (calibrator/session.py, used by manual ZRO
-upload) and its watch-folder duplicate `_bucket_map_for_session_step`
-(calibrator/file_watcher.py) only routed grayscale rows for six of the ten
+`bucket_map_for_session_step` (calibrator/session.py, shared by manual ZRO
+upload and the watch folder) only routed grayscale rows for six of the ten
 workflow steps; the other four (select_mode, prepare, suggested_patches,
 report) produced an all-empty bucket map and the import was discarded.
 """
 
-import calibrator.file_watcher as fw
 from calibrator.session import STEPS_ORDER, bucket_map_for_session_step
 from calibrator.zro_import import ZROImportResult
 
@@ -48,32 +46,3 @@ class TestSessionBucketMapCoversEveryStep:
             bucket_map = bucket_map_for_session_step(_result(), step)
             assert bucket_map["post_measurements"], step
             assert not bucket_map["pre_measurements"], step
-
-
-class TestFileWatcherBucketMapCoversEveryStep:
-    def test_no_step_produces_an_all_empty_bucket_map(self):
-        for step in STEPS_ORDER:
-            bucket_map = fw._bucket_map_for_session_step(_result(), step)
-            assert any(bucket_map.values()), f"step {step!r} routed nothing"
-
-    def test_pre_steps_route_to_pre_measurements(self):
-        for step in _PRE_STEPS:
-            bucket_map = fw._bucket_map_for_session_step(_result(), step)
-            assert bucket_map["pre_measurements"], step
-            assert not bucket_map["post_measurements"], step
-
-    def test_post_steps_route_to_post_measurements(self):
-        for step in _POST_STEPS:
-            bucket_map = fw._bucket_map_for_session_step(_result(), step)
-            assert bucket_map["post_measurements"], step
-            assert not bucket_map["pre_measurements"], step
-
-
-class TestManualAndWatcherBucketMapsAgree:
-    """Parity: the two importers must classify every step identically."""
-
-    def test_identical_bucket_map_for_every_step(self):
-        for step in STEPS_ORDER + [None, "unknown_step"]:
-            manual = bucket_map_for_session_step(_result(), step)
-            watcher = fw._bucket_map_for_session_step(_result(), step)
-            assert manual == watcher, step

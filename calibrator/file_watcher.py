@@ -173,55 +173,6 @@ def _read_bytes_with_retry(path: str) -> bytes:
     raise last_exc
 
 
-def _bucket_map_for_session_step(
-    result: ZROImportResult, session_step: Optional[str]
-) -> Dict[str, List[dict]]:
-    """
-    Map parsed import buckets into session buckets for the current workflow step.
-
-    ZRO exports a standalone grayscale ramp as the "first" grayscale session in
-    that file, so parse_zro_csv classifies it into pre_measurements by default.
-    When the active session is already in post_grayscale we need to treat that
-    incoming ramp as post-cal data instead.
-    """
-    bucket_map: Dict[str, List[dict]] = {
-        "cms_measurements": [],
-        "pre_measurements": [],
-        "post_measurements": [],
-        "lum_measurements": [],
-        "wb_measurements": [],
-        "gamma_measurements": [],
-    }
-
-    latest_grayscale_pass = (
-        result.grayscale_passes[-1] if result.grayscale_passes else []
-    )
-
-    # Mirrors calibrator.session.bucket_map_for_session_step (the manual-upload
-    # path) and csv_adapter._PRE_STEPS / _POST_STEPS: select_mode/prepare and
-    # suggested_patches/report are legitimate steps for a ZRO import to land in
-    # (an early ramp export, or a post-report re-verification ramp), not just
-    # pre_grayscale/post_grayscale — routing only those two left every other
-    # step's watch-folder import silently discarded (#636).
-    if session_step in ("pre_grayscale", "prepare", "select_mode"):
-        bucket_map["pre_measurements"] = (
-            latest_grayscale_pass or result.pre_measurements
-        )
-    elif session_step == "luminance":
-        bucket_map["lum_measurements"] = result.lum_measurements
-    elif session_step == "white_balance":
-        bucket_map["wb_measurements"] = result.wb_measurements
-    elif session_step == "gamma":
-        bucket_map["gamma_measurements"] = result.gamma_measurements
-    elif session_step == "color_tuner":
-        bucket_map["cms_measurements"] = result.cms_measurements
-    elif session_step in ("post_grayscale", "suggested_patches", "report"):
-        bucket_map["post_measurements"] = (
-            latest_grayscale_pass or result.post_measurements or result.pre_measurements
-        )
-    return bucket_map
-
-
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -393,52 +344,36 @@ class _ZROHandler(FileSystemEventHandler):
                 logger.info(msg)
                 with _lock:
                     _watcher_error = msg
-                    _last_attempt = {
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "file": os.path.basename(src_path),
-                        "path": os.path.abspath(src_path),
-                        "status": "locked",
-                        "detail": str(exc),
-                    }
+                    _last_attempt = _attempt(src_path, "locked", str(exc))
                 with self._timer_lock:
                     self._importing.discard(src_path)
                 self._schedule_timer(src_path, LOCKED_FILE_RETRY_SECONDS)
                 return
             logger.warning("OSError accessing mtime for %s: %s", src_path, exc)
             with _lock:
-                _last_attempt = {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "file": os.path.basename(src_path),
-                    "path": os.path.abspath(src_path),
-                    "status": "error",
-                    "detail": str(exc),
-                }
+                _last_attempt = _attempt(src_path, "error", str(exc))
             return
 
         with self._timer_lock:
             if self._imported.get(src_path) == mtime:
                 logger.debug("Skipping already-imported %s (mtime unchanged)", src_path)
                 with _lock:
-                    _last_attempt = {
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "file": os.path.basename(src_path),
-                        "path": os.path.abspath(src_path),
-                        "status": "skipped",
-                        "detail": "File mtime is unchanged; duplicate import suppressed.",
-                    }
+                    _last_attempt = _attempt(
+                        src_path,
+                        "skipped",
+                        "File mtime is unchanged; duplicate import suppressed.",
+                    )
                 return
             # Claim this mtime immediately so a concurrent timer for the same
             # file sees it as already handled and exits early.
             self._imported[src_path] = mtime
 
         with _lock:
-            _last_attempt = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "file": os.path.basename(src_path),
-                "path": os.path.abspath(src_path),
-                "status": "reading",
-                "detail": "Attempting to read and parse watched CSV.",
-            }
+            _last_attempt = _attempt(
+                src_path,
+                "reading",
+                "Attempting to read and parse watched CSV.",
+            )
 
         # ── parse ─────────────────────────────────────────────────────────
         # Read bytes first so we can retry if ZRO still holds a write lock.
@@ -450,13 +385,7 @@ class _ZROHandler(FileSystemEventHandler):
             logger.info(msg)
             with _lock:
                 _watcher_error = msg
-                _last_attempt = {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "file": os.path.basename(src_path),
-                    "path": os.path.abspath(src_path),
-                    "status": "locked",
-                    "detail": str(exc),
-                }
+                _last_attempt = _attempt(src_path, "locked", str(exc))
             # Release the optimistic claim so the retry timer can proceed.
             with self._timer_lock:
                 self._imported.pop(src_path, None)
@@ -468,25 +397,17 @@ class _ZROHandler(FileSystemEventHandler):
             logger.warning(msg)
             with _lock:
                 _watcher_error = msg
-                _last_attempt = {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "file": os.path.basename(src_path),
-                    "path": os.path.abspath(src_path),
-                    "status": "error",
-                    "detail": str(exc),
-                }
+                _last_attempt = _attempt(src_path, "error", str(exc))
             return
 
         if result.total_rows == 0:
             with _lock:
                 _watcher_error = f"No valid rows in {src_path}"
-                _last_attempt = {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "file": os.path.basename(src_path),
-                    "path": os.path.abspath(src_path),
-                    "status": "empty",
-                    "detail": "No valid measurement rows were found in the watched CSV.",
-                }
+                _last_attempt = _attempt(
+                    src_path,
+                    "empty",
+                    "No valid measurement rows were found in the watched CSV.",
+                )
             return
 
         # ── session lookup & merge (under session lock) ──────────────────
@@ -495,13 +416,11 @@ class _ZROHandler(FileSystemEventHandler):
             if session is None:
                 with _lock:
                     _watcher_error = "No active session — import skipped"
-                    _last_attempt = {
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "file": os.path.basename(src_path),
-                        "path": os.path.abspath(src_path),
-                        "status": "no_session",
-                        "detail": "No active calibration session was available for import.",
-                    }
+                    _last_attempt = _attempt(
+                        src_path,
+                        "no_session",
+                        "No active calibration session was available for import.",
+                    )
                 # Release the optimistic claim: nothing was actually imported,
                 # so a session created later must be able to re-trigger this
                 # file rather than have it suppressed by the mtime dedup.
@@ -521,15 +440,19 @@ class _ZROHandler(FileSystemEventHandler):
             #
             # Imported inside the method: session.py imports this module at
             # load time, so a module-level import here would be circular.
-            from .session import recontextualize_import_result
+            from .session import (
+                bucket_map_for_session_step,
+                recontextualize_import_result,
+                warnings_for_session_step,
+            )
 
             result = recontextualize_import_result(
                 result,
                 session.get("signal_range", "full"),
                 session.get("code_scale", "8bit"),
             )
-            bucket_map = _bucket_map_for_session_step(result, session.get("step"))
-            step_warnings = _warnings_for_session_step(result, session.get("step"))
+            bucket_map = bucket_map_for_session_step(result, session.get("step"))
+            step_warnings = warnings_for_session_step(result, session.get("step"))
 
             counts: Dict[str, int] = {}
             deser = self._measurement_deserializer
@@ -572,13 +495,11 @@ class _ZROHandler(FileSystemEventHandler):
 
             if not counts:
                 with _lock:
-                    _last_attempt = {
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "file": os.path.basename(src_path),
-                        "path": os.path.abspath(src_path),
-                        "status": "no_new_rows",
-                        "detail": "Watched CSV changed, but it only contained rows already imported for this session.",
-                    }
+                    _last_attempt = _attempt(
+                        src_path,
+                        "no_new_rows",
+                        "Watched CSV changed, but it only contained rows already imported for this session.",
+                    )
                     _watcher_error = None
                 with self._timer_lock:
                     self._imported[src_path] = mtime
@@ -651,13 +572,12 @@ class _ZROHandler(FileSystemEventHandler):
                 "measurement_start": import_meta["measurement_start"],
                 "measurement_end": import_meta["measurement_end"],
             }
-            _last_attempt = {
-                "timestamp": now,
-                "file": os.path.basename(src_path),
-                "path": os.path.abspath(src_path),
-                "status": "imported",
-                "detail": f"Imported {result.total_rows} rows into {len(counts)} bucket(s).",
-            }
+            _last_attempt = _attempt(
+                src_path,
+                "imported",
+                f"Imported {result.total_rows} rows into {len(counts)} bucket(s).",
+                now,
+            )
             _watcher_error = None
 
         _broadcast_event(event_payload)
@@ -673,6 +593,17 @@ class _ZROHandler(FileSystemEventHandler):
                 self._post_import_hook(session)
             except Exception as exc:
                 logger.warning("post_import_hook raised: %s", exc)
+
+
+def _attempt(src_path: str, status: str, detail: str, timestamp: Optional[str] = None) -> Dict:
+    """Build a ``_last_attempt`` record.  Caller assigns it while holding ``_lock``."""
+    return {
+        "timestamp": timestamp or datetime.now(timezone.utc).isoformat(),
+        "file": os.path.basename(src_path),
+        "path": os.path.abspath(src_path),
+        "status": status,
+        "detail": detail,
+    }
 
 
 def _broadcast_event(payload: Dict) -> None:
@@ -700,16 +631,6 @@ def _measurement_signature(measurement: object) -> tuple:
         x = getattr(measurement, "x", None)
         y = getattr(measurement, "y", None)
     return (timestamp, label, stimulus_rgb, Y, x, y)
-
-
-def _warnings_for_session_step(
-    result: ZROImportResult, session_step: Optional[str]
-) -> List[str]:
-    if session_step in ("pre_grayscale", "post_grayscale"):
-        return (
-            result.grayscale_pass_warnings[-1] if result.grayscale_pass_warnings else []
-        )
-    return result.abl_warnings
 
 
 # ---------------------------------------------------------------------------
