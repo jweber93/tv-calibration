@@ -39,7 +39,7 @@ import csv
 import io
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import List, Optional, Tuple
 
 from calcore.colour import xyY_to_xyz
 from calcore.models import Measurement
