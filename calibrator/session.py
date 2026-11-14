@@ -160,14 +160,18 @@ STEP_LABELS = {
     "report": "Report",
 }
 
-CMS_PATCHES: Dict[str, Tuple[int, int, int]] = {
-    "Red": (235, 16, 16),
-    "Green": (16, 235, 16),
-    "Blue": (16, 16, 235),
-    "Cyan": (16, 235, 235),
-    "Magenta": (235, 16, 235),
-    "Yellow": (235, 235, 16),
-}
+def _cms_patch_set(hi: int, lo: int) -> Dict[str, Tuple[int, int, int]]:
+    return {
+        "Red": (hi, lo, lo),
+        "Green": (lo, hi, lo),
+        "Blue": (lo, lo, hi),
+        "Cyan": (lo, hi, hi),
+        "Magenta": (hi, lo, hi),
+        "Yellow": (hi, hi, lo),
+    }
+
+
+CMS_PATCHES: Dict[str, Tuple[int, int, int]] = _cms_patch_set(235, 16)
 
 PATTERN_GENERATOR_OPTIONS: Dict[str, Dict[str, Any]] = {
     "lightspace_connect": {
@@ -222,27 +226,9 @@ def cv(pct: float, signal_range: str, code_scale: str = "8bit") -> int:
 def cms_patches(
     signal_range: str, code_scale: str = "8bit"
 ) -> Dict[str, Tuple[int, int, int]]:
-    if signal_range == "full" and code_scale == "10bit":
-        hi, lo = 1023, 0
-        return {
-            "Red": (hi, lo, lo),
-            "Green": (lo, hi, lo),
-            "Blue": (lo, lo, hi),
-            "Cyan": (lo, hi, hi),
-            "Magenta": (hi, lo, hi),
-            "Yellow": (hi, hi, lo),
-        }
     if signal_range != "full":
         return CMS_PATCHES
-    hi, lo = 255, 0
-    return {
-        "Red": (hi, lo, lo),
-        "Green": (lo, hi, lo),
-        "Blue": (lo, lo, hi),
-        "Cyan": (lo, hi, hi),
-        "Magenta": (hi, lo, hi),
-        "Yellow": (hi, hi, lo),
-    }
+    return _cms_patch_set(1023 if code_scale == "10bit" else 255, 0)
 
 
 def workflow_setup(mode: str, pattern_generator: str) -> List[Dict[str, str]]:
@@ -1187,6 +1173,40 @@ def _gray_bucket_for_step(session_step):
     return None
 
 
+def _latest_contiguous(
+    measurements: List[Measurement],
+    max_count: Optional[int] = None,
+    stop_on_out_of_order: bool = False,
+) -> List[Measurement]:
+    """Newest run of measurements with no ``ZRO_SESSION_BREAK_SECONDS`` gap.
+
+    Walks backwards, skipping blank/unparseable timestamps until the first
+    good one, then stops at an unparseable timestamp or a gap.
+    """
+    latest_reversed: List[Measurement] = []
+    prev_dt: Optional[datetime] = None
+    for measurement in reversed(measurements):
+        ts = measurement.timestamp
+        try:
+            current_dt = datetime.fromisoformat(ts) if ts else None
+        except ValueError:
+            current_dt = None
+        if current_dt is None:
+            if latest_reversed:
+                break
+            continue
+        if prev_dt is not None:
+            if stop_on_out_of_order and current_dt > prev_dt:
+                break
+            if (prev_dt - current_dt).total_seconds() >= ZRO_SESSION_BREAK_SECONDS:
+                break
+        latest_reversed.append(measurement)
+        prev_dt = current_dt
+        if len(latest_reversed) == max_count:
+            break
+    return list(reversed(latest_reversed))
+
+
 def latest_gamma_pass(
     measurements: List[Measurement],
     levels: Tuple[int, ...] = GAMMA_TRACKING_LEVELS,
@@ -1195,29 +1215,7 @@ def latest_gamma_pass(
     detect_sessions: bool = True,
 ) -> List[Measurement]:
     if detect_sessions:
-        latest_reversed: List[Measurement] = []
-        prev_dt: Optional[datetime] = None
-        for measurement in reversed(measurements):
-            ts = measurement.timestamp
-            if not ts:
-                if latest_reversed:
-                    break
-                continue
-            try:
-                current_dt = datetime.fromisoformat(ts)
-            except ValueError:
-                if latest_reversed:
-                    break
-                continue
-            if prev_dt is not None:
-                if current_dt > prev_dt:
-                    break
-                gap = (prev_dt - current_dt).total_seconds()
-                if gap >= ZRO_SESSION_BREAK_SECONDS:
-                    break
-            latest_reversed.append(measurement)
-            prev_dt = current_dt
-        latest = list(reversed(latest_reversed))
+        latest = _latest_contiguous(measurements, stop_on_out_of_order=True)
     else:
         latest = list(measurements)
     latest_by_target: Dict[int, Measurement] = {}
@@ -1259,30 +1257,7 @@ def latest_grayscale_pass(
         return []
 
     if detect_sessions:
-        # Walk backwards through measurements, stopping at session gaps
-        latest_reversed: List[Measurement] = []
-        prev_dt: Optional[datetime] = None
-        for measurement in reversed(measurements):
-            ts = measurement.timestamp
-            if not ts:
-                if latest_reversed:
-                    break
-                continue
-            try:
-                current_dt = datetime.fromisoformat(ts)
-            except ValueError:
-                if latest_reversed:
-                    break
-                continue
-            if prev_dt is not None:
-                gap = (prev_dt - current_dt).total_seconds()
-                if gap >= ZRO_SESSION_BREAK_SECONDS:
-                    break
-            latest_reversed.append(measurement)
-            prev_dt = current_dt
-            if len(latest_reversed) == max_count:
-                break
-        latest = list(reversed(latest_reversed))
+        latest = _latest_contiguous(measurements, max_count)
     else:
         # Use all measurements — assume they form a single coherent pass
         # (appropriate for freshly imported CSV data)
