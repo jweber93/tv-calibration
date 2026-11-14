@@ -174,28 +174,19 @@ def analyze(
             }
         )
 
+    de75, de100 = color_stats["75"]["de"], color_stats["100"]["de"]
     return Summary(
         grayscale_avg_de=mean_or_none(gray_des),
         grayscale_max_de=max(gray_des) if gray_des else None,
         grayscale_over_3=sum(1 for d in gray_des if d > 3.0),
         gamma_midtones=mean_or_none(gray_gamma_mid),
         pq_err_midtones=mean_or_none(gray_pq_err_mid),
-        color_75_avg_de=mean_or_none(color_stats.get("75", {}).get("de", [])),
-        color_75_max_de=(
-            max(color_stats.get("75", {}).get("de", []))
-            if color_stats.get("75", {}).get("de")
-            else None
-        ),
-        color_75_chroma_avg=mean_or_none(color_stats.get("75", {}).get("chroma", [])),
-        color_100_avg_de=mean_or_none(color_stats.get("100", {}).get("de", [])),
-        color_100_max_de=(
-            max(color_stats.get("100", {}).get("de", []))
-            if color_stats.get("100", {}).get("de")
-            else None
-        ),
-        color_100_chroma_avg=mean_or_none(
-            color_stats.get("100", {}).get("chroma", [])
-        ),
+        color_75_avg_de=mean_or_none(de75),
+        color_75_max_de=max(de75) if de75 else None,
+        color_75_chroma_avg=mean_or_none(color_stats["75"]["chroma"]),
+        color_100_avg_de=mean_or_none(de100),
+        color_100_max_de=max(de100) if de100 else None,
+        color_100_chroma_avg=mean_or_none(color_stats["100"]["chroma"]),
         grayscale_rows=grayscale_rows,
         color_rows=color_rows,
         meta={

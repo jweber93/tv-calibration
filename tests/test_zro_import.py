@@ -14,7 +14,6 @@ from calibrator.zro_import import (
     _group_into_sessions,
     _Row,
     parse_zro_csv,
-    merge_into_session,
     SESSION_BREAK_SECONDS,
     _to_measurement,
 )
@@ -413,7 +412,7 @@ class TestParseZroCsv:
         # target to 75%" verification step) that don't match any
         # primary/secondary/grayscale patch signature. This trailing group
         # must not be misclassified as a third grayscale pass, which would
-        # bump the real post-cal ramp into mid_measurements.
+        # bump the real post-cal ramp into a mid pass.
         csv_bytes = (
             TWO_GRAYSCALE_CSV
             + b"\n"
@@ -424,7 +423,6 @@ class TestParseZroCsv:
         r = parse_zro_csv(csv_bytes)
         assert r.grayscale_sessions == 2
         assert len(r.post_measurements) == 11
-        assert len(r.mid_measurements) == 0
 
     # ── Input format variants ───────────────────────────────────────────────
 
@@ -503,44 +501,6 @@ class TestParseZroCsv:
         first_timestamp = result.pre_measurements[0]["timestamp"]
         assert "19:12:34.527" in first_timestamp or "19:12:34.527000" in first_timestamp
 
-    # ── merge_into_session helper ───────────────────────────────────────────
-
-    def test_merge_into_session_populates_buckets(self):
-        r = parse_zro_csv(FULL_CSV)
-        session = {
-            "pre_measurements": [], "post_measurements": [],
-            "cms_measurements": [], "wb_measurements": [],
-            "lum_measurements": [], "gamma_measurements": [],
-        }
-        merge_into_session(session, r)
-        assert len(session["pre_measurements"]) == 11
-        assert len(session["cms_measurements"]) == 6
-
-    def test_merge_appends_not_replaces(self):
-        r = parse_zro_csv(CLEAN_GRAYSCALE_CSV)
-        existing = {"x": 0.313, "y": 0.329, "Y": 50.0, "X": 0.0, "Z": 0.0,
-                    "timestamp": "", "label": "existing", "stimulus_rgb": [128, 128, 128]}
-        session = {
-            "pre_measurements": [existing],
-            "post_measurements": [], "cms_measurements": [],
-            "wb_measurements": [], "lum_measurements": [], "gamma_measurements": [],
-        }
-        merge_into_session(session, r)
-        assert len(session["pre_measurements"]) == 12  # 1 existing + 11 imported
-
-    def test_merge_records_zro_imports_metadata(self):
-        r = parse_zro_csv(FULL_CSV)
-        session = {
-            "pre_measurements": [], "post_measurements": [],
-            "cms_measurements": [], "wb_measurements": [],
-            "lum_measurements": [], "gamma_measurements": [],
-        }
-        merge_into_session(session, r)
-        assert "zro_imports" in session
-        assert len(session["zro_imports"]) == 1
-        meta = session["zro_imports"][0]
-        assert meta["total_rows"] == 18
-        assert "buckets_populated" in meta
 
 
 # ── API endpoint tests ────────────────────────────────────────────────────────
@@ -715,12 +675,12 @@ class TestImportZroEndpoint:
                 )
 
 
-# ── merge_into_session dedup tests ─────────────────────────────────────────────
+# ── import dedup tests ─────────────────────────────────────────────
 
 
 class TestMergeDedupAgainstExistingSession:
     """
-    Regression tests for issue #145: merge_into_session dedup never
+    Regression tests for issue #145: import dedup never
     consulted existing session data, so re-uploading the same ZRO CSV
     appended duplicate patches.
     """
@@ -749,7 +709,7 @@ class TestMergeDedupAgainstExistingSession:
 
         Note: the API endpoint (import_zro_bytes) clears pre/post buckets before
         re-importing, so pre_measurements count stays stable regardless of
-        merge_into_session dedup.  We verify the session dict directly because
+        import dedup.  We verify the session dict directly because
         _session_view() does not expose measurement buckets.
         """
         _upload(client, session_id, FULL_CSV)
@@ -770,114 +730,6 @@ class TestMergeDedupAgainstExistingSession:
             f"cms_measurements grew from {cms1_count} to {cms2_count} "
             "on reimport — CMS dedup via API is broken"
         )
-
-    def test_merge_into_session_dedup_with_existing_manual_measurements(self):
-        """When session has pre-existing Measurement dicts, new imports must not duplicate them."""
-        r = parse_zro_csv(FULL_CSV)
-        # Seed session with one of the same measurements that will be imported
-        existing = r.pre_measurements[0]  # Black (0%)
-        session = {
-            "pre_measurements": [existing],
-            "post_measurements": [], "cms_measurements": [],
-            "wb_measurements": [], "lum_measurements": [], "gamma_measurements": [],
-        }
-        merge_into_session(session, r)
-        assert len(session["pre_measurements"]) == 11  # 10 unique + 1 existing Black = 11 not 12+1
-
-    def test_merge_into_session_skips_all_duplicate_pre(self):
-        """If all incoming pre_measurements already exist, count must be unchanged."""
-        r = parse_zro_csv(CLEAN_GRAYSCALE_CSV)
-        session = {
-            "pre_measurements": list(r.pre_measurements),
-            "post_measurements": [], "cms_measurements": [],
-            "wb_measurements": [], "lum_measurements": [], "gamma_measurements": [],
-        }
-        before = len(session["pre_measurements"])
-        merge_into_session(session, r)
-        assert len(session["pre_measurements"]) == before
-
-    def test_merge_into_session_dedup_cms(self):
-        """CMS dedup against existing session data — only the matching Red is skipped."""
-        r = parse_zro_csv(FULL_CSV)
-        # Add one of the CMS measurements to the session
-        existing_red = r.cms_measurements[0]  # Red
-        session = {
-            "pre_measurements": [],
-            "post_measurements": [], "cms_measurements": [existing_red],
-            "wb_measurements": [], "lum_measurements": [], "gamma_measurements": [],
-        }
-        before = len(session["cms_measurements"])
-        merge_into_session(session, r)
-        # 1 existing Red + 5 new (Green, Blue, Cyan, Magenta, Yellow)
-        assert len(session["cms_measurements"]) == before + 5
-
-    def test_merge_into_session_dedup_gamma(self):
-        """Gamma measurements dedup against existing session data."""
-        r = parse_zro_csv(CLEAN_GRAYSCALE_CSV)
-        session = {
-            "pre_measurements": [],
-            "post_measurements": [], "cms_measurements": [],
-            "wb_measurements": [], "lum_measurements": [],
-            "gamma_measurements": list(r.gamma_measurements),
-        }
-        before = len(session["gamma_measurements"])
-        merge_into_session(session, r)
-        assert len(session["gamma_measurements"]) == before
-
-    def test_merge_into_session_dedup_lum_measurements(self):
-        """Luminance measurements dedup against existing session data on re-import."""
-        r = parse_zro_csv(FULL_CSV)
-        # Pre-seed with ALL lum_measurements from the import to test re-import dedup
-        session = {
-            "pre_measurements": [],
-            "post_measurements": [], "cms_measurements": [],
-            "wb_measurements": [], "lum_measurements": list(r.lum_measurements),
-            "gamma_measurements": [],
-        }
-        before = len(session["lum_measurements"])
-        merge_into_session(session, r)
-        # Re-import should deduplicate within the bucket
-        assert len(session["lum_measurements"]) == before
-
-    def test_merge_into_session_dedup_wb_measurements(self):
-        """White balance measurements dedup against existing session data."""
-        r = parse_zro_csv(FULL_CSV)
-        session = {
-            "pre_measurements": [],
-            "post_measurements": [], "cms_measurements": [],
-            "wb_measurements": list(r.wb_measurements),
-            "lum_measurements": [], "gamma_measurements": [],
-        }
-        before = len(session["wb_measurements"])
-        merge_into_session(session, r)
-        assert len(session["wb_measurements"]) == before
-
-    def test_merge_into_session_dedup_post_measurements(self):
-        """Post measurements dedup against existing session data."""
-        r = parse_zro_csv(TWO_GRAYSCALE_CSV)
-        session = {
-            "pre_measurements": list(r.pre_measurements),
-            "post_measurements": list(r.post_measurements),
-            "cms_measurements": [],
-            "wb_measurements": [], "lum_measurements": [], "gamma_measurements": [],
-        }
-        before_post = len(session["post_measurements"])
-        merge_into_session(session, r)
-        assert len(session["post_measurements"]) == before_post
-
-    def test_merge_into_session_dedup_partial_overlap(self):
-        """Mixed existing/new measurements: only duplicates skipped."""
-        r = parse_zro_csv(CLEAN_GRAYSCALE_CSV)
-        # Add just the first measurement to the session
-        existing = r.pre_measurements[0]
-        session = {
-            "pre_measurements": [existing],
-            "post_measurements": [], "cms_measurements": [],
-            "wb_measurements": [], "lum_measurements": [], "gamma_measurements": [],
-        }
-        merge_into_session(session, r)
-        # 1 existing + 11 from import - 1 duplicate = 11 total
-        assert len(session["pre_measurements"]) == 11
 
     def test_reimport_via_api_zro_imports_grows_even_with_dedup(self, client, session_id):
         """Each import adds a zro_imports entry even when all rows are deduped."""

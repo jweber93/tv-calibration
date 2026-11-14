@@ -39,7 +39,7 @@ import csv
 import io
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import List, Optional, Tuple
 
 from calcore.colour import xyY_to_xyz
 from calcore.models import Measurement
@@ -95,7 +95,6 @@ class ZROImportResult:
     # Primary session buckets
     cms_measurements: List[dict] = field(default_factory=list)
     pre_measurements: List[dict] = field(default_factory=list)
-    mid_measurements: List[dict] = field(default_factory=list)
     post_measurements: List[dict] = field(default_factory=list)
     lum_measurements: List[dict] = field(default_factory=list)
     wb_measurements: List[dict] = field(default_factory=list)
@@ -545,7 +544,7 @@ def _process_grayscale_group(
 
     pass_index == 0 → pre_measurements   (pre-calibration)
     is_last        → post_measurements  (post-calibration)
-    Others         → mid_measurements   (diagnostic/mid-cal)
+    Others         → pass_measurements only (diagnostic/mid-cal)
     Also extracts wb_measurements and gamma_measurements from the same rows.
     """
     gray_rows: List[_Row] = []
@@ -569,7 +568,7 @@ def _process_grayscale_group(
     elif is_last and pass_index > 0:
         target_list = result.post_measurements
     else:
-        target_list = result.mid_measurements
+        target_list = []
     pass_measurements: List[dict] = []
 
     for row in gray_rows:
@@ -612,95 +611,3 @@ def _grayscale_label(stim_pct: float) -> str:
     if stim_pct >= 99.5:
         return "White (100%)"
     return f"{stim_pct:.0f}% Gray"
-
-
-# ---------------------------------------------------------------------------
-# Convenience helper for the API layer
-# ---------------------------------------------------------------------------
-
-
-def _measurement_key(m: Dict[str, Any]) -> str:
-    """Generate a unique key for a measurement to detect duplicates.
-
-    Handles both plain dicts (as stored in sessions) and
-    :class:`calcore.models.Measurement` dataclass instances.
-    """
-    if isinstance(m, dict):
-        ts = m.get("timestamp", "")
-        stimulus_rgb = m.get("stimulus_rgb", (0, 0, 0))
-    else:
-        ts = getattr(m, "timestamp", "")
-        stimulus_rgb = getattr(m, "stimulus_rgb", (0, 0, 0))
-    r = stimulus_rgb[0] if stimulus_rgb else 0
-    g = stimulus_rgb[1] if stimulus_rgb else 0
-    b = stimulus_rgb[2] if stimulus_rgb else 0
-    return f"{ts}:{r}:{g}:{b}"
-
-
-def merge_into_session(session: dict, result: ZROImportResult) -> dict:
-    """
-    Merge a :class:`ZROImportResult` into an existing session dict in-place.
-
-    Existing measurements are preserved; imported ones are appended.
-    Duplicate measurements (matching timestamp and stimulus RGB) within the same
-    bucket are skipped, but the same physical reading can coexist across different
-    buckets (e.g., a grayscale row that belongs in pre_measurements, wb_measurements,
-    and gamma_measurements simultaneously).
-
-    Returns the modified session dict.
-
-    Raises:
-        ValueError: If result contains a fatal_error from parsing.
-    """
-    if result.fatal_error:
-        raise ValueError(result.fatal_error)
-
-    bucket_map = {
-        "cms_measurements": result.cms_measurements,
-        "pre_measurements": result.pre_measurements,
-        "mid_measurements": result.mid_measurements,
-        "post_measurements": result.post_measurements,
-        "lum_measurements": result.lum_measurements,
-        "wb_measurements": result.wb_measurements,
-        "gamma_measurements": result.gamma_measurements,
-    }
-
-    duplicates_detected = 0
-
-    for key, measurements in bucket_map.items():
-        if not measurements:
-            continue
-
-        # Per-bucket deduplication set (seeded from session state for this bucket)
-        existing_keys: Set[str] = set()
-        for m in session.get(key, []):
-            existing_keys.add(_measurement_key(m))
-
-        existing = session.setdefault(key, [])
-        for m in measurements:
-            m_key = _measurement_key(m)
-            if m_key in existing_keys:
-                duplicates_detected += 1
-                continue
-            existing_keys.add(m_key)
-            existing.append(m)
-
-    import_meta = {
-        "total_rows": result.total_rows,
-        "sessions_detected": result.sessions_detected,
-        "colour_sessions": result.colour_sessions,
-        "grayscale_sessions": result.grayscale_sessions,
-        "session_breaks": result.session_breaks,
-        "abl_warnings": result.abl_warnings,
-        "unknown_rows": result.unknown_rows,
-        "duplicates_skipped": duplicates_detected,
-        "buckets_populated": {k: len(v) for k, v in bucket_map.items() if v},
-    }
-
-    # Surface mid-calibration ramps in metadata for diagnostic access.
-    if result.grayscale_sessions > 2:
-        import_meta["mid_passes"] = result.grayscale_passes[1:-1]
-    else:
-        import_meta["mid_passes"] = []
-    session.setdefault("zro_imports", []).append(import_meta)
-    return session

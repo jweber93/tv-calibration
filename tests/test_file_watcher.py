@@ -93,7 +93,7 @@ def _make_ten_bit_ramp_csv() -> str:
 
 
 def _make_session() -> Dict:
-    """Return a minimal session dict compatible with merge_into_session."""
+    """Return a minimal session dict compatible with the import path."""
     return {
         "step": "pre_grayscale",
         "mode": "SDR",

@@ -9,6 +9,13 @@ changes.
 
 ### Removed
 
+- **Breaking: removed `merge_into_session` and `ZROImportResult.mid_measurements` (#706).**
+  `merge_into_session` (and its `calibrator` re-export) had no production
+  caller and used a different dedup key than the live import paths. Import
+  through `SessionStore.import_zro_bytes` (manual upload) or the watch folder
+  instead. Mid-calibration ramps are still available as
+  `ZROImportResult.grayscale_passes[1:-1]`.
+
 - **Breaking: removed public API symbols (#679, #683).** The `xyY_to_XYZ` /
   `XYZ_to_lab` alias wrappers are gone, along with their `calcore` and
   `calibrator` re-exports — use the canonical `xyY_to_xyz` / `xyz_to_lab`
