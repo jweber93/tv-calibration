@@ -3,7 +3,7 @@ Background file watcher for automatic ZRO CSV import.
 
 Watches a configured directory for new or modified ``.csv`` files and
 auto-imports them into the active calibration session via the same
-``parse_zro_csv`` / ``merge_into_session`` pipeline used by the manual
+``parse_zro_csv`` / ``SessionStore`` import pipeline used by the manual
 upload endpoint.
 
 Usage (from server.py)::

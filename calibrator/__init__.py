@@ -51,7 +51,7 @@ from .utils import (
     rating_emoji,
     stimulus_pct_from_code_value,
 )
-from .zro_import import parse_zro_csv, merge_into_session, ZROImportResult
+from .zro_import import parse_zro_csv, ZROImportResult
 
 GRAYSCALE_LEVELS = list(range(0, 101, 5))
 SATURATION_LEVELS = [25, 50, 75, 100]
@@ -82,5 +82,5 @@ __all__ = [
     "step_quality",
     "SessionStore",
     "report_payload", "render_report_html",
-    "parse_zro_csv", "merge_into_session", "ZROImportResult",
+    "parse_zro_csv", "ZROImportResult",
 ]

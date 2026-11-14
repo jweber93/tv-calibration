@@ -211,19 +211,3 @@ class TestImportContinuesAfterBadRows:
         # Bad rows (11:00:00–11:00:19) and clean rows (11:00:00–11:00:30) overlap
         # in time, so they end up in a single session group.
         assert result.sessions_detected == 1
-
-    def test_merge_after_bad_rows(self):
-        """merge_into_session should work normally after bad rows are skipped."""
-        csv_bytes = (
-            HEADER.encode()
-            + b"15/03/2026 11:00:00\t16\t16\n"  # short
-            + CLEAN_ROWS.encode()
-        )
-        result = parse_zro_csv(csv_bytes)
-        assert result.fatal_error is None
-
-        session = {}
-        from calibrator.zro_import import merge_into_session
-        session = merge_into_session(session, result)
-        assert "zro_imports" in session
-        assert len(session["pre_measurements"]) == 11
